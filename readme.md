@@ -204,7 +204,7 @@ This API uses **`express-validator`** to validate user input on the backend for 
 
 ---
 
-### 1️⃣ **Register Validation**
+### 1️ **Register Validation**
 
 * **Fields validated:**
 
@@ -237,7 +237,7 @@ POST /api/auth/register
 
 ---
 
-### 2️⃣ **Login Validation**
+### 2️ **Login Validation**
 
 * **Fields validated:**
 
@@ -267,7 +267,7 @@ POST /api/auth/login
 
 ---
 
-### 3️⃣ **Usage in Routes**
+### 3️ **Usage in Routes**
 
 ```js
 const { registerValidation, loginValidation, validate } = require("../middleware/validators");
