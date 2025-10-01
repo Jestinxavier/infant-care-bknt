@@ -2,9 +2,25 @@
 
 # Authentication API — README
 
-## Overview
 
-This module provides authentication endpoints for user registration, login, token refresh, and logout. It uses **JWT** for access and refresh tokens, **bcrypt** for password hashing, and supports secure refresh tokens via HttpOnly cookies.
+
+## Backend Introduction — Infant Care E-Commerce Platform
+
+The backend of the Infant Care E-Commerce Platform is designed to provide a **secure, scalable, and high-performance foundation** for the platform’s customer-facing and management functionalities. Built with **Node.js** and **Express**, the backend handles all critical operations including user authentication, product and inventory management, order processing, discount management, and integration with secure payment gateways.
+
+The system uses **MongoDB** as the database to ensure flexible data storage for products, users, orders, and other platform entities. The backend also provides **RESTful APIs** for seamless communication with the Next.js frontend, supporting features such as:
+
+* User registration, login, and authentication with **JWT access and refresh tokens**
+* Product catalog management with variants, filters, and search
+* Cart and checkout operations, including payment processing and shipping selection
+* Admin and Super Admin panels for order tracking, product management, discount setup, and user management
+* Bulk product upload and reporting capabilities
+* Secure and scalable architecture ready for cloud deployment on AWS, Vercel, or DigitalOcean
+
+The backend is built with **best practices in security, modular architecture, and maintainability**, ensuring that the platform can grow with future business needs while providing a smooth and reliable experience for both customers and administrators.
+
+
+
 
 ---
 
