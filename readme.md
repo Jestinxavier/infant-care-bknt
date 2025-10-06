@@ -441,6 +441,112 @@ await Variant.create([
 
 ---
 
+## 🧩 Product Creation API (with Variants & Cloudinary Image Upload)
+
+### **Endpoint**
+
+```
+POST /api/products/create
+```
+
+### **Description**
+
+Creates a new product with one or more variants (each variant can have its own set of images uploaded to Cloudinary).
+Each variant’s images must use the field name format:
+
+```
+images-<SKU>
+```
+
+> Example: `images-FLD-RED-S`, `images-FLD-RED-M`
+
+---
+
+### **Headers**
+
+```
+Content-Type: multipart/form-data
+Authorization: Bearer <your-access-token>
+```
+
+---
+
+### **Form-Data Example (for Hoppscotch/Postman)**
+
+| Key                  | Type | Example                                            |
+| -------------------- | ---- | -------------------------------------------------- |
+| **name**             | Text | Floral Dress                                       |
+| **description**      | Text | Beautiful summer floral dress for women            |
+| **category**         | Text | Dresses                                            |
+| **variants**         | Text | (see JSON below)                                   |
+| **images-FLD-RED-S** | File | upload multiple images for variant SKU `FLD-RED-S` |
+| **images-FLD-RED-M** | File | upload multiple images for variant SKU `FLD-RED-M` |
+
+---
+
+### **Variants JSON (for the `variants` field)**
+
+Paste this JSON as a **text string** in your form-data:
+
+```json
+[
+  {
+    "sku": "FLD-RED-S",
+    "color": "Red",
+    "size": "S",
+    "price": 500,
+    "stock": 10
+  },
+  {
+    "sku": "FLD-RED-M",
+    "color": "Red",
+    "size": "M",
+    "price": 500,
+    "stock": 5
+  }
+]
+```
+
+---
+
+### **Example cURL Request**
+
+```bash
+curl -X POST http://localhost:3000/api/products/create \
+  -H "Authorization: Bearer <token>" \
+  -F "name=Floral Dress" \
+  -F "description=Beautiful summer floral dress" \
+  -F "category=Dresses" \
+  -F 'variants=[{"sku":"FLD-RED-S","color":"Red","size":"S","price":500,"stock":10},{"sku":"FLD-RED-M","color":"Red","size":"M","price":500,"stock":5}]' \
+  -F "images-FLD-RED-S=@/path/to/small1.jpg" \
+  -F "images-FLD-RED-S=@/path/to/small2.jpg" \
+  -F "images-FLD-RED-M=@/path/to/medium1.jpg"
+```
+
+---
+
+### **Response**
+
+```json
+{
+  "msg": "Product and variants created successfully"
+}
+```
+
+---
+
+### **Notes**
+
+* Field names must exactly match your variant’s `sku` value (e.g., `images-<SKU>`).
+* Each variant’s images are uploaded to Cloudinary inside the `products/` folder.
+* The backend automatically maps each uploaded file to its matching variant.
+
+---
+
+
+
+---
+
 This README explains all the endpoints and how to use them.
 
 ---
