@@ -299,6 +299,148 @@ router.post("/login", loginValidation, validate, login);
 
 ---
 
+## Product & Variant Example (Scalable Model)
+
+In this scalable model, each product has a **single Product document**, and its **variants are stored in a separate collection**. This allows for multiple variants per product, multiple images per variant, and flexible stock/price management.
+
+### **1️⃣ Product Creation**
+
+```javascript
+const product = await Product.create({
+  name: "Floral Summer Dress",
+  description: "A beautiful floral dress perfect for summer outings",
+  category: "Dresses",
+  tags: ["summer", "floral", "casual"],
+  basePrice: 500
+});
+```
+
+**Example Product Document (MongoDB)**
+
+```json
+{
+  "_id": "64d8f9e7c1234a0b1c234567",
+  "name": "Floral Summer Dress",
+  "description": "A beautiful floral dress perfect for summer outings",
+  "category": "Dresses",
+  "tags": ["summer", "floral", "casual"],
+  "basePrice": 500,
+  "createdAt": "2025-10-02T07:45:00.000Z",
+  "updatedAt": "2025-10-02T07:45:00.000Z"
+}
+```
+
+---
+
+### **2️⃣ Variant Creation**
+
+```javascript
+await Variant.create([
+  {
+    productId: product._id,
+    color: "Red",
+    size: "S",
+    price: 500,
+    stock: 10,
+    sku: "FLD-RED-S",
+    images: [
+      "https://example.com/images/floral-red-front.jpg",
+      "https://example.com/images/floral-red-back.jpg"
+    ]
+  },
+  {
+    productId: product._id,
+    color: "Red",
+    size: "M",
+    price: 500,
+    stock: 5,
+    sku: "FLD-RED-M",
+    images: [
+      "https://example.com/images/floral-red-front.jpg",
+      "https://example.com/images/floral-red-back.jpg"
+    ]
+  },
+  {
+    productId: product._id,
+    color: "Blue",
+    size: "S",
+    price: 550,
+    stock: 8,
+    sku: "FLD-BLU-S",
+    images: [
+      "https://example.com/images/floral-blue-front.jpg",
+      "https://example.com/images/floral-blue-back.jpg"
+    ]
+  }
+]);
+```
+
+**Example Variant Documents (MongoDB)**
+
+```json
+[
+  {
+    "_id": "64d90123456789abcdef1234",
+    "productId": "64d8f9e7c1234a0b1c234567",
+    "color": "Red",
+    "size": "S",
+    "price": 500,
+    "stock": 10,
+    "sku": "FLD-RED-S",
+    "images": [
+      "https://example.com/images/floral-red-front.jpg",
+      "https://example.com/images/floral-red-back.jpg"
+    ]
+  },
+  {
+    "_id": "64d90123456789abcdef1235",
+    "productId": "64d8f9e7c1234a0b1c234567",
+    "color": "Red",
+    "size": "M",
+    "price": 500,
+    "stock": 5,
+    "sku": "FLD-RED-M",
+    "images": [
+      "https://example.com/images/floral-red-front.jpg",
+      "https://example.com/images/floral-red-back.jpg"
+    ]
+  },
+  {
+    "_id": "64d90123456789abcdef1236",
+    "productId": "64d8f9e7c1234a0b1c234567",
+    "color": "Blue",
+    "size": "S",
+    "price": 550,
+    "stock": 8,
+    "sku": "FLD-BLU-S",
+    "images": [
+      "https://example.com/images/floral-blue-front.jpg",
+      "https://example.com/images/floral-blue-back.jpg"
+    ]
+  }
+]
+```
+
+---
+
+### **3️⃣ How It Works**
+
+* **Product** document stores general info about the item (name, category, description).
+* **Variant** documents store **specific combinations** (size, color), their price, stock, SKU, and images.
+* **Frontend usage:** Fetch product + variants using `productId` to display all options on a single product page.
+
+**Benefits of this approach:**
+
+* Supports **multiple variants per product**
+* Multiple images per variant
+* Flexible **stock and pricing** per variant
+* Scalable for large catalogs 
+
+---
+
+
+---
+
 This README explains all the endpoints and how to use them.
 
 ---

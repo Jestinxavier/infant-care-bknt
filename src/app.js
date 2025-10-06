@@ -23,7 +23,9 @@ app.use(express.json());
 
 // Routes
 const authRoutes = require("./routes/auth");
+const productRoutes = require("./routes/product");
 app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/product", productRoutes);
 
 // Default route
 app.get("/", (req, res) => res.send("API is running 🚀"));
