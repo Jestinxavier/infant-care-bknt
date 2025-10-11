@@ -24,8 +24,14 @@ app.use(express.json());
 // Routes
 const authRoutes = require("./routes/auth");
 const productRoutes = require("./routes/product");
+const variantRoutes = require("./routes/variantRoutes");
+const orderRoutes = require("./routes/orderRoutes");
+const addressRoutes = require("./routes/addressRoutes");
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/product", productRoutes);
+app.use("/api/v1/variants", variantRoutes);
+app.use("/api/v1/orders", orderRoutes);
+app.use("/api/v1/addresses", addressRoutes);
 
 // Default route
 app.get("/", (req, res) => res.send("API is running 🚀"));

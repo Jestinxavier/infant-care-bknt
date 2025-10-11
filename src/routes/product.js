@@ -1,12 +1,11 @@
 const express = require("express");
 const { parser } = require("../config/cloudinary");
-const { createProduct } = require("../controllers/product");
-
+const { createProduct,updateProduct } = require("../controllers/product");
+const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
 
 // Use `parser.array` to accept multiple images (field name must match Postman/frontend)
-router.post("/create", (req,res,next)=>{console.log("first**********") 
-    next()},(req, res, next) => {
+router.post("/create",verifyToken,(req, res, next) => {
     parser.any()(req, res, function (err) {
       if (err) {
         console.error("❌ Multer/Cloudinary Error:", err);
@@ -17,4 +16,11 @@ router.post("/create", (req,res,next)=>{console.log("first**********")
     });
   } , createProduct );
 
+  // Update product
+router.put(
+  "/update",
+  verifyToken,
+  (req, res, next) => parser.any()(req, res, next),
+  updateProduct
+);
 module.exports = router;

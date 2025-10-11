@@ -303,7 +303,7 @@ router.post("/login", loginValidation, validate, login);
 
 In this scalable model, each product has a **single Product document**, and its **variants are stored in a separate collection**. This allows for multiple variants per product, multiple images per variant, and flexible stock/price management.
 
-### **1️⃣ Product Creation**
+### **1️Product Creation**
 
 ```javascript
 const product = await Product.create({
@@ -332,7 +332,7 @@ const product = await Product.create({
 
 ---
 
-### **2️⃣ Variant Creation**
+### **2️ Variant Creation**
 
 ```javascript
 await Variant.create([
@@ -423,7 +423,7 @@ await Variant.create([
 
 ---
 
-### **3️⃣ How It Works**
+### **3️ How It Works**
 
 * **Product** document stores general info about the item (name, category, description).
 * **Variant** documents store **specific combinations** (size, color), their price, stock, SKU, and images.
@@ -543,6 +543,122 @@ curl -X POST http://localhost:3000/api/products/create \
 
 ---
 
+
+---
+
+## 1️ Address API
+
+**Endpoint:**  
+`POST /api/v1/address/create`
+
+**Purpose:**  
+Create and store a new shipping address for a user.
+
+**Request Payload:**
+```json
+{
+  "userId": "68dd872174cd6f2b7656d4c9",
+  "street": "123 MG Road",
+  "city": "Kochi",
+  "state": "Kerala",
+  "pincode": "682001",
+  "country": "India",
+  "landmark": "Near Metro Station",
+  "phoneNumber": "9876543210"
+}
+````
+
+**Success Response:**
+
+```json
+{
+  "success": true,
+  "message": " Address created successfully",
+  "address": {
+    "_id": "68eac84fcee8cde769566b33",
+    "userId": "68dd872174cd6f2b7656d4c9",
+    "street": "123 MG Road",
+    "city": "Kochi",
+    "state": "Kerala",
+    "pincode": "682001",
+    "country": "India",
+    "landmark": "Near Metro Station",
+    "phoneNumber": "9876543210",
+    "createdAt": "2025-10-10T15:45:22.110Z",
+    "updatedAt": "2025-10-10T15:45:22.110Z"
+  }
+}
+```
+
+---
+
+## 2️ Order API
+
+**Endpoint:**
+`POST /api/v1/orders/create`
+
+**Purpose:**
+Create a new order with product variants, address reference, and payment details.
+Supports `COD` or online payment (e.g., Razorpay / PhonePe).
+
+**Request Payload:**
+
+```json
+{
+  "userId": "68dd872174cd6f2b7656d4c9",
+  "items": [
+    {
+      "variantId": "68e4143ac9336634139e8b09",
+      "quantity": 2
+    }
+  ],
+  "addressId": "68eac84fcee8cde769566b33",
+  "paymentMethod": "COD"
+}
+```
+
+**Success Response:**
+
+```json
+{
+  "success": true,
+  "message": " Order created successfully",
+  "order": {
+    "_id": "68eaf31d4c7bb44f36e44e90",
+    "userId": "68dd872174cd6f2b7656d4c9",
+    "items": [
+      {
+        "productId": "68e4143ac9336634139e8b07",
+        "variantId": "68e4143ac9336634139e8b09",
+        "quantity": 2,
+        "price": 500
+      }
+    ],
+    "totalAmount": 1000,
+    "addressId": "68eac84fcee8cde769566b33",
+    "paymentMethod": "COD",
+    "createdAt": "2025-10-10T16:22:10.221Z",
+    "updatedAt": "2025-10-10T16:22:10.221Z"
+  },
+  "payment": {
+    "_id": "68eaf31d4c7bb44f36e44e91",
+    "orderId": "68eaf31d4c7bb44f36e44e90",
+    "userId": "68dd872174cd6f2b7656d4c9",
+    "amount": 1000,
+    "method": "COD",
+    "status": "pending",
+    "createdAt": "2025-10-10T16:22:10.222Z"
+  }
+}
+```
+
+---
+
+### Notes:
+
+* `items` must include `variantId` and `quantity`. The backend fills in `price` and `productId` automatically from the `Variant` model.
+* `addressId` can be an existing address or a newly created address ID.
+* `paymentMethod` can be `COD`, `Razorpay`, `PhonePe`, etc., depending on the integration.
 
 
 ---
