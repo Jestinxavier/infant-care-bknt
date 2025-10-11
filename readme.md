@@ -663,6 +663,95 @@ Supports `COD` or online payment (e.g., Razorpay / PhonePe).
 
 ---
 
+## 3️ Review & Rating API
+
+This API allows users to post **reviews and ratings (1–5 stars)** for product variants they have purchased. Only users who ordered the variant can add a review.
+
+---
+
+### **1️ Add Review**
+
+**Endpoint:**
+`POST /api/v1/reviews/add`
+
+**Purpose:**
+Add a rating and review for a variant after purchase.
+
+**Request Payload:**
+
+```json
+{
+  "userId": "68dd872174cd6f2b7656d4c9",
+  "variantId": "68e4143ac9336634139e8b09",
+  "orderId": "68eaf31d4c7bb44f36e44e90",
+  "rating": 5,
+  "review": "Really liked the color and quality!"
+}
+```
+
+**Success Response:**
+
+```json
+{
+  "success": true,
+  "message": " Review added successfully",
+  "review": {
+    "_id": "68eb12cd4c7bb44f36e44f01",
+    "userId": "68dd872174cd6f2b7656d4c9",
+    "variantId": "68e4143ac9336634139e8b09",
+    "orderId": "68eaf31d4c7bb44f36e44e90",
+    "rating": 5,
+    "review": "Really liked the color and quality!",
+    "createdAt": "2025-10-12T18:40:00.123Z",
+    "updatedAt": "2025-10-12T18:40:00.123Z"
+  }
+}
+```
+
+**Notes:**
+
+* `rating` must be **1 to 5**.
+* `userId` must match the order’s user.
+* `variantId` must exist in the order.
+* Users can only review **once per variant per order**.
+
+---
+
+### **2️ Get Reviews for a Variant**
+
+**Endpoint:**
+`GET /api/v1/reviews/:variantId`
+
+**Purpose:**
+Fetch all reviews for a specific variant.
+
+**Success Response:**
+
+```json
+{
+  "success": true,
+  "reviews": [
+    {
+      "_id": "68eb12cd4c7bb44f36e44f01",
+      "userId": {
+        "_id": "68dd872174cd6f2b7656d4c9",
+        "username": "jestin"
+      },
+      "variantId": "68e4143ac9336634139e8b09",
+      "orderId": "68eaf31d4c7bb44f36e44e90",
+      "rating": 5,
+      "review": "Really liked the color and quality!",
+      "createdAt": "2025-10-12T18:40:00.123Z"
+    }
+  ]
+}
+```
+
+---
+
+
+---
+
 This README explains all the endpoints and how to use them.
 
 ---

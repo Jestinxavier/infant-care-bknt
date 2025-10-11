@@ -27,11 +27,13 @@ const productRoutes = require("./routes/product");
 const variantRoutes = require("./routes/variantRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
+const reviewRoutes = require("./routes/reviewRoutes");
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/product", productRoutes);
 app.use("/api/v1/variants", variantRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/addresses", addressRoutes);
+app.use("/api/v1/review", reviewRoutes);
 
 // Default route
 app.get("/", (req, res) => res.send("API is running 🚀"));
