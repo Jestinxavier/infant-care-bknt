@@ -10,39 +10,36 @@ const {
 } = require("./emailService");
 
 /**
- * Step 1: Request OTP - Send OTP to email (user not created yet)
+ * Step 1: Request OTP - Only email needed
  */
-exports.requestOTP = async ({ username, email, password, role }) => {
-  // Check if email or username already exists in verified users
-  const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+exports.requestOTP = async ({ email }) => {
+  // Check if email already exists in verified users
+  const existingUser = await User.findOne({ email });
   if (existingUser) {
-    throw new Error("User already exists with this email or username");
+    throw new Error("Email is already registered");
   }
 
   // Generate OTP
   const otp = generateOTP();
   const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-  // Delete any existing pending registration for this email
+  // Delete any existing OTP request for this email
   await PendingUser.deleteMany({ email });
 
-  // Create pending user (password will NOT be hashed yet)
-  const pendingUser = await PendingUser.create({ 
-    username, 
+  // Create OTP record (no user data stored yet)
+  const pendingOTP = await PendingUser.create({ 
     email, 
-    password, // Store plain password temporarily
-    role: role || 'user',
     otp,
     otpExpires
   });
 
   // Send OTP email
   try {
-    await sendOTPEmail({ email, username }, otp);
+    await sendOTPEmail({ email }, otp);
     console.log('✅ OTP sent to:', email);
   } catch (emailError) {
-    // Delete pending user if email fails
-    await PendingUser.deleteOne({ _id: pendingUser._id });
+    // Delete OTP record if email fails
+    await PendingUser.deleteOne({ _id: pendingOTP._id });
     console.error('❌ Failed to send OTP:', emailError);
     throw new Error('Failed to send OTP email. Please try again.');
   }
@@ -56,46 +53,65 @@ exports.requestOTP = async ({ username, email, password, role }) => {
 };
 
 /**
- * Step 2: Verify OTP and create user account
+ * Step 2: Verify OTP and create user account with all data
  */
-exports.verifyOTPAndRegister = async ({ email, otp }) => {
-  // Find pending user
-  const pendingUser = await PendingUser.findOne({ email });
+exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) => {
+  // Check if email already registered
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    throw new Error("Email is already registered");
+  }
+
+  // Check if username already taken
+  const existingUsername = await User.findOne({ username });
+  if (existingUsername) {
+    throw new Error("Username is already taken");
+  }
+
+  // Find OTP record
+  const pendingOTP = await PendingUser.findOne({ email });
   
-  if (!pendingUser) {
-    throw new Error("No pending registration found for this email");
+  if (!pendingOTP) {
+    throw new Error("No OTP request found for this email. Please request a new OTP.");
   }
 
   // Check if OTP expired
-  if (pendingUser.otpExpires < Date.now()) {
-    await PendingUser.deleteOne({ _id: pendingUser._id });
+  if (pendingOTP.otpExpires < Date.now()) {
+    await PendingUser.deleteOne({ _id: pendingOTP._id });
     throw new Error("OTP has expired. Please request a new one.");
   }
 
   // Check attempts
-  if (pendingUser.attempts >= 5) {
-    await PendingUser.deleteOne({ _id: pendingUser._id });
+  if (pendingOTP.attempts >= 5) {
+    await PendingUser.deleteOne({ _id: pendingOTP._id });
     throw new Error("Too many failed attempts. Please request a new OTP.");
   }
 
   // Verify OTP
-  if (pendingUser.otp !== otp) {
-    pendingUser.attempts += 1;
-    await pendingUser.save();
-    throw new Error(`Invalid OTP. ${5 - pendingUser.attempts} attempts remaining.`);
+  if (pendingOTP.otp !== otp) {
+    pendingOTP.attempts += 1;
+    await pendingOTP.save();
+    throw new Error(`Invalid OTP. ${5 - pendingOTP.attempts} attempts remaining.`);
   }
 
-  // OTP is valid - Create actual user account
+  // OTP is valid - Create user account
   const user = await User.create({
-    username: pendingUser.username,
-    email: pendingUser.email,
-    password: pendingUser.password, // Will be hashed by pre-save hook
-    role: pendingUser.role,
-    isEmailVerified: true // Email is verified via OTP
+    username,
+    email,
+    password, // Will be hashed by pre-save hook
+    role: role || 'user',
+    isEmailVerified: true // Email verified via OTP
   });
 
-  // Delete pending user
-  await PendingUser.deleteOne({ _id: pendingUser._id });
+  // Delete OTP record
+  await PendingUser.deleteOne({ _id: pendingOTP._id });
+
+  // Generate tokens
+  const accessToken = generateAccessToken(user._id);
+  const refreshToken = generateRefreshToken(user._id);
+
+  // Store refresh token
+  await Token.create({ userId: user._id, refreshToken });
 
   // Send welcome email
   try {
@@ -106,7 +122,9 @@ exports.verifyOTPAndRegister = async ({ email, otp }) => {
 
   return {
     success: true,
-    message: 'Email verified successfully! Your account has been created.',
+    message: 'Registration successful! Welcome to Online Shopping.',
+    accessToken,
+    refreshToken,
     user: {
       id: user._id,
       username: user.username,

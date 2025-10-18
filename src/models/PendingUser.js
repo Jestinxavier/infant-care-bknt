@@ -1,31 +1,17 @@
 const mongoose = require("mongoose");
 
 /**
- * Temporary storage for users pending email verification
- * These are deleted after successful verification or expiry
+ * Temporary storage for OTP verification
+ * Only stores email and OTP, no user data yet
  */
 const pendingUserSchema = new mongoose.Schema(
   {
-    username: {
-      type: String,
-      required: true,
-      trim: true
-    },
     email: {
       type: String,
       required: true,
       lowercase: true,
       trim: true,
       index: true
-    },
-    password: {
-      type: String,
-      required: true
-    },
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user"
     },
     otp: {
       type: String,
@@ -44,7 +30,7 @@ const pendingUserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Auto-delete expired pending users after 15 minutes
+// Auto-delete expired OTP records after 15 minutes
 pendingUserSchema.index({ otpExpires: 1 }, { expireAfterSeconds: 900 });
 
 module.exports = mongoose.model("PendingUser", pendingUserSchema);

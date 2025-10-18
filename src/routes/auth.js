@@ -8,8 +8,8 @@ const router = express.Router();
  * @swagger
  * /api/v1/auth/request-otp:
  *   post:
- *     summary: Request OTP for registration
- *     description: Send OTP to email for new user registration (Step 1)
+ *     summary: Request OTP for email verification
+ *     description: Send a 6-digit OTP to email address (Step 1 of registration)
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -18,22 +18,12 @@ const router = express.Router();
  *           schema:
  *             type: object
  *             required:
- *               - username
  *               - email
- *               - password
  *             properties:
- *               username:
- *                 type: string
- *                 example: johndoe
  *               email:
  *                 type: string
  *                 format: email
  *                 example: john@example.com
- *               password:
- *                 type: string
- *                 format: password
- *                 minLength: 6
- *                 example: password123
  *     responses:
  *       200:
  *         description: OTP sent successfully
@@ -55,16 +45,16 @@ const router = express.Router();
  *                   type: string
  *                   example: 10 minutes
  *       400:
- *         description: User already exists or validation error
+ *         description: Email already registered or failed to send OTP
  */
-router.post("/request-otp", registerValidation, validate, requestOTP);
+router.post("/request-otp", requestOTP);
 
 /**
  * @swagger
  * /api/v1/auth/verify-otp:
  *   post:
  *     summary: Verify OTP and complete registration
- *     description: Verify the OTP received via email and create user account (Step 2)
+ *     description: Verify the OTP and create user account with credentials (Step 2 of registration)
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -74,12 +64,23 @@ router.post("/request-otp", registerValidation, validate, requestOTP);
  *             type: object
  *             required:
  *               - email
+ *               - username
+ *               - password
  *               - otp
  *             properties:
  *               email:
  *                 type: string
  *                 format: email
  *                 example: john@example.com
+ *               username:
+ *                 type: string
+ *                 minLength: 3
+ *                 example: johndoe
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: password123
  *               otp:
  *                 type: string
  *                 example: "123456"
@@ -87,7 +88,7 @@ router.post("/request-otp", registerValidation, validate, requestOTP);
  *                 maxLength: 6
  *     responses:
  *       201:
- *         description: Registration completed successfully
+ *         description: Registration completed successfully with tokens
  *         content:
  *           application/json:
  *             schema:
@@ -98,7 +99,13 @@ router.post("/request-otp", registerValidation, validate, requestOTP);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Email verified successfully! Your account has been created.
+ *                   example: Registration successful! Welcome to Online Shopping.
+ *                 accessToken:
+ *                   type: string
+ *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *                 refreshToken:
+ *                   type: string
+ *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
  *                 user:
  *                   type: object
  *                   properties:
@@ -114,7 +121,7 @@ router.post("/request-otp", registerValidation, validate, requestOTP);
  *                       type: boolean
  *                       example: true
  *       400:
- *         description: Invalid OTP, expired OTP, or too many attempts
+ *         description: Invalid OTP, expired OTP, username/email already taken, or too many attempts
  */
 router.post("/verify-otp", verifyOTP);
 

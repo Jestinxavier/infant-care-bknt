@@ -26,6 +26,7 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
     console.log("✅ MongoDB Connected");
     app.listen(PORT, () => {
       console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+      console.log(`🚀 Api dock visite http://localhost:${PORT}/api-docs/`);
     });
   })
   .catch(err => {
