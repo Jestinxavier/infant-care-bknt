@@ -1,26 +1,204 @@
 
 
-# Authentication API — README
+# 🛒 Online Shopping Backend API
 
+[![Node.js](https://img.shields.io/badge/Node.js-v18+-green.svg)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-v5.1.0-blue.svg)](https://expressjs.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-v8.18+-green.svg)](https://www.mongodb.com/)
+[![Swagger](https://img.shields.io/badge/API%20Docs-Swagger-brightgreen.svg)](http://localhost:3000/api-docs)
 
+## 📖 Interactive API Documentation
 
-## Backend Introduction — Infant Care E-Commerce Platform
+### 🚀 **[View Live API Documentation](http://localhost:3000/api-docs)** (Swagger UI)
 
-The backend of the Infant Care E-Commerce Platform is designed to provide a **secure, scalable, and high-performance foundation** for the platform’s customer-facing and management functionalities. Built with **Node.js** and **Express**, the backend handles all critical operations including user authentication, product and inventory management, order processing, discount management, and integration with secure payment gateways.
+Our complete API is documented with **Swagger/OpenAPI 3.0** - an interactive interface where you can:
+- ✅ Test all endpoints directly in your browser
+- ✅ See request/response examples
+- ✅ Authenticate and test protected routes
+- ✅ View all data schemas
+- ✅ Export to Postman
 
-The system uses **MongoDB** as the database to ensure flexible data storage for products, users, orders, and other platform entities. The backend also provides **RESTful APIs** for seamless communication with the Next.js frontend, supporting features such as:
+> **Quick Start:** Run `npm run dev` and open [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
 
-* User registration, login, and authentication with **JWT access and refresh tokens**
-* Product catalog management with variants, filters, and search
-* Cart and checkout operations, including payment processing and shipping selection
-* Admin and Super Admin panels for order tracking, product management, discount setup, and user management
-* Bulk product upload and reporting capabilities
-* Secure and scalable architecture ready for cloud deployment on AWS, Vercel, or DigitalOcean
+### 📚 Additional Documentation
 
-The backend is built with **best practices in security, modular architecture, and maintainability**, ensuring that the platform can grow with future business needs while providing a smooth and reliable experience for both customers and administrators.
+| Document | Description |
+|----------|-------------|
+| **[API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)** | Complete guide to using the API documentation |
+| **[API Quick Reference](./API_QUICK_REFERENCE.md)** | Quick reference card for developers |
+| **[Swagger UI Walkthrough](./SWAGGER_UI_WALKTHROUGH.md)** | Visual guide to using Swagger UI |
+| **[PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)** | Complete PhonePe payment integration |
+| **[PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)** | Step-by-step testing instructions |
+| **[Postman Collection](./PhonePe_API_Collection.postman.json)** | Import into Postman for testing |
 
+---
 
+## Backend Introduction — E-Commerce Platform
 
+The backend of the E-Commerce Platform is designed to provide a **secure, scalable, and high-performance foundation** for the platform's customer-facing and management functionalities. Built with **Node.js** and **Express**, the backend handles all critical operations including user authentication, product and inventory management, order processing, and integration with secure payment gateways.
+
+### 🌟 Key Features
+
+- 🔐 **JWT Authentication** - Secure access & refresh token system
+- 📦 **Product Management** - Products with variants, images via Cloudinary
+- 🛒 **Order Processing** - Complete order flow with multiple payment methods
+- 💳 **PhonePe Integration** - Online payment gateway with callback handling
+- 📍 **Address Management** - User shipping addresses
+- ⭐ **Reviews & Ratings** - Product reviews by verified buyers
+- 📚 **Swagger Documentation** - Interactive API testing interface
+- 🛡️ **Input Validation** - Express-validator for data integrity
+- ☁️ **Cloud Storage** - Cloudinary for image uploads
+
+---
+
+## 🛠️ Tech Stack
+
+- **Runtime:** Node.js v18+
+- **Framework:** Express.js v5.1.0
+- **Database:** MongoDB v8.18+ (Mongoose ODM)
+- **Authentication:** JWT (jsonwebtoken)
+- **File Upload:** Multer + Cloudinary
+- **Validation:** express-validator
+- **Documentation:** Swagger UI + OpenAPI 3.0
+- **Payment:** PhonePe Payment Gateway
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js v18 or higher
+- MongoDB instance (local or Atlas)
+- Cloudinary account
+- PhonePe merchant credentials (for payments)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd online-shopping-backend
+
+# Install dependencies
+npm install
+
+# Create .env file (see .env.example)
+cp .env.example .env
+
+# Start development server
+npm run dev
+```
+
+### Environment Variables
+
+Create a `.env` file with:
+
+```env
+# Server
+PORT=3000
+NODE_ENV=development
+
+# Database
+MONGO_URI=mongodb://localhost:27017/onlineshopping
+
+# JWT Secrets
+JWT_ACCESS_SECRET=your-access-secret
+JWT_REFRESH_SECRET=your-refresh-secret
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# PhonePe
+PHONEPE_MERCHANT_ID=your-merchant-id
+PHONEPE_SALT_KEY=your-salt-key
+PHONEPE_SALT_INDEX=1
+PHONEPE_ENV=development
+PHONEPE_REDIRECT_URL=http://localhost:3000/payment/callback
+PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
+```
+
+### Access Points
+
+| Service | URL |
+|---------|-----|
+| **API Base** | http://localhost:3000/api/v1 |
+| **Swagger Docs** | http://localhost:3000/api-docs |
+| **Health Check** | http://localhost:3000 |
+
+---
+
+## 📚 API Overview
+
+### 🔑 Authentication Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/v1/auth/register` | Register new user | ❌ |
+| POST | `/api/v1/auth/login` | Login user | ❌ |
+| POST | `/api/v1/auth/refresh` | Refresh access token | ❌ |
+| POST | `/api/v1/auth/logout` | Logout user | ❌ |
+
+### 📦 Product Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/v1/product/create` | Create product with variants | ✅ |
+| PUT | `/api/v1/product/update` | Update product | ✅ |
+
+### 🎨 Variant Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| PUT | `/api/v1/variants/update` | Update variant | ✅ |
+
+### 🛒 Order Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/v1/orders/create` | Create order | ❌ |
+
+### 💳 Payment Endpoints (PhonePe)
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/v1/payments/phonepe/init` | Initialize payment | ❌ |
+| POST | `/api/v1/payments/phonepe/callback` | Payment webhook | ❌ |
+| GET | `/api/v1/payments/phonepe/status/:txnId` | Check payment status | ❌ |
+
+### 📍 Address Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/v1/addresses/create` | Create address | ❌ |
+| GET | `/api/v1/addresses/:userId` | Get user addresses | ❌ |
+| PUT | `/api/v1/addresses/:addressId` | Update address | ❌ |
+
+### ⭐ Review Endpoints
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| POST | `/api/v1/review/add` | Add review | ❌ |
+| GET | `/api/v1/review/:variantId` | Get variant reviews | ❌ |
+
+> **📝 Note:** For detailed request/response examples, visit the [Swagger Documentation](http://localhost:3000/api-docs)
+
+---
+
+## 💳 Payment Integration
+
+### PhonePe Payment Flow
+
+1. **Create Order** with `paymentMethod: "PhonePe"`
+2. **Initialize Payment** - Get payment URL
+3. **User Pays** on PhonePe page
+4. **Callback** - PhonePe notifies backend (automatic)
+5. **Verify Status** - Check payment status
+
+For complete PhonePe integration guide, see:
+- [PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)
+- [PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)
 
 ---
 
@@ -755,6 +933,192 @@ Fetch all reviews for a specific variant.
 This README explains all the endpoints and how to use them.
 
 ---
+
+## 📚 Complete Documentation Index
+
+### API Documentation
+- **[🚀 Swagger UI - Interactive API Docs](http://localhost:3000/api-docs)** - Test all endpoints in browser
+- **[API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)** - Complete guide with usage examples
+- **[API Quick Reference](./API_QUICK_REFERENCE.md)** - Quick reference card for developers
+- **[Swagger UI Walkthrough](./SWAGGER_UI_WALKTHROUGH.md)** - Visual guide to using the documentation
+- **[API Summary](./README_API_DOCS.md)** - Overview of all documented endpoints
+
+### Payment Integration
+- **[PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)** - Complete integration guide
+- **[PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)** - Step-by-step testing instructions
+- **[PhonePe Flow Diagram](./PHONEPE_FLOW_DIAGRAM.md)** - Visual payment flow diagrams
+- **[Integration Summary](./INTEGRATION_SUMMARY.md)** - Summary of all changes
+
+### Testing & Development
+- **[Postman Collection](./PhonePe_API_Collection.postman.json)** - Import for Postman testing
+- **[Environment Variables Example](./.env.phonepe.example)** - PhonePe configuration template
+
+---
+
+## 🛡️ Security Features
+
+- ✅ **Password Hashing** - bcryptjs with salt rounds
+- ✅ **JWT Tokens** - Access & refresh token system
+- ✅ **HttpOnly Cookies** - Secure refresh token storage
+- ✅ **Input Validation** - Express-validator on all inputs
+- ✅ **CORS Protection** - Configured for frontend origins
+- ✅ **Checksum Verification** - PhonePe payment validation
+
+---
+
+## 📊 Database Models
+
+### Collections
+
+- **User** - User accounts with authentication
+- **Product** - Product catalog information
+- **Variant** - Product variants (size, color, price, stock)
+- **Order** - Customer orders with items
+- **Payment** - Payment transactions (COD, PhonePe, etc.)
+- **Address** - User shipping addresses
+- **Review** - Product reviews and ratings
+- **Token** - Refresh tokens for authentication
+
+---
+
+## 🧑‍💻 Development
+
+### Project Structure
+
+```
+src/
+├── config/           # Configuration files
+│   ├── cloudinary.js   # Cloudinary setup
+│   ├── phonepe.js      # PhonePe configuration
+│   └── swagger.js      # Swagger/OpenAPI config
+├── controllers/      # Route controllers
+│   ├── auth/          # Authentication logic
+│   ├── product/       # Product management
+│   ├── payment/       # Payment processing
+│   ├── Order/         # Order handling
+│   ├── address/       # Address management
+│   ├── Variant/       # Variant management
+│   └── review/        # Review system
+├── models/           # Mongoose schemas
+├── routes/           # API routes
+├── middlewares/      # Auth & validation
+├── utils/            # Helper functions
+├── app.js            # Express app setup
+└── server.js         # Server entry point
+```
+
+### NPM Scripts
+
+```bash
+npm run dev        # Start development server with nodemon
+npm start          # Start production server
+```
+
+---
+
+## 🤝 Contributing
+
+For development:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Update Swagger documentation (JSDoc comments)
+6. Submit a pull request
+
+### Adding New Endpoints
+
+When adding new routes, document them with Swagger JSDoc:
+
+```javascript
+/**
+ * @swagger
+ * /api/v1/your-endpoint:
+ *   post:
+ *     summary: Endpoint description
+ *     tags: [YourCategory]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               field1:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
+router.post('/your-endpoint', handler);
+```
+
+Documentation will update automatically!
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Server won't start:**
+- Check MongoDB connection string
+- Verify all environment variables are set
+- Check port 3000 is available
+
+**Authentication errors:**
+- Ensure JWT secrets are set in .env
+- Check token format: `Bearer <token>`
+- Verify token hasn't expired
+
+**File upload fails:**
+- Verify Cloudinary credentials
+- Check file size limits
+- Ensure correct field names
+
+**PhonePe payment issues:**
+- Verify merchant credentials
+- Check callback URL is accessible
+- Use ngrok for local testing
+- See [PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)
+
+---
+
+## 📝 License
+
+ISC License
+
+---
+
+## 📧 Support
+
+For questions or issues:
+- Check the [Swagger Documentation](http://localhost:3000/api-docs)
+- Review the [API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)
+- See [PhonePe Integration Guide](./PHONEPE_INTEGRATION.md) for payment issues
+
+---
+
+## 🎉 Features Summary
+
+✅ 16 fully documented API endpoints
+✅ Interactive Swagger UI documentation
+✅ JWT authentication with refresh tokens
+✅ PhonePe payment gateway integration
+✅ Cloudinary image upload support
+✅ Product variants with stock management
+✅ Order processing with multiple payment methods
+✅ Review and rating system
+✅ Address management
+✅ Input validation on all endpoints
+✅ Production-ready with comprehensive error handling
+
+---
+
+**Built with ❤️ using Node.js, Express, and MongoDB**
+
+**Start exploring:** [http://localhost:3000/api-docs](http://localhost:3000/api-docs) 🚀
 
 
 

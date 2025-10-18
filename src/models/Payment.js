@@ -5,9 +5,11 @@ const paymentSchema = new mongoose.Schema({
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   amount: { type: Number, required: true },
-  method: { type: String, enum: ["COD", "Razorpay", "Stripe", "Wallet"], required: true },
+  method: { type: String, enum: ["COD", "Razorpay", "Stripe", "Wallet", "PhonePe"], required: true },
   status: { type: String, enum: ["pending", "success", "failed"], default: "pending" },
   transactionId: { type: String }, // from gateway if online
+  phonepeTransactionId: { type: String }, // PhonePe transaction ID
+  phonepeResponse: { type: Object }, // Store PhonePe response data
   createdAt: { type: Date, default: Date.now }
 });
 

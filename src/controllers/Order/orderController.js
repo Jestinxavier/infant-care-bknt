@@ -61,11 +61,24 @@ const createOrder = async (req, res) => {
       userId,
       amount: totalAmount,
       method: paymentMethod,
-      status: paymentMethod === "COD" ? "pending" : "success"
+      status: paymentMethod === "COD" ? "pending" : "pending" // All online payments start as pending
     });
 
     await payment.save();
 
+    // Step 5: If PhonePe, return order details for payment initialization
+    if (paymentMethod === "PhonePe") {
+      return res.status(201).json({
+        success: true,
+        message: "✅ Order created successfully. Please initiate PhonePe payment.",
+        order,
+        payment,
+        requiresPayment: true,
+        paymentMethod: "PhonePe"
+      });
+    }
+
+    // For COD or other methods
     res.status(201).json({
       success: true,
       message: "✅ Order created successfully",

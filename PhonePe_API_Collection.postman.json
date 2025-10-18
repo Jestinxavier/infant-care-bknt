@@ -1,0 +1,132 @@
+{
+  "info": {
+    "name": "PhonePe Payment Integration",
+    "description": "API collection for testing PhonePe payment integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Create Order (COD)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"items\": [\n    {\n      \"variantId\": \"{{variantId}}\",\n      \"quantity\": 2\n    }\n  ],\n  \"addressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"COD\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/create",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "create"]
+        }
+      }
+    },
+    {
+      "name": "2. Create Order (PhonePe)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"items\": [\n    {\n      \"variantId\": \"{{variantId}}\",\n      \"quantity\": 2\n    }\n  ],\n  \"addressId\": \"{{addressId}}\",\n  \"paymentMethod\": \"PhonePe\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/orders/create",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "orders", "create"]
+        }
+      }
+    },
+    {
+      "name": "3. Initialize PhonePe Payment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"amount\": 1500,\n  \"userId\": \"{{userId}}\",\n  \"userPhone\": \"9876543210\",\n  \"userName\": \"Test User\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/payments/phonepe/init",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "payments", "phonepe", "init"]
+        }
+      }
+    },
+    {
+      "name": "4. Check Payment Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/payments/phonepe/status/{{transactionId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "payments", "phonepe", "status", "{{transactionId}}"]
+        }
+      }
+    },
+    {
+      "name": "5. PhonePe Callback (Test)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"response\": \"eyJtZXJjaGFudFRyYW5zYWN0aW9uSWQiOiJUWE5fNjRhYmMxMjNkZWY0NTY3OTJfMTIzNDU2Nzg5MCIsInRyYW5zYWN0aW9uSWQiOiJQSF8xMjM0NTY3ODkwIiwiYW1vdW50IjoxNTAwMDAsInN0YXRlIjoiQ09NUExFVEVEIiwicmVzcG9uc2VDb2RlIjoiU1VDQ0VTUyJ9\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/payments/phonepe/callback",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "payments", "phonepe", "callback"]
+        },
+        "description": "This endpoint is automatically called by PhonePe. For testing, you can manually trigger it with test data."
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "userId",
+      "value": "YOUR_USER_ID"
+    },
+    {
+      "key": "variantId",
+      "value": "YOUR_VARIANT_ID"
+    },
+    {
+      "key": "addressId",
+      "value": "YOUR_ADDRESS_ID"
+    },
+    {
+      "key": "orderId",
+      "value": "ORDER_ID_FROM_CREATE_ORDER_RESPONSE"
+    },
+    {
+      "key": "transactionId",
+      "value": "TRANSACTION_ID_FROM_INIT_PAYMENT_RESPONSE"
+    }
+  ]
+}
