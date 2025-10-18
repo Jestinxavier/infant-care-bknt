@@ -159,13 +159,17 @@ PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
 |--------|----------|-------------|---------------|
 | POST | `/api/v1/orders/create` | Create order | ❌ |
 
-### 💳 Payment Endpoints (PhonePe)
+### 💳 Payment Endpoints (PhonePe & Razorpay)
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
-| POST | `/api/v1/payments/phonepe/init` | Initialize payment | ❌ |
-| POST | `/api/v1/payments/phonepe/callback` | Payment webhook | ❌ |
-| GET | `/api/v1/payments/phonepe/status/:txnId` | Check payment status | ❌ |
+| POST | `/api/v1/payments/phonepe/init` | Initialize PhonePe payment | ❌ |
+| POST | `/api/v1/payments/phonepe/callback` | PhonePe webhook | ❌ |
+| GET | `/api/v1/payments/phonepe/status/:txnId` | Check PhonePe status | ❌ |
+| POST | `/api/v1/payments/razorpay/create-order` | Create Razorpay order | ❌ |
+| POST | `/api/v1/payments/razorpay/verify` | Verify Razorpay payment | ❌ |
+| POST | `/api/v1/payments/razorpay/webhook` | Razorpay webhook | ❌ |
+| GET | `/api/v1/payments/razorpay/payment/:id` | Get Razorpay payment details | ❌ |
 
 ### 📍 Address Endpoints
 
@@ -188,7 +192,11 @@ PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
 
 ## 💳 Payment Integration
 
-### PhonePe Payment Flow
+### Multiple Payment Gateways Supported
+
+You can use **both PhonePe and Razorpay** - users choose their preferred method!
+
+#### PhonePe Payment Flow
 
 1. **Create Order** with `paymentMethod: "PhonePe"`
 2. **Initialize Payment** - Get payment URL
@@ -196,9 +204,18 @@ PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
 4. **Callback** - PhonePe notifies backend (automatic)
 5. **Verify Status** - Check payment status
 
-For complete PhonePe integration guide, see:
+#### Razorpay Payment Flow
+
+1. **Create Order** with `paymentMethod: "Razorpay"`
+2. **Create Razorpay Order** - Get order ID
+3. **Open Razorpay Checkout** - Modal payment
+4. **Payment Success** - Get signature
+5. **Verify Payment** - Backend validates signature
+
+For complete integration guides:
 - [PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)
 - [PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)
+- [Razorpay Integration Guide](./RAZORPAY_INTEGRATION.md)
 
 ---
 
@@ -947,6 +964,8 @@ This README explains all the endpoints and how to use them.
 - **[PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)** - Complete integration guide
 - **[PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)** - Step-by-step testing instructions
 - **[PhonePe Flow Diagram](./PHONEPE_FLOW_DIAGRAM.md)** - Visual payment flow diagrams
+- **[PhonePe Credentials Guide](./PHONEPE_CREDENTIALS_GUIDE.md)** - How to get credentials
+- **[Razorpay Integration Guide](./RAZORPAY_INTEGRATION.md)** - Razorpay integration
 - **[Integration Summary](./INTEGRATION_SUMMARY.md)** - Summary of all changes
 
 ### Testing & Development

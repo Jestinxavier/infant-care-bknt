@@ -1,11 +1,14 @@
 const login = require("./login");
-const register = require("./register");
+const { requestOTP, verifyOTP } = require("./register");
 const refreshToken = require("./refreshToken");
 const logout = require("./logout");
+const resendOTP = require("./resendVerification");
 
 module.exports = {
   login,
-  register,
+  requestOTP,
+  verifyOTP,
   refreshToken,
   logout,
+  resendOTP,
 };

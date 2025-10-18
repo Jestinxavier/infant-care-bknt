@@ -66,7 +66,7 @@ const createOrder = async (req, res) => {
 
     await payment.save();
 
-    // Step 5: If PhonePe, return order details for payment initialization
+    // Step 5: If PhonePe or Razorpay, return order details for payment initialization
     if (paymentMethod === "PhonePe") {
       return res.status(201).json({
         success: true,
@@ -75,6 +75,17 @@ const createOrder = async (req, res) => {
         payment,
         requiresPayment: true,
         paymentMethod: "PhonePe"
+      });
+    }
+
+    if (paymentMethod === "Razorpay") {
+      return res.status(201).json({
+        success: true,
+        message: "✅ Order created successfully. Please initiate Razorpay payment.",
+        order,
+        payment,
+        requiresPayment: true,
+        paymentMethod: "Razorpay"
       });
     }
 

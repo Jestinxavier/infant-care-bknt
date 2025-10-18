@@ -1,12 +1,27 @@
 const authService = require("../../services/service");
 
-const register = async (req, res) => {
+/**
+ * Step 1: Request OTP for registration
+ */
+const requestOTP = async (req, res) => {
   try {
-    const user = await authService.registerUser(req.body);
-    res.status(201).json({ msg: "User registered", user });
+    const result = await authService.requestOTP(req.body);
+    res.status(200).json(result);
   } catch (err) {
-    res.status(400).json({ msg: err.message });
+    res.status(400).json({ success: false, msg: err.message });
   }
 };
 
-module.exports = register ;
+/**
+ * Step 2: Verify OTP and complete registration
+ */
+const verifyOTP = async (req, res) => {
+  try {
+    const result = await authService.verifyOTPAndRegister(req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, msg: err.message });
+  }
+};
+
+module.exports = { requestOTP, verifyOTP };

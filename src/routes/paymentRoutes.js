@@ -3,8 +3,12 @@ const router = express.Router();
 const { 
   initPhonePePayment, 
   phonePeCallback, 
-  checkPaymentStatus 
-} = require("../controllers/payment/phonePeController");
+  checkPaymentStatus,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  razorpayWebhook,
+  getPaymentDetails
+} = require("../controllers/payment");
 
 /**
  * @swagger
@@ -167,5 +171,185 @@ router.post("/phonepe/callback", phonePeCallback);
  */
 // GET /api/v1/payments/phonepe/status/:transactionId - Check payment status
 router.get("/phonepe/status/:transactionId", checkPaymentStatus);
+
+// ============================================
+// Razorpay Payment Routes
+// ============================================
+
+/**
+ * @swagger
+ * /api/v1/payments/razorpay/create-order:
+ *   post:
+ *     summary: Create Razorpay order
+ *     description: Creates a Razorpay order and returns order ID for frontend payment
+ *     tags: [Payments]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *               - amount
+ *               - userId
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 description: Order ID from create order response
+ *                 example: 64abc123def456792
+ *               amount:
+ *                 type: number
+ *                 description: Amount in rupees
+ *                 example: 1500
+ *               userId:
+ *                 type: string
+ *                 example: 64abc123def456789
+ *     responses:
+ *       200:
+ *         description: Razorpay order created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Razorpay order created successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     razorpayOrderId:
+ *                       type: string
+ *                       example: order_xxxxxxxxxxxxx
+ *                     amount:
+ *                       type: number
+ *                       example: 150000
+ *                     currency:
+ *                       type: string
+ *                       example: INR
+ *                     keyId:
+ *                       type: string
+ *                       description: Razorpay key ID for frontend
+ *                       example: rzp_test_xxxxx
+ *       400:
+ *         description: Invalid request
+ *       404:
+ *         description: Order not found
+ */
+router.post("/razorpay/create-order", createRazorpayOrder);
+
+/**
+ * @swagger
+ * /api/v1/payments/razorpay/verify:
+ *   post:
+ *     summary: Verify Razorpay payment
+ *     description: Verify payment signature after user completes payment on Razorpay
+ *     tags: [Payments]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - razorpay_order_id
+ *               - razorpay_payment_id
+ *               - razorpay_signature
+ *               - orderId
+ *             properties:
+ *               razorpay_order_id:
+ *                 type: string
+ *                 example: order_xxxxxxxxxxxxx
+ *               razorpay_payment_id:
+ *                 type: string
+ *                 example: pay_xxxxxxxxxxxxx
+ *               razorpay_signature:
+ *                 type: string
+ *                 example: xxxxxxxxxxxxxxxxxxxxxxxx
+ *               orderId:
+ *                 type: string
+ *                 example: 64abc123def456792
+ *     responses:
+ *       200:
+ *         description: Payment verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Payment verified successfully
+ *                 paymentId:
+ *                   type: string
+ *                 orderId:
+ *                   type: string
+ *       400:
+ *         description: Invalid signature or payment failed
+ */
+router.post("/razorpay/verify", verifyRazorpayPayment);
+
+/**
+ * @swagger
+ * /api/v1/payments/razorpay/webhook:
+ *   post:
+ *     summary: Razorpay webhook handler
+ *     description: Handles payment events from Razorpay (automatic)
+ *     tags: [Payments]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             description: Razorpay webhook payload
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       400:
+ *         description: Invalid webhook signature
+ */
+router.post("/razorpay/webhook", razorpayWebhook);
+
+/**
+ * @swagger
+ * /api/v1/payments/razorpay/payment/{paymentId}:
+ *   get:
+ *     summary: Get payment details from Razorpay
+ *     description: Fetch payment details from Razorpay API
+ *     tags: [Payments]
+ *     parameters:
+ *       - in: path
+ *         name: paymentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Razorpay payment ID
+ *         example: pay_xxxxxxxxxxxxx
+ *     responses:
+ *       200:
+ *         description: Payment details retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   description: Razorpay payment object
+ *       400:
+ *         description: Invalid payment ID
+ */
+router.get("/razorpay/payment/:paymentId", getPaymentDetails);
 
 module.exports = router;

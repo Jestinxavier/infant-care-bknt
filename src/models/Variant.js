@@ -8,7 +8,10 @@ const variantSchema = new mongoose.Schema({
   price: { type: Number, required: true },
   stock: { type: Number, required: true },
   sku: { type: String, unique: true },
-  images: [{ type: String }] // URLs
+  images: [{ type: String }], // URLs
+  // Rating fields
+  averageRating: { type: Number, default: 0, min: 0, max: 5 },
+  totalReviews: { type: Number, default: 0, min: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model("Variant", variantSchema);

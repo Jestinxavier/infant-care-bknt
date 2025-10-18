@@ -28,6 +28,19 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin"],
       default: "user"
     },
+    // Email Verification Fields (OTP-based)
+    isEmailVerified: {
+      type: Boolean,
+      default: false
+    },
+    emailOTP: {
+      type: String,
+      default: null
+    },
+    emailOTPExpires: {
+      type: Date,
+      default: null
+    },
     createdAt: {
       type: Date,
       default: Date.now
