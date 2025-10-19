@@ -1,5 +1,3 @@
-
-
 # 🛒 Online Shopping Backend API
 
 [![Node.js](https://img.shields.io/badge/Node.js-v18+-green.svg)](https://nodejs.org/)
@@ -12,6 +10,7 @@
 ### 🚀 **[View Live API Documentation](http://localhost:3000/api-docs)** (Swagger UI)
 
 Our complete API is documented with **Swagger/OpenAPI 3.0** - an interactive interface where you can:
+
 - ✅ Test all endpoints directly in your browser
 - ✅ See request/response examples
 - ✅ Authenticate and test protected routes
@@ -22,14 +21,14 @@ Our complete API is documented with **Swagger/OpenAPI 3.0** - an interactive int
 
 ### 📚 Additional Documentation
 
-| Document | Description |
-|----------|-------------|
-| **[API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)** | Complete guide to using the API documentation |
-| **[API Quick Reference](./API_QUICK_REFERENCE.md)** | Quick reference card for developers |
-| **[Swagger UI Walkthrough](./SWAGGER_UI_WALKTHROUGH.md)** | Visual guide to using Swagger UI |
-| **[PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)** | Complete PhonePe payment integration |
-| **[PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)** | Step-by-step testing instructions |
-| **[Postman Collection](./PhonePe_API_Collection.postman.json)** | Import into Postman for testing |
+| Document                                                        | Description                                   |
+| --------------------------------------------------------------- | --------------------------------------------- |
+| **[API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)**     | Complete guide to using the API documentation |
+| **[API Quick Reference](./API_QUICK_REFERENCE.md)**             | Quick reference card for developers           |
+| **[Swagger UI Walkthrough](./SWAGGER_UI_WALKTHROUGH.md)**       | Visual guide to using Swagger UI              |
+| **[PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)**       | Complete PhonePe payment integration          |
+| **[PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)**         | Step-by-step testing instructions             |
+| **[Postman Collection](./PhonePe_API_Collection.postman.json)** | Import into Postman for testing               |
 
 ---
 
@@ -67,6 +66,7 @@ The backend of the E-Commerce Platform is designed to provide a **secure, scalab
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Node.js v18 or higher
 - MongoDB instance (local or Atlas)
 - Cloudinary account
@@ -121,11 +121,11 @@ PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
 
 ### Access Points
 
-| Service | URL |
-|---------|-----|
-| **API Base** | http://localhost:3000/api/v1 |
+| Service          | URL                            |
+| ---------------- | ------------------------------ |
+| **API Base**     | http://localhost:3000/api/v1   |
 | **Swagger Docs** | http://localhost:3000/api-docs |
-| **Health Check** | http://localhost:3000 |
+| **Health Check** | http://localhost:3000          |
 
 ---
 
@@ -133,58 +133,58 @@ PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
 
 ### 🔑 Authentication Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/v1/auth/register` | Register new user | ❌ |
-| POST | `/api/v1/auth/login` | Login user | ❌ |
-| POST | `/api/v1/auth/refresh` | Refresh access token | ❌ |
-| POST | `/api/v1/auth/logout` | Logout user | ❌ |
+| Method | Endpoint                | Description          | Auth Required |
+| ------ | ----------------------- | -------------------- | ------------- |
+| POST   | `/api/v1/auth/register` | Register new user    | ❌            |
+| POST   | `/api/v1/auth/login`    | Login user           | ❌            |
+| POST   | `/api/v1/auth/refresh`  | Refresh access token | ❌            |
+| POST   | `/api/v1/auth/logout`   | Logout user          | ❌            |
 
 ### 📦 Product Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/v1/product/create` | Create product with variants | ✅ |
-| PUT | `/api/v1/product/update` | Update product | ✅ |
+| Method | Endpoint                 | Description                  | Auth Required |
+| ------ | ------------------------ | ---------------------------- | ------------- |
+| POST   | `/api/v1/product/create` | Create product with variants | ✅            |
+| PUT    | `/api/v1/product/update` | Update product               | ✅            |
 
 ### 🎨 Variant Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| PUT | `/api/v1/variants/update` | Update variant | ✅ |
+| Method | Endpoint                  | Description    | Auth Required |
+| ------ | ------------------------- | -------------- | ------------- |
+| PUT    | `/api/v1/variants/update` | Update variant | ✅            |
 
 ### 🛒 Order Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/v1/orders/create` | Create order | ❌ |
+| Method | Endpoint                | Description  | Auth Required |
+| ------ | ----------------------- | ------------ | ------------- |
+| POST   | `/api/v1/orders/create` | Create order | ❌            |
 
 ### 💳 Payment Endpoints (PhonePe & Razorpay)
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/v1/payments/phonepe/init` | Initialize PhonePe payment | ❌ |
-| POST | `/api/v1/payments/phonepe/callback` | PhonePe webhook | ❌ |
-| GET | `/api/v1/payments/phonepe/status/:txnId` | Check PhonePe status | ❌ |
-| POST | `/api/v1/payments/razorpay/create-order` | Create Razorpay order | ❌ |
-| POST | `/api/v1/payments/razorpay/verify` | Verify Razorpay payment | ❌ |
-| POST | `/api/v1/payments/razorpay/webhook` | Razorpay webhook | ❌ |
-| GET | `/api/v1/payments/razorpay/payment/:id` | Get Razorpay payment details | ❌ |
+| Method | Endpoint                                 | Description                  | Auth Required |
+| ------ | ---------------------------------------- | ---------------------------- | ------------- |
+| POST   | `/api/v1/payments/phonepe/init`          | Initialize PhonePe payment   | ❌            |
+| POST   | `/api/v1/payments/phonepe/callback`      | PhonePe webhook              | ❌            |
+| GET    | `/api/v1/payments/phonepe/status/:txnId` | Check PhonePe status         | ❌            |
+| POST   | `/api/v1/payments/razorpay/create-order` | Create Razorpay order        | ❌            |
+| POST   | `/api/v1/payments/razorpay/verify`       | Verify Razorpay payment      | ❌            |
+| POST   | `/api/v1/payments/razorpay/webhook`      | Razorpay webhook             | ❌            |
+| GET    | `/api/v1/payments/razorpay/payment/:id`  | Get Razorpay payment details | ❌            |
 
 ### 📍 Address Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/v1/addresses/create` | Create address | ❌ |
-| GET | `/api/v1/addresses/:userId` | Get user addresses | ❌ |
-| PUT | `/api/v1/addresses/:addressId` | Update address | ❌ |
+| Method | Endpoint                       | Description        | Auth Required |
+| ------ | ------------------------------ | ------------------ | ------------- |
+| POST   | `/api/v1/addresses/create`     | Create address     | ❌            |
+| GET    | `/api/v1/addresses/:userId`    | Get user addresses | ❌            |
+| PUT    | `/api/v1/addresses/:addressId` | Update address     | ❌            |
 
 ### ⭐ Review Endpoints
 
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/v1/review/add` | Add review | ❌ |
-| GET | `/api/v1/review/:variantId` | Get variant reviews | ❌ |
+| Method | Endpoint                    | Description         | Auth Required |
+| ------ | --------------------------- | ------------------- | ------------- |
+| POST   | `/api/v1/review/add`        | Add review          | ❌            |
+| GET    | `/api/v1/review/:variantId` | Get variant reviews | ❌            |
 
 > **📝 Note:** For detailed request/response examples, visit the [Swagger Documentation](http://localhost:3000/api-docs)
 
@@ -213,6 +213,7 @@ You can use **both PhonePe and Razorpay** - users choose their preferred method!
 5. **Verify Payment** - Backend validates signature
 
 For complete integration guides:
+
 - [PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)
 - [PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)
 - [Razorpay Integration Guide](./RAZORPAY_INTEGRATION.md)
@@ -261,8 +262,8 @@ http://localhost:3000/api/auth
 
 **Errors:**
 
-* `400` if username or email already exists
-* `400` if validation fails
+- `400` if username or email already exists
+- `400` if validation fails
 
 ---
 
@@ -285,15 +286,15 @@ http://localhost:3000/api/auth
 
 ```json
 {
-  "msg": "Login successful",
+  "message": "Login successful",
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
 **Notes:**
 
-* Refresh token is stored in HttpOnly cookie for security
-* Use access token in `Authorization: Bearer <token>` header for protected routes
+- Refresh token is stored in HttpOnly cookie for security
+- Use access token in `Authorization: Bearer <token>` header for protected routes
 
 ---
 
@@ -305,8 +306,8 @@ http://localhost:3000/api/auth
 
 **Request:**
 
-* No body required
-* Must send **cookie** with request (`credentials: 'include'` in fetch/axios)
+- No body required
+- Must send **cookie** with request (`credentials: 'include'` in fetch/axios)
 
 **Response (Success 200):**
 
@@ -318,8 +319,8 @@ http://localhost:3000/api/auth
 
 **Errors:**
 
-* `401` if no refresh token cookie present
-* `403` if refresh token is invalid or expired
+- `401` if no refresh token cookie present
+- `403` if refresh token is invalid or expired
 
 ---
 
@@ -331,13 +332,13 @@ http://localhost:3000/api/auth
 
 **Request:**
 
-* Must send **cookie** with refresh token
+- Must send **cookie** with refresh token
 
 **Response (Success 200):**
 
 ```json
 {
-  "msg": "Logout successful"
+  "message": "Logout successful"
 }
 ```
 
@@ -345,10 +346,10 @@ http://localhost:3000/api/auth
 
 ## Security Notes
 
-* **Passwords** are hashed with `bcryptjs`
-* **Access tokens** are short-lived JWTs, stored in **memory** in the frontend
-* **Refresh tokens** are long-lived JWTs stored in **HttpOnly cookies**
-* All routes support **JWT-based authentication** for secure access to protected resources
+- **Passwords** are hashed with `bcryptjs`
+- **Access tokens** are short-lived JWTs, stored in **memory** in the frontend
+- **Refresh tokens** are long-lived JWTs stored in **HttpOnly cookies**
+- All routes support **JWT-based authentication** for secure access to protected resources
 
 ---
 
@@ -359,7 +360,7 @@ const res = await fetch("http://localhost:3000/api/auth/login", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ email, password }),
-  credentials: "include" // important to send HttpOnly cookie
+  credentials: "include", // important to send HttpOnly cookie
 });
 
 const data = await res.json();
@@ -370,42 +371,40 @@ const accessToken = data.accessToken; // store in memory
 
 ## Dependencies
 
-* express
-* bcryptjs
-* jsonwebtoken
-* mongoose
-* cookie-parser
+- express
+- bcryptjs
+- jsonwebtoken
+- mongoose
+- cookie-parser
 
 Frontend (React)
-       |
-       | POST /login (email & password)
-       v
+|
+| POST /login (email & password)
+v
 Backend (Node.js)
-       |
-       | Validate user
-       | Generate accessToken & refreshToken
-       | Send accessToken in JSON
-       | Set refreshToken in HttpOnly cookie
-       v
+|
+| Validate user
+| Generate accessToken & refreshToken
+| Send accessToken in JSON
+| Set refreshToken in HttpOnly cookie
+v
 Frontend (React)
-       |
-       | Store accessToken in memory
-       | HttpOnly cookie automatically stored by browser
-       v
+|
+| Store accessToken in memory
+| HttpOnly cookie automatically stored by browser
+v
 User requests protected data
-       |
-       | GET /protected
-       | Authorization: Bearer <accessToken>
-       v
+|
+| GET /protected
+| Authorization: Bearer <accessToken>
+v
 Backend (Node.js)
-       |
-       | authenticateToken middleware
-       | Verify accessToken
-       | Return protected resource
-       v
+|
+| authenticateToken middleware
+| Verify accessToken
+| Return protected resource
+v
 Frontend receives protected data
-
-
 
 ---
 
@@ -417,11 +416,11 @@ This API uses **`express-validator`** to validate user input on the backend for 
 
 ### 1️ **Register Validation**
 
-* **Fields validated:**
+- **Fields validated:**
 
-  * `username` → required, min 3 characters
-  * `email` → required, valid email format
-  * `password` → required, min 6 characters
+  - `username` → required, min 3 characters
+  - `email` → required, valid email format
+  - `password` → required, min 6 characters
 
 **Example Request:**
 
@@ -439,9 +438,12 @@ POST /api/auth/register
 ```json
 {
   "errors": [
-    { "msg": "Username must be at least 3 characters", "param": "username" },
-    { "msg": "Invalid email format", "param": "email" },
-    { "msg": "Password must be at least 6 characters", "param": "password" }
+    {
+      "message": "Username must be at least 3 characters",
+      "param": "username"
+    },
+    { "message": "Invalid email format", "param": "email" },
+    { "message": "Password must be at least 6 characters", "param": "password" }
   ]
 }
 ```
@@ -450,10 +452,10 @@ POST /api/auth/register
 
 ### 2️ **Login Validation**
 
-* **Fields validated:**
+- **Fields validated:**
 
-  * `email` → required, valid email
-  * `password` → required
+  - `email` → required, valid email
+  - `password` → required
 
 **Example Request:**
 
@@ -470,8 +472,8 @@ POST /api/auth/login
 ```json
 {
   "errors": [
-    { "msg": "Email is required", "param": "email" },
-    { "msg": "Password is required", "param": "password" }
+    { "message": "Email is required", "param": "email" },
+    { "message": "Password is required", "param": "password" }
   ]
 }
 ```
@@ -481,7 +483,11 @@ POST /api/auth/login
 ### 3️ **Usage in Routes**
 
 ```js
-const { registerValidation, loginValidation, validate } = require("../middleware/validators");
+const {
+  registerValidation,
+  loginValidation,
+  validate,
+} = require("../middleware/validators");
 
 router.post("/register", registerValidation, validate, register);
 router.post("/login", loginValidation, validate, login);
@@ -490,7 +496,6 @@ router.post("/login", loginValidation, validate, login);
 > All invalid input is rejected **before reaching the controller**, ensuring only clean data enters the database.
 
 ---
-
 
 ---
 
@@ -506,7 +511,7 @@ const product = await Product.create({
   description: "A beautiful floral dress perfect for summer outings",
   category: "Dresses",
   tags: ["summer", "floral", "casual"],
-  basePrice: 500
+  basePrice: 500,
 });
 ```
 
@@ -540,8 +545,8 @@ await Variant.create([
     sku: "FLD-RED-S",
     images: [
       "https://example.com/images/floral-red-front.jpg",
-      "https://example.com/images/floral-red-back.jpg"
-    ]
+      "https://example.com/images/floral-red-back.jpg",
+    ],
   },
   {
     productId: product._id,
@@ -552,8 +557,8 @@ await Variant.create([
     sku: "FLD-RED-M",
     images: [
       "https://example.com/images/floral-red-front.jpg",
-      "https://example.com/images/floral-red-back.jpg"
-    ]
+      "https://example.com/images/floral-red-back.jpg",
+    ],
   },
   {
     productId: product._id,
@@ -564,9 +569,9 @@ await Variant.create([
     sku: "FLD-BLU-S",
     images: [
       "https://example.com/images/floral-blue-front.jpg",
-      "https://example.com/images/floral-blue-back.jpg"
-    ]
-  }
+      "https://example.com/images/floral-blue-back.jpg",
+    ],
+  },
 ]);
 ```
 
@@ -620,19 +625,18 @@ await Variant.create([
 
 ### **3️ How It Works**
 
-* **Product** document stores general info about the item (name, category, description).
-* **Variant** documents store **specific combinations** (size, color), their price, stock, SKU, and images.
-* **Frontend usage:** Fetch product + variants using `productId` to display all options on a single product page.
+- **Product** document stores general info about the item (name, category, description).
+- **Variant** documents store **specific combinations** (size, color), their price, stock, SKU, and images.
+- **Frontend usage:** Fetch product + variants using `productId` to display all options on a single product page.
 
 **Benefits of this approach:**
 
-* Supports **multiple variants per product**
-* Multiple images per variant
-* Flexible **stock and pricing** per variant
-* Scalable for large catalogs 
+- Supports **multiple variants per product**
+- Multiple images per variant
+- Flexible **stock and pricing** per variant
+- Scalable for large catalogs
 
 ---
-
 
 ---
 
@@ -724,7 +728,7 @@ curl -X POST http://localhost:3000/api/products/create \
 
 ```json
 {
-  "msg": "Product and variants created successfully"
+  "message": "Product and variants created successfully"
 }
 ```
 
@@ -732,12 +736,11 @@ curl -X POST http://localhost:3000/api/products/create \
 
 ### **Notes**
 
-* Field names must exactly match your variant’s `sku` value (e.g., `images-<SKU>`).
-* Each variant’s images are uploaded to Cloudinary inside the `products/` folder.
-* The backend automatically maps each uploaded file to its matching variant.
+- Field names must exactly match your variant’s `sku` value (e.g., `images-<SKU>`).
+- Each variant’s images are uploaded to Cloudinary inside the `products/` folder.
+- The backend automatically maps each uploaded file to its matching variant.
 
 ---
-
 
 ---
 
@@ -750,6 +753,7 @@ curl -X POST http://localhost:3000/api/products/create \
 Create and store a new shipping address for a user.
 
 **Request Payload:**
+
 ```json
 {
   "userId": "68dd872174cd6f2b7656d4c9",
@@ -761,7 +765,7 @@ Create and store a new shipping address for a user.
   "landmark": "Near Metro Station",
   "phoneNumber": "9876543210"
 }
-````
+```
 
 **Success Response:**
 
@@ -851,10 +855,9 @@ Supports `COD` or online payment (e.g., Razorpay / PhonePe).
 
 ### Notes:
 
-* `items` must include `variantId` and `quantity`. The backend fills in `price` and `productId` automatically from the `Variant` model.
-* `addressId` can be an existing address or a newly created address ID.
-* `paymentMethod` can be `COD`, `Razorpay`, `PhonePe`, etc., depending on the integration.
-
+- `items` must include `variantId` and `quantity`. The backend fills in `price` and `productId` automatically from the `Variant` model.
+- `addressId` can be an existing address or a newly created address ID.
+- `paymentMethod` can be `COD`, `Razorpay`, `PhonePe`, etc., depending on the integration.
 
 ---
 
@@ -905,10 +908,10 @@ Add a rating and review for a variant after purchase.
 
 **Notes:**
 
-* `rating` must be **1 to 5**.
-* `userId` must match the order’s user.
-* `variantId` must exist in the order.
-* Users can only review **once per variant per order**.
+- `rating` must be **1 to 5**.
+- `userId` must match the order’s user.
+- `variantId` must exist in the order.
+- Users can only review **once per variant per order**.
 
 ---
 
@@ -944,7 +947,6 @@ Fetch all reviews for a specific variant.
 
 ---
 
-
 ---
 
 This README explains all the endpoints and how to use them.
@@ -954,6 +956,7 @@ This README explains all the endpoints and how to use them.
 ## 📚 Complete Documentation Index
 
 ### API Documentation
+
 - **[🚀 Swagger UI - Interactive API Docs](http://localhost:3000/api-docs)** - Test all endpoints in browser
 - **[API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)** - Complete guide with usage examples
 - **[API Quick Reference](./API_QUICK_REFERENCE.md)** - Quick reference card for developers
@@ -961,6 +964,7 @@ This README explains all the endpoints and how to use them.
 - **[API Summary](./README_API_DOCS.md)** - Overview of all documented endpoints
 
 ### Payment Integration
+
 - **[PhonePe Integration Guide](./PHONEPE_INTEGRATION.md)** - Complete integration guide
 - **[PhonePe Testing Guide](./PHONEPE_TESTING_GUIDE.md)** - Step-by-step testing instructions
 - **[PhonePe Flow Diagram](./PHONEPE_FLOW_DIAGRAM.md)** - Visual payment flow diagrams
@@ -969,6 +973,7 @@ This README explains all the endpoints and how to use them.
 - **[Integration Summary](./INTEGRATION_SUMMARY.md)** - Summary of all changes
 
 ### Testing & Development
+
 - **[Postman Collection](./PhonePe_API_Collection.postman.json)** - Import for Postman testing
 - **[Environment Variables Example](./.env.phonepe.example)** - PhonePe configuration template
 
@@ -1070,7 +1075,7 @@ When adding new routes, document them with Swagger JSDoc:
  *       200:
  *         description: Success
  */
-router.post('/your-endpoint', handler);
+router.post("/your-endpoint", handler);
 ```
 
 Documentation will update automatically!
@@ -1082,21 +1087,25 @@ Documentation will update automatically!
 ### Common Issues
 
 **Server won't start:**
+
 - Check MongoDB connection string
 - Verify all environment variables are set
 - Check port 3000 is available
 
 **Authentication errors:**
+
 - Ensure JWT secrets are set in .env
 - Check token format: `Bearer <token>`
 - Verify token hasn't expired
 
 **File upload fails:**
+
 - Verify Cloudinary credentials
 - Check file size limits
 - Ensure correct field names
 
 **PhonePe payment issues:**
+
 - Verify merchant credentials
 - Check callback URL is accessible
 - Use ngrok for local testing
@@ -1113,6 +1122,7 @@ ISC License
 ## 📧 Support
 
 For questions or issues:
+
 - Check the [Swagger Documentation](http://localhost:3000/api-docs)
 - Review the [API Documentation Guide](./API_DOCUMENTATION_GUIDE.md)
 - See [PhonePe Integration Guide](./PHONEPE_INTEGRATION.md) for payment issues
@@ -1138,6 +1148,3 @@ For questions or issues:
 **Built with ❤️ using Node.js, Express, and MongoDB**
 
 **Start exploring:** [http://localhost:3000/api-docs](http://localhost:3000/api-docs) 🚀
-
-
-

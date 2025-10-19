@@ -6,8 +6,8 @@ const refreshToken = async (req, res) => {
     const newAccessToken = await authService.refreshAccessToken(token);
     res.json({ accessToken: newAccessToken });
   } catch (err) {
-    res.status(403).json({ msg: err.message });
+    res.status(403).json({ message: err.message });
   }
 };
 
-module.exports = refreshToken ;
+module.exports = refreshToken;

@@ -16,7 +16,7 @@ Complete OTP (One-Time Password) based email verification system. Users receive 
 ✅ **Pending User Storage** - Temporary storage before verification  
 ✅ **Auto-Cleanup** - Expired pending users auto-deleted  
 ✅ **Resend OTP** - Request new OTP if expired  
-✅ **Welcome Email** - Sent after successful verification  
+✅ **Welcome Email** - Sent after successful verification
 
 ---
 
@@ -50,6 +50,7 @@ graph TB
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "username": "johndoe",
@@ -59,6 +60,7 @@ graph TB
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -69,6 +71,7 @@ graph TB
 ```
 
 **What Happens:**
+
 1. ✅ Checks if email/username already exists
 2. ✅ Generates 6-digit OTP (e.g., "123456")
 3. ✅ Saves user data + OTP to `PendingUser` collection (temporary)
@@ -78,18 +81,20 @@ graph TB
 **Error Responses:**
 
 **User Already Exists:**
+
 ```json
 {
   "success": false,
-  "msg": "User already exists with this email or username"
+  "message": "User already exists with this email or username"
 }
 ```
 
 **Email Send Failed:**
+
 ```json
 {
   "success": false,
-  "msg": "Failed to send OTP email. Please try again."
+  "message": "Failed to send OTP email. Please try again."
 }
 ```
 
@@ -101,6 +106,7 @@ graph TB
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "email": "john@example.com",
@@ -109,6 +115,7 @@ graph TB
 ```
 
 **Success Response:**
+
 ```json
 {
   "success": true,
@@ -124,6 +131,7 @@ graph TB
 ```
 
 **What Happens:**
+
 1. ✅ Validates OTP
 2. ✅ Creates actual user account (password hashed)
 3. ✅ Sets `isEmailVerified: true`
@@ -134,34 +142,38 @@ graph TB
 **Error Responses:**
 
 **No Pending Registration:**
+
 ```json
 {
   "success": false,
-  "msg": "No pending registration found for this email"
+  "message": "No pending registration found for this email"
 }
 ```
 
 **OTP Expired:**
+
 ```json
 {
   "success": false,
-  "msg": "OTP has expired. Please request a new one."
+  "message": "OTP has expired. Please request a new one."
 }
 ```
 
 **Invalid OTP:**
+
 ```json
 {
   "success": false,
-  "msg": "Invalid OTP. 4 attempts remaining."
+  "message": "Invalid OTP. 4 attempts remaining."
 }
 ```
 
 **Too Many Attempts:**
+
 ```json
 {
   "success": false,
-  "msg": "Too many failed attempts. Please request a new OTP."
+  "message": "Too many failed attempts. Please request a new OTP."
 }
 ```
 
@@ -173,6 +185,7 @@ graph TB
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "email": "john@example.com"
@@ -180,6 +193,7 @@ graph TB
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -189,12 +203,14 @@ graph TB
 ```
 
 **What Happens:**
+
 1. ✅ Generates new 6-digit OTP
 2. ✅ Updates pending user record
 3. ✅ Resets attempt counter
 4. ✅ Sends new OTP email
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -210,6 +226,7 @@ graph TB
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "email": "john@example.com",
@@ -218,9 +235,10 @@ graph TB
 ```
 
 **Success Response:**
+
 ```json
 {
-  "msg": "Login successful",
+  "message": "Login successful",
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
@@ -263,6 +281,7 @@ graph TB
 ```
 
 ### Email Features
+
 - ✅ Large, easy-to-read OTP code
 - ✅ Clear expiry warning
 - ✅ Mobile responsive
@@ -314,6 +333,7 @@ graph TB
 ### Complete Flow Test
 
 **Step 1: Request OTP**
+
 ```bash
 POST http://localhost:3000/api/v1/auth/request-otp
 Content-Type: application/json
@@ -335,6 +355,7 @@ Content-Type: application/json
 ```
 
 **Step 2: Verify OTP**
+
 ```bash
 POST http://localhost:3000/api/v1/auth/verify-otp
 Content-Type: application/json
@@ -353,6 +374,7 @@ Content-Type: application/json
 ```
 
 **Step 3: Login**
+
 ```bash
 POST http://localhost:3000/api/v1/auth/login
 Content-Type: application/json
@@ -364,7 +386,7 @@ Content-Type: application/json
 
 # Response:
 {
-  "msg": "Login successful",
+  "message": "Login successful",
   "accessToken": "...",
   "refreshToken": "..."
 }
@@ -386,7 +408,7 @@ Content-Type: application/json
 # Response:
 {
   "success": false,
-  "msg": "Invalid OTP. 4 attempts remaining."
+  "message": "Invalid OTP. 4 attempts remaining."
 }
 ```
 
@@ -417,17 +439,17 @@ Content-Type: application/json
 ### React Example - Registration Form
 
 ```jsx
-import { useState } from 'react';
+import { useState } from "react";
 
 function RegisterForm() {
   const [step, setStep] = useState(1); // 1: Form, 2: OTP
   const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: ''
+    username: "",
+    email: "",
+    password: "",
   });
-  const [otp, setOtp] = useState('');
-  const [message, setMessage] = useState('');
+  const [otp, setOtp] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   // Step 1: Request OTP
@@ -436,22 +458,25 @@ function RegisterForm() {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3000/api/v1/auth/request-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      const response = await fetch(
+        "http://localhost:3000/api/v1/auth/request-otp",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData),
+        }
+      );
 
       const data = await response.json();
 
       if (response.ok) {
-        setMessage('✅ OTP sent to ' + formData.email);
+        setMessage("✅ OTP sent to " + formData.email);
         setStep(2); // Show OTP input
       } else {
-        setMessage('❌ ' + data.msg);
+        setMessage("❌ " + data.message);
       }
     } catch (error) {
-      setMessage('❌ Failed to send OTP');
+      setMessage("❌ Failed to send OTP");
     } finally {
       setLoading(false);
     }
@@ -463,26 +488,29 @@ function RegisterForm() {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3000/api/v1/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email,
-          otp: otp
-        })
-      });
+      const response = await fetch(
+        "http://localhost:3000/api/v1/auth/verify-otp",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: formData.email,
+            otp: otp,
+          }),
+        }
+      );
 
       const data = await response.json();
 
       if (response.ok) {
-        setMessage('✅ ' + data.message);
+        setMessage("✅ " + data.message);
         // Redirect to login
-        setTimeout(() => window.location.href = '/login', 2000);
+        setTimeout(() => (window.location.href = "/login"), 2000);
       } else {
-        setMessage('❌ ' + data.msg);
+        setMessage("❌ " + data.message);
       }
     } catch (error) {
-      setMessage('❌ Verification failed');
+      setMessage("❌ Verification failed");
     } finally {
       setLoading(false);
     }
@@ -491,16 +519,19 @@ function RegisterForm() {
   // Resend OTP
   const handleResendOTP = async () => {
     try {
-      const response = await fetch('http://localhost:3000/api/v1/auth/resend-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: formData.email })
-      });
+      const response = await fetch(
+        "http://localhost:3000/api/v1/auth/resend-otp",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: formData.email }),
+        }
+      );
 
       const data = await response.json();
-      setMessage(data.success ? '✅ ' + data.message : '❌ ' + data.message);
+      setMessage(data.success ? "✅ " + data.message : "❌ " + data.message);
     } catch (error) {
-      setMessage('❌ Failed to resend OTP');
+      setMessage("❌ Failed to resend OTP");
     }
   };
 
@@ -514,26 +545,32 @@ function RegisterForm() {
             type="text"
             placeholder="Username"
             value={formData.username}
-            onChange={(e) => setFormData({...formData, username: e.target.value})}
+            onChange={(e) =>
+              setFormData({ ...formData, username: e.target.value })
+            }
             required
           />
           <input
             type="email"
             placeholder="Email"
             value={formData.email}
-            onChange={(e) => setFormData({...formData, email: e.target.value})}
+            onChange={(e) =>
+              setFormData({ ...formData, email: e.target.value })
+            }
             required
           />
           <input
             type="password"
             placeholder="Password"
             value={formData.password}
-            onChange={(e) => setFormData({...formData, password: e.target.value})}
+            onChange={(e) =>
+              setFormData({ ...formData, password: e.target.value })
+            }
             required
             minLength={6}
           />
           <button type="submit" disabled={loading}>
-            {loading ? 'Sending OTP...' : 'Send OTP'}
+            {loading ? "Sending OTP..." : "Send OTP"}
           </button>
           {message && <p>{message}</p>}
         </form>
@@ -546,14 +583,20 @@ function RegisterForm() {
             type="text"
             placeholder="Enter OTP"
             value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onChange={(e) =>
+              setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))
+            }
             maxLength={6}
             pattern="\d{6}"
             required
-            style={{ fontSize: '24px', letterSpacing: '8px', textAlign: 'center' }}
+            style={{
+              fontSize: "24px",
+              letterSpacing: "8px",
+              textAlign: "center",
+            }}
           />
           <button type="submit" disabled={loading || otp.length !== 6}>
-            {loading ? 'Verifying...' : 'Verify OTP'}
+            {loading ? "Verifying..." : "Verify OTP"}
           </button>
           <button type="button" onClick={handleResendOTP}>
             Resend OTP
@@ -578,46 +621,54 @@ export default RegisterForm;
 ✅ **Auto-Cleanup** - Expired pending users deleted  
 ✅ **No User Until Verified** - Account created only after OTP  
 ✅ **Password Hashing** - Bcrypt hashing after verification  
-✅ **Email-OTP Binding** - OTP tied to specific email  
+✅ **Email-OTP Binding** - OTP tied to specific email
 
 ---
 
 ## ⏱️ Timeouts & Limits
 
-| Item | Value | Purpose |
-|------|-------|---------|
-| OTP Length | 6 digits | Easy to type, 1M combinations |
-| OTP Expiry | 10 minutes | Balance security & UX |
-| Max Attempts | 5 | Prevent brute force |
-| Pending User TTL | 15 min after expiry | Auto-cleanup |
-| Resend Delay | None (but limited by expiry) | UX flexibility |
+| Item             | Value                        | Purpose                       |
+| ---------------- | ---------------------------- | ----------------------------- |
+| OTP Length       | 6 digits                     | Easy to type, 1M combinations |
+| OTP Expiry       | 10 minutes                   | Balance security & UX         |
+| Max Attempts     | 5                            | Prevent brute force           |
+| Pending User TTL | 15 min after expiry          | Auto-cleanup                  |
+| Resend Delay     | None (but limited by expiry) | UX flexibility                |
 
 ---
 
 ## 🐛 Common Issues & Solutions
 
 ### Issue: OTP Email Not Received
+
 **Solutions:**
+
 - Check spam/junk folder
 - Verify EMAIL_USER and EMAIL_PASSWORD in .env
 - Check server logs for email errors
 - Verify email service configuration
 
 ### Issue: "Invalid OTP" Error
+
 **Solutions:**
+
 - Check OTP carefully (case-sensitive)
 - Ensure OTP hasn't expired (10 min limit)
 - Request new OTP if needed
 - Check attempt counter (max 5)
 
 ### Issue: "No pending registration found"
+
 **Solutions:**
+
 - Request new OTP (previous may have expired)
 - Verify email address matches registration
 - Check if already registered
 
 ### Issue: User Can't Login After Verification
+
 **Solutions:**
+
 - Verify `isEmailVerified: true` in database
 - Check password is correct
 - Clear pending user records manually if stuck
@@ -626,13 +677,13 @@ export default RegisterForm;
 
 ## 📊 Comparison: OTP vs Link
 
-| Feature | OTP-Based | Link-Based |
-|---------|-----------|------------|
-| User Experience | ✅ Quick, no browser switch | ❌ Click link, switch context |
-| Mobile Friendly | ✅✅ Copy-paste OTP | ✅ Click link |
-| Security | ✅ Short-lived, attempts limited | ✅ Long token |
-| Complexity | Medium | Low |
-| User Preference | Modern, familiar | Traditional |
+| Feature         | OTP-Based                        | Link-Based                    |
+| --------------- | -------------------------------- | ----------------------------- |
+| User Experience | ✅ Quick, no browser switch      | ❌ Click link, switch context |
+| Mobile Friendly | ✅✅ Copy-paste OTP              | ✅ Click link                 |
+| Security        | ✅ Short-lived, attempts limited | ✅ Long token                 |
+| Complexity      | Medium                           | Low                           |
+| User Preference | Modern, familiar                 | Traditional                   |
 
 ---
 

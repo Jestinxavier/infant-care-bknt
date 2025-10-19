@@ -1,8 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./config/swagger');
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./config/swagger");
 
 // Load default .env
 dotenv.config();
@@ -14,11 +14,13 @@ if (process.env.NODE_ENV === "production") {
 
 const app = express();
 // ✅ CORS setup
-app.use(cors({
-  origin: '*', // frontend URLs (React, Vite, etc.)
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: "http://localhost:3000", // frontend URLs (React, Vite, etc.)
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 
 // Middleware
 app.use(express.json());
@@ -40,12 +42,20 @@ app.use("/api/v1/review", reviewRoutes);
 app.use("/api/v1/payments", paymentRoutes);
 
 // Swagger API Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Online Shopping API Docs',
-}));
+app.use(
+  "/api-docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    customCss: ".swagger-ui .topbar { display: none }",
+    customSiteTitle: "Online Shopping API Docs",
+  })
+);
 
 // Default route
-app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5000/api-docs</a>"));
+app.get("/", (req, res) =>
+  res.send(
+    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5000/api-docs</a>"
+  )
+);
 
 module.exports = app;

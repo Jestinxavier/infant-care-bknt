@@ -13,7 +13,7 @@ const createProduct = async (req, res) => {
     // Map images to variants dynamically
     const variantData = variantsArray.map((v) => {
       // Match images whose fieldname ends with this variant SKU or size
-       console.log(req.files,'file****'); // should show array of uploaded files
+      console.log(req.files, "file****"); // should show array of uploaded files
       const images = req.files
         .filter((f) => f.fieldname.includes(v.sku || v.size))
         .map((f) => f.path); // Cloudinary URL
@@ -31,7 +31,9 @@ const createProduct = async (req, res) => {
 
     await Variant.insertMany(variantData);
 
-    res.status(201).json({ msg: "Product and variants created successfully" });
+    res
+      .status(201)
+      .json({ message: "Product and variants created successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

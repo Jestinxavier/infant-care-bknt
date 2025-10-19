@@ -1,5 +1,5 @@
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 /**
  * Create email transporter
@@ -7,25 +7,25 @@ const crypto = require('crypto');
  */
 const createTransporter = () => {
   // For Gmail
-  if (process.env.EMAIL_SERVICE === 'gmail') {
-    return nodemailer.createTransporter({
-      service: 'gmail',
+  if (process.env.EMAIL_SERVICE === "gmail") {
+    return nodemailer.createTransport({
+      service: "gmail",
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD // Use App Password for Gmail
-      }
+        pass: process.env.EMAIL_PASSWORD, // Use App Password for Gmail
+      },
     });
   }
-  
+
   // For other SMTP services
-  return nodemailer.createTransporter({
+  return nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
     port: process.env.EMAIL_PORT || 587,
-    secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
+    secure: process.env.EMAIL_SECURE === "true", // true for 465, false for other ports
     auth: {
       user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD
-    }
+      pass: process.env.EMAIL_PASSWORD,
+    },
   });
 };
 
@@ -45,11 +45,13 @@ const generateOTP = () => {
 const sendOTPEmail = async (user, otp) => {
   try {
     const transporter = createTransporter();
-    
+
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Online Shopping'}" <${process.env.EMAIL_USER}>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
+        process.env.EMAIL_USER
+      }>`,
       to: user.email,
-      subject: '🔐 Your Verification Code - Online Shopping',
+      subject: "🔐 Your Verification Code - Online Shopping",
       html: `
         <!DOCTYPE html>
         <html>
@@ -71,7 +73,7 @@ const sendOTPEmail = async (user, otp) => {
               <h1>🔐 Email Verification</h1>
             </div>
             <div class="content">
-              <h2>Hi ${user.username || 'there'}! 👋</h2>
+              <h2>Hi ${user.username || "there"}! 👋</h2>
               <p>Thank you for registering with <strong>Online Shopping</strong>. To complete your registration, please use the verification code below:</p>
               
               <div class="otp-box">
@@ -100,15 +102,15 @@ const sendOTPEmail = async (user, otp) => {
           </div>
         </body>
         </html>
-      `
+      `,
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ OTP email sent:', info.messageId);
+    console.log("✅ OTP email sent:", info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Error sending OTP email:', error);
-    throw new Error('Failed to send OTP email');
+    console.error("❌ Error sending OTP email:", error);
+    throw new Error("Failed to send OTP email");
   }
 };
 
@@ -119,11 +121,13 @@ const sendOTPEmail = async (user, otp) => {
 const sendWelcomeEmail = async (user) => {
   try {
     const transporter = createTransporter();
-    
+
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Online Shopping'}" <${process.env.EMAIL_USER}>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
+        process.env.EMAIL_USER
+      }>`,
       to: user.email,
-      subject: '🎉 Welcome to Online Shopping!',
+      subject: "🎉 Welcome to Online Shopping!",
       html: `
         <!DOCTYPE html>
         <html>
@@ -171,13 +175,13 @@ const sendWelcomeEmail = async (user) => {
           </div>
         </body>
         </html>
-      `
+      `,
     };
 
     await transporter.sendMail(mailOptions);
-    console.log('✅ Welcome email sent to:', user.email);
+    console.log("✅ Welcome email sent to:", user.email);
   } catch (error) {
-    console.error('❌ Error sending welcome email:', error);
+    console.error("❌ Error sending welcome email:", error);
     // Don't throw error for welcome email, it's not critical
   }
 };
@@ -190,13 +194,17 @@ const sendWelcomeEmail = async (user) => {
 const sendPasswordResetEmail = async (user, resetToken) => {
   try {
     const transporter = createTransporter();
-    
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
-    
+
+    const resetUrl = `${
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    }/reset-password?token=${resetToken}`;
+
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Online Shopping'}" <${process.env.EMAIL_USER}>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
+        process.env.EMAIL_USER
+      }>`,
       to: user.email,
-      subject: '🔒 Password Reset Request',
+      subject: "🔒 Password Reset Request",
       html: `
         <!DOCTYPE html>
         <html>
@@ -232,14 +240,14 @@ const sendPasswordResetEmail = async (user, resetToken) => {
           </div>
         </body>
         </html>
-      `
+      `,
     };
 
     await transporter.sendMail(mailOptions);
-    console.log('✅ Password reset email sent to:', user.email);
+    console.log("✅ Password reset email sent to:", user.email);
   } catch (error) {
-    console.error('❌ Error sending password reset email:', error);
-    throw new Error('Failed to send password reset email');
+    console.error("❌ Error sending password reset email:", error);
+    throw new Error("Failed to send password reset email");
   }
 };
 
@@ -247,5 +255,5 @@ module.exports = {
   generateOTP,
   sendOTPEmail,
   sendWelcomeEmail,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
 };

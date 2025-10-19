@@ -3,33 +3,41 @@
 ## ✅ What's Been Implemented
 
 ### 1. **User Model Updated** ([`user.js`](src/models/user.js))
+
 Added email verification fields:
+
 - `isEmailVerified` - Boolean (default: false)
 - `emailVerificationToken` - String (32-byte hex token)
 - `emailVerificationExpires` - Date (24 hours from creation)
 
 ### 2. **Email Service Created** ([`emailService.js`](src/services/emailService.js))
+
 Functions:
+
 - ✅ `sendVerificationEmail()` - Beautiful HTML verification email
 - ✅ `sendWelcomeEmail()` - Welcome email after verification
 - ✅ `sendPasswordResetEmail()` - Password reset email (bonus)
 - ✅ `generateVerificationToken()` - Secure token generation
 
 ### 3. **Auth Service Updated** ([`service.js`](src/services/service.js))
+
 - ✅ `registerUser()` - Sends verification email on registration
 - ✅ `loginUser()` - Checks if email is verified before login
 - ✅ `verifyEmail()` - Verifies email with token
 - ✅ `resendVerificationEmail()` - Resends verification email
 
-### 4. **New Controllers** 
+### 4. **New Controllers**
+
 - ✅ [`verifyEmail.js`](src/controllers/auth/verifyEmail.js) - Handle email verification
 - ✅ [`resendVerification.js`](src/controllers/auth/resendVerification.js) - Resend verification
 
 ### 5. **New API Routes** ([`auth.js`](src/routes/auth.js))
+
 - ✅ `GET /api/v1/auth/verify-email/:token` - Verify email
 - ✅ `POST /api/v1/auth/resend-verification` - Resend email
 
 ### 6. **Environment Variables Added**
+
 Both `development.env` and `production.env` updated with email configuration.
 
 ---
@@ -84,6 +92,7 @@ Body:
 ## 📋 API Flow
 
 ### Registration Flow
+
 ```
 1. POST /api/v1/auth/register
    → User created (isEmailVerified: false)
@@ -92,7 +101,7 @@ Body:
 
 2. User checks email
    → Clicks verification link
-   
+
 3. GET /api/v1/auth/verify-email/{token}
    → Email verified (isEmailVerified: true)
    → Welcome email sent
@@ -103,12 +112,13 @@ Body:
 ```
 
 ### Login Protection
+
 ```
 POST /api/v1/auth/login
 
 IF isEmailVerified === false:
   ❌ Error: "Please verify your email..."
-  
+
 IF isEmailVerified === true:
   ✅ Success: Returns access & refresh tokens
 ```
@@ -117,18 +127,19 @@ IF isEmailVerified === true:
 
 ## 🔗 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/v1/auth/register` | Register + Send verification email |
-| `GET` | `/api/v1/auth/verify-email/:token` | Verify email with token |
-| `POST` | `/api/v1/auth/resend-verification` | Resend verification email |
-| `POST` | `/api/v1/auth/login` | Login (requires verified email) |
+| Method | Endpoint                           | Description                        |
+| ------ | ---------------------------------- | ---------------------------------- |
+| `POST` | `/api/v1/auth/register`            | Register + Send verification email |
+| `GET`  | `/api/v1/auth/verify-email/:token` | Verify email with token            |
+| `POST` | `/api/v1/auth/resend-verification` | Resend verification email          |
+| `POST` | `/api/v1/auth/login`               | Login (requires verified email)    |
 
 ---
 
 ## 📧 Email Templates
 
 ### Verification Email
+
 - ✅ Beautiful gradient design
 - ✅ Clear call-to-action button
 - ✅ Expiry warning (24 hours)
@@ -136,6 +147,7 @@ IF isEmailVerified === true:
 - ✅ Fallback text link
 
 ### Welcome Email
+
 - ✅ Sent after successful verification
 - ✅ Feature highlights
 - ✅ Next steps guide
@@ -146,6 +158,7 @@ IF isEmailVerified === true:
 ## 🧪 Testing Examples
 
 ### 1. Register User
+
 ```bash
 POST http://localhost:3000/api/v1/auth/register
 Content-Type: application/json
@@ -158,7 +171,7 @@ Content-Type: application/json
 
 # Response:
 {
-  "msg": "User registered",
+  "message": "User registered",
   "user": {
     "isEmailVerified": false,
     "message": "Registration successful! Please check your email to verify your account."
@@ -167,6 +180,7 @@ Content-Type: application/json
 ```
 
 ### 2. Try Login (Before Verification)
+
 ```bash
 POST http://localhost:3000/api/v1/auth/login
 Content-Type: application/json
@@ -178,11 +192,12 @@ Content-Type: application/json
 
 # Response:
 {
-  "msg": "Please verify your email before logging in. Check your inbox for the verification link."
+  "message": "Please verify your email before logging in. Check your inbox for the verification link."
 }
 ```
 
 ### 3. Verify Email
+
 ```bash
 # Option A: Click link in email (redirects to frontend)
 GET http://localhost:3000/api/v1/auth/verify-email/YOUR_TOKEN
@@ -201,6 +216,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/YOUR_TOKEN?redirect=false
 ```
 
 ### 4. Login (After Verification)
+
 ```bash
 POST http://localhost:3000/api/v1/auth/login
 Content-Type: application/json
@@ -212,7 +228,7 @@ Content-Type: application/json
 
 # Response:
 {
-  "msg": "Login successful",
+  "message": "Login successful",
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR...",
   "user": {
@@ -222,6 +238,7 @@ Content-Type: application/json
 ```
 
 ### 5. Resend Verification
+
 ```bash
 POST http://localhost:3000/api/v1/auth/resend-verification
 Content-Type: application/json
@@ -242,6 +259,7 @@ Content-Type: application/json
 ## ⚙️ Email Provider Options
 
 ### Option 1: Gmail (Recommended for Testing)
+
 ```env
 EMAIL_SERVICE=gmail
 EMAIL_HOST=smtp.gmail.com
@@ -252,6 +270,7 @@ EMAIL_PASSWORD=app_password_16_chars
 ```
 
 ### Option 2: Custom SMTP
+
 ```env
 EMAIL_SERVICE=smtp
 EMAIL_HOST=smtp.yourdomain.com
@@ -262,6 +281,7 @@ EMAIL_PASSWORD=your_password
 ```
 
 ### Option 3: SendGrid, Mailgun, etc.
+
 ```env
 EMAIL_SERVICE=smtp
 EMAIL_HOST=smtp.sendgrid.net
@@ -275,19 +295,25 @@ EMAIL_PASSWORD=your_sendgrid_api_key
 ## 🐛 Common Issues
 
 ### Issue: Email Not Sending
+
 **Solution:**
+
 - Check EMAIL_USER and EMAIL_PASSWORD
 - For Gmail: Use App Password (not regular password)
 - Check console logs for errors
 
 ### Issue: "Invalid or expired token"
+
 **Solution:**
+
 - Token expires after 24 hours
 - Use resend verification endpoint
 - Generate new token
 
 ### Issue: Login Still Blocked
+
 **Solution:**
+
 - Verify email first
 - Check `isEmailVerified` field in database
 - Token must be valid and not expired
@@ -304,18 +330,18 @@ EMAIL_PASSWORD=your_sendgrid_api_key
 
 ## ✨ Features Overview
 
-| Feature | Status |
-|---------|--------|
-| Email verification required | ✅ |
-| Verification email sent on register | ✅ |
-| Login blocked until verified | ✅ |
-| Beautiful HTML email templates | ✅ |
-| Token expiration (24 hours) | ✅ |
-| Resend verification email | ✅ |
-| Welcome email after verification | ✅ |
-| Frontend redirect support | ✅ |
-| Swagger documentation | ✅ |
-| Multiple email provider support | ✅ |
+| Feature                             | Status |
+| ----------------------------------- | ------ |
+| Email verification required         | ✅     |
+| Verification email sent on register | ✅     |
+| Login blocked until verified        | ✅     |
+| Beautiful HTML email templates      | ✅     |
+| Token expiration (24 hours)         | ✅     |
+| Resend verification email           | ✅     |
+| Welcome email after verification    | ✅     |
+| Frontend redirect support           | ✅     |
+| Swagger documentation               | ✅     |
+| Multiple email provider support     | ✅     |
 
 ---
 

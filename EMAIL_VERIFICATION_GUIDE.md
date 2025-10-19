@@ -15,7 +15,7 @@ Complete email verification system that requires users to verify their email add
 ✅ **Welcome Email** - Sent automatically after verification  
 ✅ **Multiple Email Providers** - Supports Gmail, SMTP, etc.  
 ✅ **Frontend Redirect** - Auto-redirect to frontend after verification  
-✅ **Swagger Documentation** - All endpoints documented  
+✅ **Swagger Documentation** - All endpoints documented
 
 ---
 
@@ -46,6 +46,7 @@ graph TB
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "username": "johndoe",
@@ -55,9 +56,10 @@ graph TB
 ```
 
 **Response:**
+
 ```json
 {
-  "msg": "User registered",
+  "message": "User registered",
   "user": {
     "id": "64abc123def456789",
     "username": "johndoe",
@@ -70,6 +72,7 @@ graph TB
 ```
 
 **What Happens:**
+
 1. ✅ User account created
 2. ✅ Verification token generated (32-byte random hex)
 3. ✅ Token expires in 24 hours
@@ -84,10 +87,12 @@ graph TB
 **Authentication:** Not Required
 
 **Parameters:**
+
 - `token` (path) - Email verification token from email
 - `redirect` (query, optional) - If 'false', returns JSON instead of redirecting
 
 **Example URLs:**
+
 ```bash
 # Auto-redirect to frontend (default)
 GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...
@@ -97,6 +102,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **Response (JSON mode):**
+
 ```json
 {
   "success": true,
@@ -111,10 +117,12 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **Response (Redirect mode - default):**
+
 - Success: Redirects to `{FRONTEND_URL}/email-verified?success=true`
 - Error: Redirects to `{FRONTEND_URL}/email-verified?success=false&error=...`
 
 **What Happens:**
+
 1. ✅ Token validated
 2. ✅ Email marked as verified
 3. ✅ Token cleared from database
@@ -122,6 +130,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 5. ✅ User can now login
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -137,6 +146,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "email": "john@example.com"
@@ -144,6 +154,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -152,6 +163,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **What Happens:**
+
 1. ✅ New verification token generated
 2. ✅ Old token replaced
 3. ✅ New expiry time set (24 hours)
@@ -160,6 +172,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 **Error Responses:**
 
 **User Not Found:**
+
 ```json
 {
   "success": false,
@@ -168,6 +181,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **Already Verified:**
+
 ```json
 {
   "success": false,
@@ -183,6 +197,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 **Authentication:** Not Required
 
 **Request Body:**
+
 ```json
 {
   "email": "john@example.com",
@@ -191,9 +206,10 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **Success Response (Email Verified):**
+
 ```json
 {
-  "msg": "Login successful",
+  "message": "Login successful",
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "user": {
@@ -207,9 +223,10 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 ```
 
 **Error Response (Email Not Verified):**
+
 ```json
 {
-  "msg": "Please verify your email before logging in. Check your inbox for the verification link."
+  "message": "Please verify your email before logging in. Check your inbox for the verification link."
 }
 ```
 
@@ -222,6 +239,7 @@ GET http://localhost:3000/api/v1/auth/verify-email/abc123def456...?redirect=fals
 Add these to your `.env` files:
 
 **For Gmail:**
+
 ```env
 # Email Configuration
 EMAIL_SERVICE=gmail
@@ -238,6 +256,7 @@ BACKEND_URL=http://localhost:3000
 ```
 
 **For Other SMTP Services:**
+
 ```env
 EMAIL_SERVICE=smtp
 EMAIL_HOST=smtp.yourdomain.com
@@ -258,10 +277,12 @@ BACKEND_URL=https://api.yourdomain.com
 If using Gmail, you need to create an **App Password**:
 
 1. **Enable 2-Factor Authentication**
+
    - Go to Google Account → Security
    - Enable 2-Step Verification
 
 2. **Generate App Password**
+
    - Go to Google Account → Security → 2-Step Verification
    - Scroll to "App passwords"
    - Select "Mail" and "Other (Custom name)"
@@ -271,6 +292,7 @@ If using Gmail, you need to create an **App Password**:
    - Use this in `EMAIL_PASSWORD`
 
 3. **Update Environment Variables**
+
 ```env
 EMAIL_SERVICE=gmail
 EMAIL_USER=your_email@gmail.com
@@ -286,6 +308,7 @@ EMAIL_PASSWORD=abcd efgh ijkl mnop  # 16-character app password
 **Subject:** ✅ Verify Your Email - Online Shopping
 
 **Features:**
+
 - 🎨 Beautiful gradient header
 - 📱 Mobile responsive
 - 🔘 Clear call-to-action button
@@ -293,6 +316,7 @@ EMAIL_PASSWORD=abcd efgh ijkl mnop  # 16-character app password
 - 🔗 Fallback text link
 
 **Preview:**
+
 ```
 ┌─────────────────────────────────┐
 │   🎉 Welcome to Online Shopping!   │
@@ -317,6 +341,7 @@ EMAIL_PASSWORD=abcd efgh ijkl mnop  # 16-character app password
 **Sent:** After successful email verification
 
 **Features:**
+
 - 🎊 Celebratory design
 - 📋 Next steps guide
 - 🛍️ Feature highlights
@@ -346,11 +371,13 @@ Body:
 ### 2. Test Email Verification
 
 **Option A: Click Link in Email**
+
 - Open email
 - Click "Verify Email Address" button
 - Should redirect to frontend with success message
 
 **Option B: API Call**
+
 ```bash
 GET http://localhost:3000/api/v1/auth/verify-email/YOUR_TOKEN_HERE?redirect=false
 
@@ -373,7 +400,7 @@ Body:
 
 # Should return error:
 {
-  "msg": "Please verify your email before logging in..."
+  "message": "Please verify your email before logging in..."
 }
 ```
 
@@ -390,7 +417,7 @@ Body:
 
 # Should return access token
 {
-  "msg": "Login successful",
+  "message": "Login successful",
   "accessToken": "...",
   "refreshToken": "..."
 }
@@ -419,36 +446,39 @@ Body:
 ### React Example - Registration
 
 ```jsx
-import { useState } from 'react';
+import { useState } from "react";
 
 function RegisterForm() {
   const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: ''
+    username: "",
+    email: "",
+    password: "",
   });
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-      const response = await fetch('http://localhost:3000/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      const response = await fetch(
+        "http://localhost:3000/api/v1/auth/register",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formData),
+        }
+      );
 
       const data = await response.json();
 
       if (response.ok) {
-        setMessage('✅ ' + data.user.message);
+        setMessage("✅ " + data.user.message);
         // Show verification pending screen
       } else {
-        setMessage('❌ ' + data.msg);
+        setMessage("❌ " + data.message);
       }
     } catch (error) {
-      setMessage('❌ Registration failed');
+      setMessage("❌ Registration failed");
     }
   };
 
@@ -458,19 +488,19 @@ function RegisterForm() {
         type="text"
         placeholder="Username"
         value={formData.username}
-        onChange={(e) => setFormData({...formData, username: e.target.value})}
+        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
       />
       <input
         type="email"
         placeholder="Email"
         value={formData.email}
-        onChange={(e) => setFormData({...formData, email: e.target.value})}
+        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
       />
       <input
         type="password"
         placeholder="Password"
         value={formData.password}
-        onChange={(e) => setFormData({...formData, password: e.target.value})}
+        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
       />
       <button type="submit">Register</button>
       {message && <p>{message}</p>}
@@ -484,32 +514,32 @@ function RegisterForm() {
 ### Email Verification Success Page
 
 ```jsx
-import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 
 function EmailVerified() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [status, setStatus] = useState('loading');
+  const [status, setStatus] = useState("loading");
 
   useEffect(() => {
-    const success = searchParams.get('success');
-    const error = searchParams.get('error');
+    const success = searchParams.get("success");
+    const error = searchParams.get("error");
 
-    if (success === 'true') {
-      setStatus('success');
+    if (success === "true") {
+      setStatus("success");
       // Redirect to login after 3 seconds
-      setTimeout(() => navigate('/login'), 3000);
+      setTimeout(() => navigate("/login"), 3000);
     } else {
-      setStatus('error');
+      setStatus("error");
     }
   }, [searchParams, navigate]);
 
-  if (status === 'loading') {
+  if (status === "loading") {
     return <div>Verifying email...</div>;
   }
 
-  if (status === 'success') {
+  if (status === "success") {
     return (
       <div className="success-page">
         <h1>✅ Email Verified!</h1>
@@ -522,7 +552,7 @@ function EmailVerified() {
   return (
     <div className="error-page">
       <h1>❌ Verification Failed</h1>
-      <p>{searchParams.get('error') || 'Invalid or expired link'}</p>
+      <p>{searchParams.get("error") || "Invalid or expired link"}</p>
       <ResendVerificationForm />
     </div>
   );
@@ -535,23 +565,26 @@ function EmailVerified() {
 
 ```jsx
 function ResendVerificationForm() {
-  const [email, setEmail] = useState('');
-  const [message, setMessage] = useState('');
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
 
   const handleResend = async (e) => {
     e.preventDefault();
 
     try {
-      const response = await fetch('http://localhost:3000/api/v1/auth/resend-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
+      const response = await fetch(
+        "http://localhost:3000/api/v1/auth/resend-verification",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        }
+      );
 
       const data = await response.json();
       setMessage(data.message);
     } catch (error) {
-      setMessage('Failed to resend email');
+      setMessage("Failed to resend email");
     }
   };
 
@@ -582,7 +615,7 @@ function ResendVerificationForm() {
 ✅ **Token Expiration** - 24-hour validity  
 ✅ **One-Time Use** - Tokens cleared after verification  
 ✅ **Email Validation** - Regex pattern matching  
-✅ **Login Protection** - Cannot login without verification  
+✅ **Login Protection** - Cannot login without verification
 
 ---
 
@@ -593,6 +626,7 @@ function ResendVerificationForm() {
 **Issue:** Verification email not received
 
 **Solutions:**
+
 1. Check spam/junk folder
 2. Verify EMAIL_USER and EMAIL_PASSWORD in .env
 3. For Gmail: Ensure App Password is used (not regular password)
@@ -600,6 +634,7 @@ function ResendVerificationForm() {
 5. Verify SMTP settings are correct
 
 **Test Email Configuration:**
+
 ```bash
 # Check server logs after registration
 # Should see: ✅ Verification email sent: <message-id>
@@ -613,6 +648,7 @@ function ResendVerificationForm() {
 **Issue:** "Invalid or expired verification token"
 
 **Solution:**
+
 - Request new verification email using resend endpoint
 - Tokens expire after 24 hours
 
@@ -628,6 +664,7 @@ Body: { "email": "user@example.com" }
 **Issue:** Gmail blocking login
 
 **Solution:**
+
 - Don't use "Allow less secure apps" (deprecated)
 - Use App Password instead (see Gmail Setup section above)
 
@@ -643,7 +680,7 @@ Body: { "email": "user@example.com" }
   email: String,
   password: String,
   role: String,
-  
+
   // ✨ New Email Verification Fields
   isEmailVerified: {
     type: Boolean,
@@ -657,7 +694,7 @@ Body: { "email": "user@example.com" }
     type: Date,
     default: null
   },
-  
+
   createdAt: Date,
   updatedAt: Date
 }
