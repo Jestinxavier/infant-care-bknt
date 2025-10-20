@@ -33,6 +33,8 @@ const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
+const healthRoutes = require("./routes/healthRoutes");
+
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/product", productRoutes);
 app.use("/api/v1/variants", variantRoutes);
@@ -40,6 +42,7 @@ app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/addresses", addressRoutes);
 app.use("/api/v1/review", reviewRoutes);
 app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/health", healthRoutes);
 
 // Swagger API Documentation
 app.use(

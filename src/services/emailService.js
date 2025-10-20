@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const createTransporter = () => {
   // For Gmail
   if (process.env.EMAIL_SERVICE === "gmail") {
+    console.log("Using Gmail SMTP",{mail:process.env.EMAIL_PASSWORD,pass:process.env.EMAIL_USER});
     return nodemailer.createTransport({
       service: "gmail",
       auth: {
