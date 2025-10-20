@@ -66,7 +66,7 @@ if (process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
     console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs/`);
-    console.log(`🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`);
+    console.log(`🏥 Health Check: http://localhost:${PORT}/api/v1/health/status jest`);
   });
 }
 
