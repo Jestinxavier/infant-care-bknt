@@ -1,30 +1,26 @@
 # Payment Gateway Environment Configuration Guide
 
+# 🔐 Payment Gateway Environment Configuration
+
 ## 📋 Overview
 
-All payment gateway configurations now automatically load from environment files based on `NODE_ENV`:
-- **Development**: `src/config/development.env`
-- **Production**: `src/config/production.env`
-
-This matches the pattern used for Cloudinary and other services in your application.
+All payment gateway configurations now load from a single `.env` file in the project root.
+This simplifies environment management and follows a standard configuration pattern.
 
 ---
 
 ## 🔧 Configuration Structure
 
-### Environment Files Location
+### Environment File Location
 ```
-src/config/
-├── development.env  ← Development/Testing credentials
-└── production.env   ← Production/Live credentials
+.env  ← Single environment file in project root
 ```
 
 ### Automatic Environment Loading
 Both payment configurations ([`razorpay.js`](src/config/razorpay.js) and [`phonepe.js`](src/config/phonepe.js)) automatically:
-1. Detect `NODE_ENV` (production or development)
-2. Load the corresponding `.env` file
-3. Validate configuration with debug logs
-4. Initialize payment gateway instances
+1. Load variables from `.env` file
+2. Validate configuration with debug logs
+3. Initialize payment gateway instances
 
 ---
 
@@ -32,21 +28,12 @@ Both payment configurations ([`razorpay.js`](src/config/razorpay.js) and [`phone
 
 ### Required Environment Variables
 
-**Development** (`development.env`):
+Add to `.env` in project root:
 ```env
-# Razorpay Configuration (Development/Test Mode)
-RAZORPAY_KEY_ID=your_dev_razorpay_key_id
-RAZORPAY_KEY_SECRET=your_dev_razorpay_key_secret
-RAZORPAY_WEBHOOK_SECRET=your_dev_webhook_secret
-RAZORPAY_CURRENCY=INR
-```
-
-**Production** (`production.env`):
-```env
-# Razorpay Configuration (Production/Live Mode)
-RAZORPAY_KEY_ID=your_prod_razorpay_key_id
-RAZORPAY_KEY_SECRET=your_prod_razorpay_key_secret
-RAZORPAY_WEBHOOK_SECRET=your_prod_webhook_secret
+# Razorpay Configuration
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
 RAZORPAY_CURRENCY=INR
 ```
 
@@ -73,29 +60,20 @@ RAZORPAY_CURRENCY=INR
 
 ### Required Environment Variables
 
-**Development** (`development.env`):
+Add to `.env` in project root:
 ```env
-# PhonePe Configuration (UAT/Sandbox Mode)
-PHONEPE_MERCHANT_ID=your_dev_merchant_id
-PHONEPE_SALT_KEY=your_dev_salt_key
+# PhonePe Configuration
+PHONEPE_MERCHANT_ID=your_merchant_id
+PHONEPE_SALT_KEY=your_salt_key
 PHONEPE_SALT_INDEX=1
 PHONEPE_REDIRECT_URL=http://localhost:3000/payment/callback
 PHONEPE_CALLBACK_URL=http://localhost:3000/api/v1/payments/phonepe/callback
+NODE_ENV=development
 ```
 
-**Production** (`production.env`):
-```env
-# PhonePe Configuration (Production Mode)
-PHONEPE_MERCHANT_ID=your_prod_merchant_id
-PHONEPE_SALT_KEY=your_prod_salt_key
-PHONEPE_SALT_INDEX=1
-PHONEPE_REDIRECT_URL=https://yourdomain.com/payment/callback
-PHONEPE_CALLBACK_URL=https://yourdomain.com/api/v1/payments/phonepe/callback
-```
-
-### API Endpoints (Auto-Selected)
-- **Development**: `https://api-preprod.phonepe.com/apis/pg-sandbox`
-- **Production**: `https://api.phonepe.com/apis/hermes`
+### API Endpoints
+- **Development** (NODE_ENV=development): `https://api-preprod.phonepe.com/apis/pg-sandbox`
+- **Production** (NODE_ENV=production): `https://api.phonepe.com/apis/hermes`
 
 ### Getting PhonePe Credentials
 
@@ -113,16 +91,20 @@ PHONEPE_CALLBACK_URL=https://yourdomain.com/api/v1/payments/phonepe/callback
 
 ### Running in Development Mode
 ```bash
-# Default mode (development)
-npm start
+# Set NODE_ENV in .env file
+NODE_ENV=development
 
-# Or explicitly set
-NODE_ENV=development npm start
+# Then start server
+npm start
 ```
 
 ### Running in Production Mode
 ```bash
-NODE_ENV=production npm start
+# Update NODE_ENV in .env file
+NODE_ENV=production
+
+# Then start server
+npm start
 ```
 
 ### What Happens Automatically
@@ -152,18 +134,20 @@ When you start the server, you'll see debug logs:
 
 ## ✅ Setup Checklist
 
-### Development Setup
-- [ ] Add Razorpay test keys to `development.env`
-- [ ] Add PhonePe sandbox credentials to `development.env`
-- [ ] Update callback URLs to match your local setup
+### Initial Setup
+- [ ] Create `.env` file in project root
+- [ ] Add all required environment variables
+- [ ] Set `NODE_ENV=development` for testing
+- [ ] Add Razorpay test keys to `.env`
+- [ ] Add PhonePe sandbox credentials to `.env`
+- [ ] Update callback URLs to match your setup
 - [ ] Test payment flow with test credentials
 
-### Production Setup
-- [ ] Complete KYC for Razorpay (if needed)
-- [ ] Complete merchant onboarding for PhonePe
-- [ ] Add production keys to `production.env`
-- [ ] Update callback URLs to your production domain
-- [ ] Set up SSL/HTTPS for production
+### Production Deployment
+- [ ] Update `NODE_ENV=production` in `.env`
+- [ ] Replace with production credentials
+- [ ] Update callback URLs to production domain
+- [ ] Ensure SSL/HTTPS is configured
 - [ ] Configure webhooks for both gateways
 - [ ] Test in production environment
 
@@ -171,19 +155,21 @@ When you start the server, you'll see debug logs:
 
 ## 🔒 Security Best Practices
 
-1. **Never Commit Production Credentials**
-   - Add `*.env` to `.gitignore`
+1. **Never Commit .env File**
+   - Add `.env` to `.gitignore`
    - Use environment variables in deployment
+   - Never share credentials publicly
 
 2. **Environment File Security**
    ```bash
    # Recommended file permissions
-   chmod 600 src/config/*.env
+   chmod 600 .env
    ```
 
 3. **Use Different Credentials**
-   - ALWAYS use separate test/live keys
-   - Never use production keys in development
+   - Use test keys when NODE_ENV=development
+   - Use live keys when NODE_ENV=production
+   - Keep credentials separate and secure
 
 4. **Webhook Security**
    - Always verify signatures
@@ -240,11 +226,8 @@ To add a new payment gateway following the same pattern:
 const dotenv = require('dotenv');
 const path = require('path');
 
-const envFile = process.env.NODE_ENV === 'production'
-  ? 'production.env'
-  : 'development.env';
-
-dotenv.config({ path: path.resolve(__dirname, `${envFile}`) });
+// Load from root .env file
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const newPaymentConfig = {
   apiKey: process.env.NEWPAYMENT_API_KEY,
@@ -260,29 +243,25 @@ console.log('🎯 NewPayment Config Check:', {
 module.exports = { newPaymentConfig };
 ```
 
-2. **Add to environment files**:
+2. **Add to .env file**:
 ```env
-# In development.env
-NEWPAYMENT_API_KEY=test_key
-NEWPAYMENT_API_SECRET=test_secret
-
-# In production.env
-NEWPAYMENT_API_KEY=live_key
-NEWPAYMENT_API_SECRET=live_secret
+# New Payment Gateway
+NEWPAYMENT_API_KEY=your_api_key
+NEWPAYMENT_API_SECRET=your_api_secret
 ```
 
 ---
 
 ## 🎉 Benefits of This Setup
 
-✅ **Consistent Configuration** - All services use the same env pattern  
-✅ **Easy Environment Switching** - Just change `NODE_ENV`  
-✅ **No Hardcoded Values** - All credentials in env files  
+✅ **Simple Configuration** - Single `.env` file for all settings  
+✅ **Easy Environment Switching** - Just update `NODE_ENV` in `.env`  
+✅ **No Hardcoded Values** - All credentials in one place  
 ✅ **Debug Visibility** - Console logs show what's loaded  
-✅ **Secure by Default** - Production and dev credentials separated  
+✅ **Secure by Default** - Centralized credential management  
 ✅ **Easy Deployment** - Works with any hosting platform  
 
 ---
 
-**Last Updated**: 2025-10-18  
-**Version**: 1.0.0
+**Last Updated**: 2025-10-20  
+**Version**: 2.0.0

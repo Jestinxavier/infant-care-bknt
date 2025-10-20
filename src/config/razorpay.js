@@ -4,12 +4,8 @@ const crypto = require('crypto');
 const dotenv = require('dotenv');
 const path = require('path');
 
-// ✅ Load environment before configuring Razorpay
-const envFile = process.env.NODE_ENV === 'production'
-  ? 'production.env'
-  : 'development.env';
-
-dotenv.config({ path: path.resolve(__dirname, `${envFile}`) });
+// ✅ Load environment from root .env file
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Initialize Razorpay instance
 const razorpayInstance = new Razorpay({

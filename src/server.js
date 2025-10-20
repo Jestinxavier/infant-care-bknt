@@ -3,12 +3,8 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const path = require("path");
 
-// Force load .env from project root
-const envFile = process.env.NODE_ENV === "production" 
-  ? "production.env" 
-  : "development.env";
-
-dotenv.config({ path: path.resolve(__dirname, `./config/${envFile}`) });
+// Load .env from project root
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const PORT = process.env.PORT || 3000;
 

@@ -3,12 +3,8 @@ const crypto = require('crypto');
 const dotenv = require('dotenv');
 const path = require('path');
 
-// ✅ Load environment before configuring PhonePe
-const envFile = process.env.NODE_ENV === 'production'
-  ? 'production.env'
-  : 'development.env';
-
-dotenv.config({ path: path.resolve(__dirname, `${envFile}`) });
+// ✅ Load environment from root .env file
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const phonePeConfig = {
   // Get these from PhonePe Merchant Dashboard

@@ -4,13 +4,8 @@ const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
 
-// ✅ Load environment before configuring Cloudinary
-const envFile =
-  process.env.NODE_ENV === "production"
-    ? "production.env"
-    : "development.env";
-
-dotenv.config({ path: path.resolve(__dirname, `../config/${envFile}`) });
+// ✅ Load environment from root .env file
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
