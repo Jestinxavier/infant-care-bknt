@@ -168,7 +168,7 @@ const getCompleteHealth = async (req, res) => {
       },
       message: isDbConnected 
         ? '✅ All systems operational' 
-        : '⚠️ Database connection issue detected'
+        : '⚠️ Database connection issue detected !Let me check the database'
     };
 
     // Add error details if database is not connected
