@@ -196,8 +196,57 @@ const getCompleteHealth = async (req, res) => {
   }
 };
 
+/**
+ * @route   GET /api/v1/health/env-check
+ * @desc    Check if environment variables are loaded (for debugging)
+ * @access  Public
+ */
+const checkEnvironmentVariables = async (req, res) => {
+  try {
+    const envCheck = {
+      NODE_ENV: process.env.NODE_ENV || 'NOT_SET',
+      PORT: process.env.PORT || 'NOT_SET',
+      MONGO_URI_EXISTS: !!process.env.MONGO_URI,
+      MONGO_URI_LENGTH: process.env.MONGO_URI ? process.env.MONGO_URI.length : 0,
+      MONGO_URI_PREVIEW: process.env.MONGO_URI 
+        ? `${process.env.MONGO_URI.substring(0, 20)}...` 
+        : 'NOT_SET',
+      JWT_SECRET_EXISTS: !!process.env.JWT_SECRET,
+      CLOUDINARY_EXISTS: !!process.env.CLOUDINARY_CLOUD_NAME,
+      EMAIL_USER_EXISTS: !!process.env.EMAIL_USER,
+      VERCEL: process.env.VERCEL || 'NOT_ON_VERCEL',
+      ALL_ENV_KEYS: Object.keys(process.env).filter(key => 
+        !key.startsWith('npm_') && 
+        !key.startsWith('_') &&
+        !key.includes('PATH')
+      ).sort()
+    };
+
+    return res.status(200).json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      message: 'Environment variables check',
+      environment: envCheck,
+      warning: 'This endpoint should be disabled in production!'
+    });
+
+  } catch (error) {
+    console.error('❌ Environment check error:', error);
+    
+    return res.status(500).json({
+      success: false,
+      timestamp: new Date().toISOString(),
+      message: '❌ Failed to check environment variables',
+      error: {
+        message: error.message
+      }
+    });
+  }
+};
+
 module.exports = {
   checkDatabaseHealth,
   pingDatabase,
-  getCompleteHealth
+  getCompleteHealth,
+  checkEnvironmentVariables
 };

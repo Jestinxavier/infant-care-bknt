@@ -3,7 +3,8 @@ const router = express.Router();
 const {
   checkDatabaseHealth,
   pingDatabase,
-  getCompleteHealth
+  getCompleteHealth,
+  checkEnvironmentVariables
 } = require('../controllers/health/healthController');
 
 /**
@@ -101,5 +102,17 @@ router.get('/ping', pingDatabase);
  *         description: System health issue detected
  */
 router.get('/status', getCompleteHealth);
+
+/**
+ * @swagger
+ * /api/v1/health/env-check:
+ *   get:
+ *     summary: Check if environment variables are loaded (debugging only)
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Environment variables status
+ */
+router.get('/env-check', checkEnvironmentVariables);
 
 module.exports = router;
