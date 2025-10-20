@@ -244,9 +244,76 @@ const checkEnvironmentVariables = async (req, res) => {
   }
 };
 
+/**
+ * @route   GET /api/v1/health/ip-info
+ * @desc    Get current IP address and network information
+ * @access  Public
+ */
+const getIPInfo = async (req, res) => {
+  try {
+    // Get IP from various sources
+    const ipInfo = {
+      // From request headers
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      'x-real-ip': req.headers['x-real-ip'],
+      'cf-connecting-ip': req.headers['cf-connecting-ip'], // Cloudflare
+      'x-vercel-forwarded-for': req.headers['x-vercel-forwarded-for'], // Vercel
+      
+      // From Express
+      'req.ip': req.ip,
+      'req.ips': req.ips,
+      'socket.remoteAddress': req.socket?.remoteAddress,
+      
+      // Connection info
+      'req.connection.remoteAddress': req.connection?.remoteAddress,
+      
+      // All headers (for debugging)
+      'all_headers': req.headers
+    };
+
+    // Extract the most likely public IP
+    const publicIP = 
+      req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+      req.headers['x-real-ip'] ||
+      req.headers['x-vercel-forwarded-for'] ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      'Unknown';
+
+    return res.status(200).json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      message: 'IP Information',
+      publicIP: publicIP,
+      details: ipInfo,
+      instructions: {
+        step1: 'Copy the "publicIP" value above',
+        step2: 'Go to MongoDB Atlas → Network Access',
+        step3: 'Click "Add IP Address"',
+        step4: 'Paste the IP address',
+        step5: 'Click "Confirm"',
+        note: 'Or use 0.0.0.0/0 to allow all IPs (easier but less secure)'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ IP info error:', error);
+    
+    return res.status(500).json({
+      success: false,
+      timestamp: new Date().toISOString(),
+      message: '❌ Failed to get IP information',
+      error: {
+        message: error.message
+      }
+    });
+  }
+};
+
 module.exports = {
   checkDatabaseHealth,
   pingDatabase,
   getCompleteHealth,
-  checkEnvironmentVariables
+  checkEnvironmentVariables,
+  getIPInfo
 };
