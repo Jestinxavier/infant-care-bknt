@@ -10,10 +10,10 @@ const PORT = process.env.PORT || 3000;
 
 // Debugging line
 console.log("Environment:", process.env.NODE_ENV);
-console.log("MONGO_URI exists:", !!process.env.MONGO_URI);
+console.log("MONGODB_URI exists:", !!process.env.MONGODB_URI);
 
-if (!process.env.MONGO_URI) {
-  console.error("❌ MONGO_URI is missing. Check your .env file or Vercel environment variables!");
+if (!process.env.MONGODB_URI) {
+  console.error("❌ MONGODB_URI is missing. Check your .env file or Vercel environment variables!");
   // Don't exit in serverless - just log the error
   if (process.env.NODE_ENV !== 'production') {
     process.exit(1);
@@ -38,11 +38,11 @@ const connectDB = async () => {
   }
 
   try {
-    if (!process.env.MONGO_URI) {
-      throw new Error('MONGO_URI is not defined');
+    if (!process.env.MONGODB_URI) {
+      throw new Error('MONGODB_URI is not defined');
     }
 
-    const db = await mongoose.connect(process.env.MONGO_URI, mongooseOptions);
+    const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
     isConnected = db.connections[0].readyState === 1;
     console.log("✅ MongoDB Connected");
   } catch (err) {
