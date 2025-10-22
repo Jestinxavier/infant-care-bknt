@@ -19,8 +19,7 @@ const pendingUserSchema = new mongoose.Schema(
     },
     otpExpires: {
       type: Date,
-      required: true,
-      index: true
+      required: true
     },
     attempts: {
       type: Number,
