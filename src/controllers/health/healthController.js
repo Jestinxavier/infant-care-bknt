@@ -46,9 +46,9 @@ const checkDatabaseHealth = async (req, res) => {
       platform: process.platform,
       environment: process.env.NODE_ENV || 'not set',
       vercelEnvironment: !!process.env.VERCEL,
-      uriConfigured: !!process.env.onlineshopping_MONGODB_URI,
-      uriPreview: process.env.onlineshopping_MONGODB_URI 
-        ? process.env.onlineshopping_MONGODB_URI.substring(0, 60) + '...'
+      uriConfigured: !!process.env.MONGODB_URI,
+      uriPreview: process.env.MONGODB_URI 
+        ? process.env.MONGODB_URI.substring(0, 60) + '...'
         : 'NOT SET',
       connectionOptions: {
         useNewUrlParser: true,
@@ -82,14 +82,14 @@ const checkDatabaseHealth = async (req, res) => {
       response.troubleshooting = {
         possibleReasons: [
           'MongoDB server is down',
-          'Invalid onlineshopping_MONGODB_URI in .env file',
+          'Invalid MONGODB_URI in .env file',
           'Network connectivity issues',
           'Authentication failed',
           'Database does not exist',
           'IP not whitelisted in MongoDB Atlas'
         ],
         checkList: [
-          'Verify onlineshopping_MONGODB_URI is set in Vercel dashboard',
+          'Verify MONGODB_URI is set in Vercel dashboard',
           'Check URI includes database name: /onlineshopping',
           'Whitelist 0.0.0.0/0 in MongoDB Atlas Network Access',
           'Wait 2-3 minutes after IP whitelist changes',
@@ -114,7 +114,7 @@ const checkDatabaseHealth = async (req, res) => {
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
       diagnostics: {
-        uriConfigured: !!process.env.onlineshopping_MONGODB_URI,
+        uriConfigured: !!process.env.MONGODB_URI,
         vercelEnvironment: !!process.env.VERCEL,
         nodeVersion: process.version
       }
@@ -247,10 +247,10 @@ const checkEnvironmentVariables = async (req, res) => {
     const envCheck = {
       NODE_ENV: process.env.NODE_ENV || 'NOT_SET',
       PORT: process.env.PORT || 'NOT_SET',
-      onlineshopping_MONGODB_URI_EXISTS: !!process.env.onlineshopping_MONGODB_URI,
-      onlineshopping_MONGODB_URI_LENGTH: process.env.onlineshopping_MONGODB_URI ? process.env.onlineshopping_MONGODB_URI.length : 0,
-      onlineshopping_MONGODB_URI_PREVIEW: process.env.onlineshopping_MONGODB_URI 
-        ? `${process.env.onlineshopping_MONGODB_URI.substring(0, 20)}...` 
+      MONGODB_URI_EXISTS: !!process.env.MONGODB_URI,
+      MONGODB_URI_LENGTH: process.env.MONGODB_URI ? process.env.MONGODB_URI.length : 0,
+      MONGODB_URI_PREVIEW: process.env.MONGODB_URI 
+        ? `${process.env.MONGODB_URI.substring(0, 20)}...` 
         : 'NOT_SET',
       JWT_SECRET_EXISTS: !!process.env.JWT_SECRET,
       CLOUDINARY_EXISTS: !!process.env.CLOUDINARY_CLOUD_NAME,
@@ -395,14 +395,14 @@ const getConnectionLogs = async (req, res) => {
     // Environment diagnostics
     const environmentDiagnostics = {
       mongodbUri: {
-        exists: !!process.env.onlineshopping_MONGODB_URI,
-        length: process.env.onlineshopping_MONGODB_URI?.length || 0,
-        preview: process.env.onlineshopping_MONGODB_URI 
-          ? `${process.env.onlineshopping_MONGODB_URI.substring(0, 30)}...${process.env.onlineshopping_MONGODB_URI.substring(process.env.onlineshopping_MONGODB_URI.length - 30)}`
+        exists: !!process.env.MONGODB_URI,
+        length: process.env.MONGODB_URI?.length || 0,
+        preview: process.env.MONGODB_URI 
+          ? `${process.env.MONGODB_URI.substring(0, 30)}...${process.env.MONGODB_URI.substring(process.env.MONGODB_URI.length - 30)}`
           : 'NOT SET',
-        hasProtocol: process.env.onlineshopping_MONGODB_URI?.startsWith('mongodb+srv://') || false,
-        hasDatabase: process.env.onlineshopping_MONGODB_URI?.includes('/onlineshopping') || false,
-        hasOptions: process.env.onlineshopping_MONGODB_URI?.includes('?') || false
+        hasProtocol: process.env.MONGODB_URI?.startsWith('mongodb+srv://') || false,
+        hasDatabase: process.env.MONGODB_URI?.includes('/onlineshopping') || false,
+        hasOptions: process.env.MONGODB_URI?.includes('?') || false
       },
       nodejs: {
         version: process.version,
@@ -449,7 +449,7 @@ const getConnectionLogs = async (req, res) => {
       recommendation: mongoose.connection.readyState !== 1 ? {
         message: 'Database is not connected',
         steps: [
-          '1. Verify onlineshopping_MONGODB_URI is set in Vercel Environment Variables',
+          '1. Verify MONGODB_URI is set in Vercel Environment Variables',
           '2. Check URI format: mongodb+srv://user:pass@host/onlineshopping?options',
           '3. Ensure database name "/onlineshopping" is present in URI',
           '4. Whitelist 0.0.0.0/0 in MongoDB Atlas Network Access',

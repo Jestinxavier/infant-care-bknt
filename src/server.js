@@ -22,10 +22,10 @@ const PORT = process.env.PORT || 3000;
 
 // Debugging line
 console.log("Environment:", process.env.NODE_ENV);
-console.log("onlineshopping_MONGODB_URI exists:", !!process.env.onlineshopping_MONGODB_URI);
+console.log("MONGODB_URI exists:", !!process.env.MONGODB_URI);
 
-if (!process.env.onlineshopping_MONGODB_URI) {
-  console.error("❌ onlineshopping_MONGODB_URI is missing. Check your .env file or Vercel environment variables!");
+if (!process.env.MONGODB_URI) {
+  console.error("❌ MONGODB_URI is missing. Check your .env file or Vercel environment variables!");
   // Don't exit in serverless - just log the error
   if (process.env.NODE_ENV !== 'production') {
     process.exit(1);
@@ -53,27 +53,27 @@ const connectDB = async () => {
   }
 
   try {
-    if (!process.env.onlineshopping_MONGODB_URI) {
-      const error = new Error('onlineshopping_MONGODB_URI is not defined');
+    if (!process.env.MONGODB_URI) {
+      const error = new Error('MONGODB_URI is not defined');
       console.error('❌', error.message);
       throw error;
     }
 
     console.log('🔍 Attempting to connect to MongoDB...');
-    console.log('🔍 URI preview:', process.env.onlineshopping_MONGODB_URI.substring(0, 50) + '...');
+    console.log('🔍 URI preview:', process.env.MONGODB_URI.substring(0, 50) + '...');
 
     // For Vercel: Use connection pooling
     if (process.env.VERCEL && attachDatabasePool) {
       console.log('🔄 Setting up Vercel database connection pooling...');
       
       // Create MongoClient for Vercel pooling
-      mongoClient = new MongoClient(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
+      mongoClient = new MongoClient(process.env.MONGODB_URI, mongooseOptions);
       
       // Attach Vercel's database pool
       attachDatabasePool(mongoClient);
       
       // Connect mongoose using the same URI
-      const db = await mongoose.connect(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
+      const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
       isConnected = db.connections[0].readyState === 1;
       console.log("✅ MongoDB Connected with Vercel pooling");
       console.log('📊 Connection state:', db.connections[0].readyState);
@@ -81,7 +81,7 @@ const connectDB = async () => {
     } else {
       // For local development or non-Vercel deployments
       console.log('🔄 Setting up standard MongoDB connection...');
-      const db = await mongoose.connect(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
+      const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
       isConnected = db.connections[0].readyState === 1;
       console.log("✅ MongoDB Connected");
       console.log('📊 Connection state:', db.connections[0].readyState);
