@@ -22,10 +22,10 @@ const PORT = process.env.PORT || 3000;
 
 // Debugging line
 console.log("Environment:", process.env.NODE_ENV);
-console.log("MONGODB_URI exists:", !!process.env.MONGODB_URI);
+console.log("onlineshopping_MONGODB_URI exists:", !!process.env.onlineshopping_MONGODB_URI);
 
-if (!process.env.MONGODB_URI) {
-  console.error("❌ MONGODB_URI is missing. Check your .env file or Vercel environment variables!");
+if (!process.env.onlineshopping_MONGODB_URI) {
+  console.error("❌ onlineshopping_MONGODB_URI is missing. Check your .env file or Vercel environment variables!");
   // Don't exit in serverless - just log the error
   if (process.env.NODE_ENV !== 'production') {
     process.exit(1);
@@ -53,8 +53,8 @@ const connectDB = async () => {
   }
 
   try {
-    if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI is not defined');
+    if (!process.env.onlineshopping_MONGODB_URI) {
+      throw new Error('onlineshopping_MONGODB_URI is not defined');
     }
 
     // For Vercel: Use connection pooling
@@ -62,19 +62,19 @@ const connectDB = async () => {
       console.log('🔄 Setting up Vercel database connection pooling...');
       
       // Create MongoClient for Vercel pooling
-      mongoClient = new MongoClient(process.env.MONGODB_URI, mongooseOptions);
+      mongoClient = new MongoClient(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
       
       // Attach Vercel's database pool
       attachDatabasePool(mongoClient);
       
       // Connect mongoose using the same URI
-      const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+      const db = await mongoose.connect(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
       isConnected = db.connections[0].readyState === 1;
       console.log("✅ MongoDB Connected with Vercel pooling");
     } else {
       // For local development or non-Vercel deployments
       console.log('🔄 Setting up standard MongoDB connection...');
-      const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+      const db = await mongoose.connect(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
       isConnected = db.connections[0].readyState === 1;
       console.log("✅ MongoDB Connected");
     }

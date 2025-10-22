@@ -55,7 +55,7 @@ const checkDatabaseHealth = async (req, res) => {
         details: 'Database connection is not established',
         possibleReasons: [
           'MongoDB server is down',
-          'Invalid MONGODB_URI in .env file',
+          'Invalid onlineshopping_MONGODB_URI in .env file',
           'Network connectivity issues',
           'Authentication failed',
           'Database does not exist'
@@ -206,10 +206,10 @@ const checkEnvironmentVariables = async (req, res) => {
     const envCheck = {
       NODE_ENV: process.env.NODE_ENV || 'NOT_SET',
       PORT: process.env.PORT || 'NOT_SET',
-      MONGODB_URI_EXISTS: !!process.env.MONGODB_URI,
-      MONGODB_URI_LENGTH: process.env.MONGODB_URI ? process.env.MONGODB_URI.length : 0,
-      MONGODB_URI_PREVIEW: process.env.MONGODB_URI 
-        ? `${process.env.MONGODB_URI.substring(0, 20)}...` 
+      onlineshopping_MONGODB_URI_EXISTS: !!process.env.onlineshopping_MONGODB_URI,
+      onlineshopping_MONGODB_URI_LENGTH: process.env.onlineshopping_MONGODB_URI ? process.env.onlineshopping_MONGODB_URI.length : 0,
+      onlineshopping_MONGODB_URI_PREVIEW: process.env.onlineshopping_MONGODB_URI 
+        ? `${process.env.onlineshopping_MONGODB_URI.substring(0, 20)}...` 
         : 'NOT_SET',
       JWT_SECRET_EXISTS: !!process.env.JWT_SECRET,
       CLOUDINARY_EXISTS: !!process.env.CLOUDINARY_CLOUD_NAME,
