@@ -12,6 +12,7 @@ try {
   attachDatabasePool = vercelFunctions.attachDatabasePool;
 } catch (err) {
   // Not in Vercel environment or package not available
+  console.log('ℹ️ Not in Vercel environment - using standard connection');
   attachDatabasePool = null;
 }
 
@@ -32,14 +33,20 @@ if (!process.env.MONGODB_URI) {
   }
 }
 
-// MongoDB connection options for serverless
+// MongoDB connection options optimized for Vercel serverless
 const mongooseOptions = {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
   maxPoolSize: 10, // Maintain up to 10 socket connections
   minPoolSize: 1, // Maintain at least 1 socket connection
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+  maxIdleTimeMS: 5000, // Close idle connections after 5s
+};
+
+// MongoDB Client options for Vercel pooling
+const mongoClientOptions = {
+  maxIdleTimeMS: 5000,
+  maxPoolSize: 10,
+  minPoolSize: 1,
 };
 
 // Handle MongoDB connection for both serverless and traditional deployments
@@ -62,14 +69,14 @@ const connectDB = async () => {
     console.log('🔍 Attempting to connect to MongoDB...');
     console.log('🔍 URI preview:', process.env.MONGODB_URI.substring(0, 50) + '...');
 
-    // For Vercel: Use connection pooling
+    // For Vercel: Use connection pooling with proper cleanup
     if (process.env.VERCEL && attachDatabasePool) {
       console.log('🔄 Setting up Vercel database connection pooling...');
       
-      // Create MongoClient for Vercel pooling
-      mongoClient = new MongoClient(process.env.MONGODB_URI, mongooseOptions);
+      // Create MongoClient for Vercel pooling with optimized options
+      mongoClient = new MongoClient(process.env.MONGODB_URI, mongoClientOptions);
       
-      // Attach Vercel's database pool
+      // Attach Vercel's database pool for proper cleanup on function suspension
       attachDatabasePool(mongoClient);
       
       // Connect mongoose using the same URI
@@ -78,6 +85,7 @@ const connectDB = async () => {
       console.log("✅ MongoDB Connected with Vercel pooling");
       console.log('📊 Connection state:', db.connections[0].readyState);
       console.log('🏛️ Database:', db.connections[0].name);
+      console.log('🔧 Pool config: maxIdleTimeMS=5000, maxPoolSize=10');
     } else {
       // For local development or non-Vercel deployments
       console.log('🔄 Setting up standard MongoDB connection...');
