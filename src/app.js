@@ -1,16 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-const dotenv = require("dotenv");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
-
-// Load default .env
-dotenv.config();
-if (process.env.NODE_ENV === "production") {
-  dotenv.config({ path: "config/production.env" });
-} else {
-  dotenv.config({ path: "config/development.env" });
-}
 
 const app = express();
 // ✅ CORS setup

@@ -49,13 +49,18 @@ let mongoClient = null;
 const connectDB = async () => {
   if (isConnected && mongoose.connection.readyState === 1) {
     console.log('✅ Using existing MongoDB connection');
-    return;
+    return Promise.resolve();
   }
 
   try {
     if (!process.env.onlineshopping_MONGODB_URI) {
-      throw new Error('onlineshopping_MONGODB_URI is not defined');
+      const error = new Error('onlineshopping_MONGODB_URI is not defined');
+      console.error('❌', error.message);
+      throw error;
     }
+
+    console.log('🔍 Attempting to connect to MongoDB...');
+    console.log('🔍 URI preview:', process.env.onlineshopping_MONGODB_URI.substring(0, 50) + '...');
 
     // For Vercel: Use connection pooling
     if (process.env.VERCEL && attachDatabasePool) {
@@ -71,20 +76,27 @@ const connectDB = async () => {
       const db = await mongoose.connect(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
       isConnected = db.connections[0].readyState === 1;
       console.log("✅ MongoDB Connected with Vercel pooling");
+      console.log('📊 Connection state:', db.connections[0].readyState);
+      console.log('🏛️ Database:', db.connections[0].name);
     } else {
       // For local development or non-Vercel deployments
       console.log('🔄 Setting up standard MongoDB connection...');
       const db = await mongoose.connect(process.env.onlineshopping_MONGODB_URI, mongooseOptions);
       isConnected = db.connections[0].readyState === 1;
       console.log("✅ MongoDB Connected");
+      console.log('📊 Connection state:', db.connections[0].readyState);
+      console.log('🏛️ Database:', db.connections[0].name);
     }
+    return Promise.resolve();
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err.message);
+    console.error('🐞 Full error:', err);
     isConnected = false;
     // Don't throw in production serverless - let the app continue
     if (process.env.NODE_ENV !== 'production') {
       throw err;
     }
+    return Promise.reject(err);
   }
 };
 
