@@ -100,19 +100,34 @@ const connectDB = async () => {
   }
 };
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB and start server
+const startServer = async () => {
+  try {
+    // Connect to database first
+    await connectDB();
+    console.log('✅ Database connection established');
+    
+    // For serverless (Vercel), just export the app
+    if (process.env.VERCEL) {
+      console.log('🔧 Running in Vercel serverless mode');
+    } else {
+      // For traditional deployment, start the server
+      app.listen(PORT, () => {
+        console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+        console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs/`);
+        console.log(`🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`);
+        console.log('\n✨ Server is ready to accept requests!\n');
+      });
+    }
+  } catch (error) {
+    console.error('❌ Failed to start server:', error.message);
+    if (process.env.NODE_ENV !== 'production') {
+      process.exit(1);
+    }
+  }
+};
 
-// For serverless (Vercel), export the app
-if (process.env.VERCEL) {
-  module.exports = app;
-} else {
-  // For traditional deployment, start the server
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-    console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs/`);
-    console.log(`🏥 Health Check: http://localhost:${PORT}/api/v1/health/status jest`);
-  });
-}
+// Start the server
+startServer();
 
 module.exports = app;

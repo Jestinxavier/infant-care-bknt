@@ -14,6 +14,7 @@ const {
  */
 exports.requestOTP = async ({ email }) => {
   // Check if email already exists in verified users
+  
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     throw new Error("Email is already registered");
