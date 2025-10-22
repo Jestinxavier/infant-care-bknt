@@ -37,12 +37,41 @@ const checkDatabaseHealth = async (req, res) => {
       };
     }
 
+    // DETAILED DIAGNOSTIC INFO
+    const diagnostics = {
+      connectionState: dbState,
+      stateDescription: status,
+      mongooseVersion: mongoose.version,
+      nodeVersion: process.version,
+      platform: process.platform,
+      environment: process.env.NODE_ENV || 'not set',
+      vercelEnvironment: !!process.env.VERCEL,
+      uriConfigured: !!process.env.onlineshopping_MONGODB_URI,
+      uriPreview: process.env.onlineshopping_MONGODB_URI 
+        ? process.env.onlineshopping_MONGODB_URI.substring(0, 60) + '...'
+        : 'NOT SET',
+      connectionOptions: {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+        maxPoolSize: 10,
+        minPoolSize: 1
+      },
+      lastError: mongoose.connection.error ? {
+        message: mongoose.connection.error.message,
+        code: mongoose.connection.error.code,
+        name: mongoose.connection.error.name
+      } : null
+    };
+
     // Prepare response
     const response = {
       success: isHealthy,
       status: status,
       timestamp: new Date().toISOString(),
       database: dbInfo,
+      diagnostics: diagnostics,
       message: isHealthy 
         ? '✅ Database is connected and healthy' 
         : `❌ Database is ${status}`
@@ -50,15 +79,22 @@ const checkDatabaseHealth = async (req, res) => {
 
     // Add error details if not connected
     if (!isHealthy) {
-      response.error = {
-        state: dbState,
-        details: 'Database connection is not established',
+      response.troubleshooting = {
         possibleReasons: [
           'MongoDB server is down',
           'Invalid onlineshopping_MONGODB_URI in .env file',
           'Network connectivity issues',
           'Authentication failed',
-          'Database does not exist'
+          'Database does not exist',
+          'IP not whitelisted in MongoDB Atlas'
+        ],
+        checkList: [
+          'Verify onlineshopping_MONGODB_URI is set in Vercel dashboard',
+          'Check URI includes database name: /onlineshopping',
+          'Whitelist 0.0.0.0/0 in MongoDB Atlas Network Access',
+          'Wait 2-3 minutes after IP whitelist changes',
+          'Verify MongoDB cluster is active (not paused)',
+          'Check username and password are correct'
         ]
       };
     }
@@ -76,6 +112,11 @@ const checkDatabaseHealth = async (req, res) => {
       error: {
         message: error.message,
         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
+      diagnostics: {
+        uriConfigured: !!process.env.onlineshopping_MONGODB_URI,
+        vercelEnvironment: !!process.env.VERCEL,
+        nodeVersion: process.version
       }
     });
   }
@@ -310,10 +351,138 @@ const getIPInfo = async (req, res) => {
   }
 };
 
+/**
+ * @route   GET /api/v1/health/connection-logs
+ * @desc    Get detailed connection logs and diagnostics
+ * @access  Public
+ */
+const getConnectionLogs = async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    
+    // Detailed connection state
+    const connectionDetails = {
+      readyState: mongoose.connection.readyState,
+      readyStateText: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown',
+      host: mongoose.connection.host || 'not connected',
+      name: mongoose.connection.name || 'not connected',
+      port: mongoose.connection.port || 'not connected',
+      user: mongoose.connection.user || 'not available',
+      
+      // Connection configuration
+      config: {
+        serverSelectionTimeoutMS: mongoose.connection.options?.serverSelectionTimeoutMS || 'not set',
+        socketTimeoutMS: mongoose.connection.options?.socketTimeoutMS || 'not set',
+        maxPoolSize: mongoose.connection.options?.maxPoolSize || 'not set',
+        minPoolSize: mongoose.connection.options?.minPoolSize || 'not set'
+      },
+      
+      // Models and collections
+      models: Object.keys(mongoose.connection.models || {}),
+      collections: Object.keys(mongoose.connection.collections || {}),
+      
+      // Connection client info
+      client: {
+        isConnected: mongoose.connection.readyState === 1,
+        isPending: mongoose.connection.readyState === 2,
+        serverInfo: mongoose.connection.client ? {
+          platform: mongoose.connection.client.platform,
+          driver: mongoose.connection.client.driver
+        } : 'not available'
+      }
+    };
+
+    // Environment diagnostics
+    const environmentDiagnostics = {
+      mongodbUri: {
+        exists: !!process.env.onlineshopping_MONGODB_URI,
+        length: process.env.onlineshopping_MONGODB_URI?.length || 0,
+        preview: process.env.onlineshopping_MONGODB_URI 
+          ? `${process.env.onlineshopping_MONGODB_URI.substring(0, 30)}...${process.env.onlineshopping_MONGODB_URI.substring(process.env.onlineshopping_MONGODB_URI.length - 30)}`
+          : 'NOT SET',
+        hasProtocol: process.env.onlineshopping_MONGODB_URI?.startsWith('mongodb+srv://') || false,
+        hasDatabase: process.env.onlineshopping_MONGODB_URI?.includes('/onlineshopping') || false,
+        hasOptions: process.env.onlineshopping_MONGODB_URI?.includes('?') || false
+      },
+      nodejs: {
+        version: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        memory: {
+          rss: `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)} MB`,
+          heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`
+        }
+      },
+      vercel: {
+        isVercel: !!process.env.VERCEL,
+        region: process.env.VERCEL_REGION || 'not on vercel',
+        env: process.env.VERCEL_ENV || 'not on vercel'
+      },
+      environment: {
+        nodeEnv: process.env.NODE_ENV || 'not set',
+        port: process.env.PORT || 'not set'
+      }
+    };
+
+    // Last connection error if any
+    const lastError = mongoose.connection.error ? {
+      message: mongoose.connection.error.message,
+      name: mongoose.connection.error.name,
+      code: mongoose.connection.error.code,
+      stack: process.env.NODE_ENV === 'development' ? mongoose.connection.error.stack : 'hidden in production'
+    } : null;
+
+    // Connection timeline
+    const connectionTimeline = {
+      serverStartTime: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+      currentTime: new Date().toISOString(),
+      uptime: `${Math.floor(process.uptime() / 3600)}h ${Math.floor((process.uptime() % 3600) / 60)}m ${Math.floor(process.uptime() % 60)}s`
+    };
+
+    return res.status(200).json({
+      success: mongoose.connection.readyState === 1,
+      timestamp: new Date().toISOString(),
+      connection: connectionDetails,
+      environment: environmentDiagnostics,
+      timeline: connectionTimeline,
+      lastError: lastError,
+      recommendation: mongoose.connection.readyState !== 1 ? {
+        message: 'Database is not connected',
+        steps: [
+          '1. Verify onlineshopping_MONGODB_URI is set in Vercel Environment Variables',
+          '2. Check URI format: mongodb+srv://user:pass@host/onlineshopping?options',
+          '3. Ensure database name "/onlineshopping" is present in URI',
+          '4. Whitelist 0.0.0.0/0 in MongoDB Atlas Network Access',
+          '5. Wait 2-3 minutes after making changes',
+          '6. Redeploy on Vercel without cache'
+        ]
+      } : {
+        message: 'Database is connected successfully',
+        status: 'healthy'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Connection logs error:', error);
+    
+    return res.status(500).json({
+      success: false,
+      timestamp: new Date().toISOString(),
+      message: '❌ Failed to retrieve connection logs',
+      error: {
+        message: error.message,
+        name: error.name,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }
+    });
+  }
+};
+
 module.exports = {
   checkDatabaseHealth,
   pingDatabase,
   getCompleteHealth,
   checkEnvironmentVariables,
-  getIPInfo
+  getIPInfo,
+  getConnectionLogs
 };

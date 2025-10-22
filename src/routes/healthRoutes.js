@@ -5,7 +5,8 @@ const {
   pingDatabase,
   getCompleteHealth,
   checkEnvironmentVariables,
-  getIPInfo
+  getIPInfo,
+  getConnectionLogs
 } = require('../controllers/health/healthController');
 
 /**
@@ -127,5 +128,17 @@ router.get('/env-check', checkEnvironmentVariables);
  *         description: IP address information
  */
 router.get('/ip-info', getIPInfo);
+
+/**
+ * @swagger
+ * /api/v1/health/connection-logs:
+ *   get:
+ *     summary: Get detailed MongoDB connection logs and diagnostics
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Detailed connection information
+ */
+router.get('/connection-logs', getConnectionLogs);
 
 module.exports = router;
