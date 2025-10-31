@@ -3,6 +3,7 @@ const { requestOTP, verifyOTP } = require("./register");
 const refreshToken = require("./refreshToken");
 const logout = require("./logout");
 const resendOTP = require("./resendVerification");
+const getProfile = require("./getProfile");
 
 module.exports = {
   login,
@@ -11,4 +12,5 @@ module.exports = {
   refreshToken,
   logout,
   resendOTP,
+  getProfile,
 };

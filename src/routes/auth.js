@@ -1,6 +1,7 @@
 const express = require("express");
-const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP } = require("../controllers/auth");
+const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP, getProfile } = require("../controllers/auth");
 const { registerValidation, loginValidation, validate } = require("../middlewares/validators");
+const verifyToken = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
@@ -292,5 +293,87 @@ router.post("/logout", logout);
  *         description: Email already verified or no pending registration
  */
 router.post("/resend-otp", resendOTP);
+
+/**
+ * @swagger
+ * /api/v1/auth/profile:
+ *   get:
+ *     summary: Get authenticated user profile
+ *     description: Retrieve the current user's profile information using the access token
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: 60d5f484f8d2e63a4c8b4567
+ *                     username:
+ *                       type: string
+ *                       example: johndoe
+ *                     email:
+ *                       type: string
+ *                       example: john@example.com
+ *                     role:
+ *                       type: string
+ *                       example: user
+ *                     isEmailVerified:
+ *                       type: boolean
+ *                       example: true
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: 2023-06-24T10:30:00.000Z
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: 2023-06-24T10:30:00.000Z
+ *       401:
+ *         description: No token provided or invalid token format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: No token provided
+ *       403:
+ *         description: Invalid or expired token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Invalid or expired token
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: User not found
+ */
+router.get("/profile", verifyToken, getProfile);
 
 module.exports = router;
