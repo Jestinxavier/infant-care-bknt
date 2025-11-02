@@ -2,7 +2,12 @@ const authService = require("../../services/service");
 
 const refreshToken = async (req, res) => {
   try {
-    const { token } = req.body;
+    const token = req.cookies?.refresh_token;
+
+    console.log("-------------------------", req.cookies);
+    if (!token) {
+      return res.status(401).json({ message: "No refresh token provided" });
+    }
     const newAccessToken = await authService.refreshAccessToken(token);
     res.json({ accessToken: newAccessToken });
   } catch (err) {

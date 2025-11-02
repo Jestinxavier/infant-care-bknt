@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
+const cookieParser = require("cookie-parser");
 
 const app = express();
 // ✅ CORS setup
@@ -12,6 +13,9 @@ app.use(
     credentials: true,
   })
 );
+
+// Cookie Parser Middleware
+app.use(cookieParser());
 
 // Middleware
 app.use(express.json());
