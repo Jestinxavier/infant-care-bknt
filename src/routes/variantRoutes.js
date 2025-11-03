@@ -1,9 +1,83 @@
 const express = require("express");
 const { parser } = require("../config/cloudinary");
 const verifyToken = require("../middlewares/authMiddleware");
-const {updateVariant} = require("../controllers/Variant");
+const {updateVariant, getAllVariants} = require("../controllers/Variant");
 
 const router = express.Router();
+
+/**
+ * @swagger
+ * /api/v1/variants/all:
+ *   get:
+ *     summary: Get all product variants
+ *     tags: [Variants]
+ *     parameters:
+ *       - in: query
+ *         name: productId
+ *         schema:
+ *           type: string
+ *         description: Filter by product ID
+ *         example: 64abc123def456789
+ *       - in: query
+ *         name: color
+ *         schema:
+ *           type: string
+ *         description: Filter by color
+ *         example: Red
+ *       - in: query
+ *         name: size
+ *         schema:
+ *           type: string
+ *         description: Filter by size
+ *         example: M
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: number
+ *         description: Minimum price filter
+ *         example: 100
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: number
+ *         description: Maximum price filter
+ *         example: 1000
+ *       - in: query
+ *         name: inStock
+ *         schema:
+ *           type: boolean
+ *         description: Filter by stock availability
+ *         example: true
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [price-low-to-high, price-high-to-low, highest-rated, most-popular]
+ *         description: Sort variants by different criteria
+ *         example: price-low-to-high
+ *     responses:
+ *       200:
+ *         description: Variants retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 totalVariants:
+ *                   type: number
+ *                   example: 25
+ *                 variants:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Variant'
+ *       500:
+ *         description: Server error
+ */
+// Get all variants
+router.get("/all", getAllVariants);
 
 /**
  * @swagger
