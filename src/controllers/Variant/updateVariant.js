@@ -3,14 +3,14 @@ const { parser } = require("../../config/cloudinary");
 
 const updateVariant = async (req, res) => {
   try {
-    const { variantId, color, size, price, stock } = req.body;
+    const { variantId, color, age, price, stock } = req.body;
 
     const variant = await Variant.findById(variantId);
     if (!variant) return res.status(404).json({ message: "Variant not found" });
 
     // Update basic fields
     if (color) variant.color = color;
-    if (size) variant.size = size;
+    if (age) variant.age = age;
     if (price) variant.price = price;
     if (stock) variant.stock = stock;
 
@@ -22,7 +22,12 @@ const updateVariant = async (req, res) => {
 
     await variant.save();
 
-    res.status(200).json({ message: "Variant updated successfully", variant });
+    // Handle response to ensure consistency
+    const variantResponse = variant.toObject();
+    // Remove size field from response if it exists (for backward compatibility)
+    delete variantResponse.size;
+
+    res.status(200).json({ message: "Variant updated successfully", variant: variantResponse });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

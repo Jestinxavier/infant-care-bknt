@@ -52,7 +52,7 @@ const router = express.Router();
  *               variants:
  *                 type: string
  *                 description: JSON string array of variants
- *                 example: '[{"size":"M","color":"Red","price":999,"stock":50}]'
+ *                 example: '[{"age":"M","color":"Red","price":999,"stock":50}]'
  *     responses:
  *       201:
  *         description: Product created successfully
@@ -272,7 +272,7 @@ router.get("/all", getAllProducts);
  *                     properties:
  *                       _id:
  *                         type: string
- *                       size:
+ *                       age:
  *                         type: string
  *                       color:
  *                         type: string
@@ -340,7 +340,7 @@ router.get("/:productId", getProductById);
  *                           type: number
  *                         totalReviews:
  *                           type: number
- *                     size:
+ *                     age:
  *                       type: string
  *                     color:
  *                       type: string

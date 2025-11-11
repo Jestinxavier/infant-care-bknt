@@ -24,6 +24,10 @@ const pendingUserSchema = new mongoose.Schema(
     attempts: {
       type: Number,
       default: 0
+    },
+    isLoginOTP: {
+      type: Boolean,
+      default: false
     }
   },
   { timestamps: true }

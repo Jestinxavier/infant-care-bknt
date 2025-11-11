@@ -12,16 +12,16 @@ const createProduct = async (req, res) => {
 
     // Map images to variants dynamically
     const variantData = variantsArray.map((v) => {
-      // Match images whose fieldname ends with this variant SKU or size
+      // Match images whose fieldname ends with this variant SKU or age
       console.log(req.files, "file****"); // should show array of uploaded files
       const images = req.files
-        .filter((f) => f.fieldname.includes(v.sku || v.size))
+        .filter((f) => f.fieldname.includes(v.sku || v.age))
         .map((f) => f.path); // Cloudinary URL
 
       return {
         productId: product._id,
         color: v.color,
-        size: v.size,
+        age: v.age,
         price: v.price,
         stock: v.stock,
         sku: v.sku,

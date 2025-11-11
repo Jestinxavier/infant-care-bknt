@@ -196,7 +196,7 @@ GET http://localhost:3000/api/v1/product/YOUR_PRODUCT_ID
   "success": true,
   "variant": {
     "_id": "64abc123def456790",
-    "size": "42",
+    "age": "42",
     "color": "Black",
     "price": 12999,
     "averageRating": 4.8,

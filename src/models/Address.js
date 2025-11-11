@@ -8,13 +8,21 @@ const addressSchema = new mongoose.Schema({
     required: true
   },
   name: String,
+  fullName: String,
   phone: String,
-  addressLine1: String,
-  addressLine2: String,
+  houseName: String,
+  street: String,
+  landmark: String,
+  addressLine1: String, // Keep for backward compatibility
+  addressLine2: String, // Keep for backward compatibility
   city: String,
   state: String,
   postalCode: String,
-  country: String,
+  pincode: String, // Keep for backward compatibility
+  country: {
+    type: String,
+    default: "India"
+  },
   isDefault: {
     type: Boolean,
     default: false
@@ -24,7 +32,7 @@ const addressSchema = new mongoose.Schema({
 // Optional: prevent duplicate addresses for same user
 addressSchema.index({
   userId: 1,
-  addressLine1: 1,
+  street: 1,
   city: 1,
   postalCode: 1
 }, { unique: false });

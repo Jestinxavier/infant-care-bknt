@@ -539,7 +539,7 @@ await Variant.create([
   {
     productId: product._id,
     color: "Red",
-    size: "S",
+    age: "S",
     price: 500,
     stock: 10,
     sku: "FLD-RED-S",
@@ -551,7 +551,7 @@ await Variant.create([
   {
     productId: product._id,
     color: "Red",
-    size: "M",
+    age: "M",
     price: 500,
     stock: 5,
     sku: "FLD-RED-M",
@@ -563,7 +563,7 @@ await Variant.create([
   {
     productId: product._id,
     color: "Blue",
-    size: "S",
+    age: "S",
     price: 550,
     stock: 8,
     sku: "FLD-BLU-S",
@@ -583,7 +583,7 @@ await Variant.create([
     "_id": "64d90123456789abcdef1234",
     "productId": "64d8f9e7c1234a0b1c234567",
     "color": "Red",
-    "size": "S",
+    "age": "S",
     "price": 500,
     "stock": 10,
     "sku": "FLD-RED-S",
@@ -596,7 +596,7 @@ await Variant.create([
     "_id": "64d90123456789abcdef1235",
     "productId": "64d8f9e7c1234a0b1c234567",
     "color": "Red",
-    "size": "M",
+    "age": "M",
     "price": 500,
     "stock": 5,
     "sku": "FLD-RED-M",
@@ -609,7 +609,7 @@ await Variant.create([
     "_id": "64d90123456789abcdef1236",
     "productId": "64d8f9e7c1234a0b1c234567",
     "color": "Blue",
-    "size": "S",
+    "age": "S",
     "price": 550,
     "stock": 8,
     "sku": "FLD-BLU-S",
@@ -626,7 +626,7 @@ await Variant.create([
 ### **3️ How It Works**
 
 - **Product** document stores general info about the item (name, category, description).
-- **Variant** documents store **specific combinations** (size, color), their price, stock, SKU, and images.
+- **Variant** documents store **specific combinations** (age, color), their price, stock, SKU, and images.
 - **Frontend usage:** Fetch product + variants using `productId` to display all options on a single product page.
 
 **Benefits of this approach:**
@@ -692,14 +692,14 @@ Paste this JSON as a **text string** in your form-data:
   {
     "sku": "FLD-RED-S",
     "color": "Red",
-    "size": "S",
+    "age": "S",
     "price": 500,
     "stock": 10
   },
   {
     "sku": "FLD-RED-M",
     "color": "Red",
-    "size": "M",
+    "age": "M",
     "price": 500,
     "stock": 5
   }
@@ -716,7 +716,7 @@ curl -X POST http://localhost:3000/api/products/create \
   -F "name=Floral Dress" \
   -F "description=Beautiful summer floral dress" \
   -F "category=Dresses" \
-  -F 'variants=[{"sku":"FLD-RED-S","color":"Red","size":"S","price":500,"stock":10},{"sku":"FLD-RED-M","color":"Red","size":"M","price":500,"stock":5}]' \
+  -F 'variants=[{"sku":"FLD-RED-S","color":"Red","age":"S","price":500,"stock":10},{"sku":"FLD-RED-M","color":"Red","age":"M","price":500,"stock":5}]' \
   -F "images-FLD-RED-S=@/path/to/small1.jpg" \
   -F "images-FLD-RED-S=@/path/to/small2.jpg" \
   -F "images-FLD-RED-M=@/path/to/medium1.jpg"

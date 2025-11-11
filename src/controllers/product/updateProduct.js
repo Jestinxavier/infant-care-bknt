@@ -23,14 +23,14 @@ const updateProduct = async (req, res) => {
         let variant = await Variant.findOne({ _id: v._id });
         if (variant) {
           variant.color = v.color || variant.color;
-          variant.size = v.size || variant.size;
+          variant.age = v.age || variant.age;
           variant.price = v.price || variant.price;
           variant.stock = v.stock || variant.stock;
 
           // Update images if new files uploaded
           if (req.files && req.files.length > 0) {
             const images = req.files
-              .filter((f) => f.fieldname.includes(v.sku || v.size))
+              .filter((f) => f.fieldname.includes(v.sku || v.age))
               .map((f) => f.path);
             if (images.length > 0) variant.images = images;
           }
@@ -39,13 +39,13 @@ const updateProduct = async (req, res) => {
         } else {
           // Create new variant
           const images = req.files
-            .filter((f) => f.fieldname.includes(v.sku || v.size))
+            .filter((f) => f.fieldname.includes(v.sku || v.age))
             .map((f) => f.path);
 
           await Variant.create({
             productId,
             color: v.color,
-            size: v.size,
+            age: v.age,
             price: v.price,
             stock: v.stock,
             sku: v.sku,

@@ -55,6 +55,11 @@ const options = {
               description: 'User email',
               example: 'john@example.com',
             },
+            phone: {
+              type: 'string',
+              description: 'User phone number',
+              example: '+91 9876543210',
+            },
             password: {
               type: 'string',
               format: 'password',
@@ -110,7 +115,7 @@ const options = {
             productId: {
               type: 'string',
             },
-            size: {
+            age: {
               type: 'string',
               example: 'M',
             },
@@ -196,13 +201,30 @@ const options = {
               type: 'string',
               example: '9876543210',
             },
+            houseName: {
+              type: 'string',
+              example: 'Green Villa',
+              description: 'House/Building name',
+            },
+            street: {
+              type: 'string',
+              example: '123 Main Street',
+              description: 'Street address',
+            },
+            landmark: {
+              type: 'string',
+              example: 'Near City Mall',
+              description: 'Landmark for easy location',
+            },
             addressLine1: {
               type: 'string',
               example: '123 Main Street',
+              description: 'Address line 1 (kept for backward compatibility)',
             },
             addressLine2: {
               type: 'string',
-              example: 'Apt 4B',
+              example: 'Near City Mall',
+              description: 'Address line 2 (kept for backward compatibility)',
             },
             city: {
               type: 'string',
@@ -216,9 +238,19 @@ const options = {
               type: 'string',
               example: '400001',
             },
+            postalCode: {
+              type: 'string',
+              example: '400001',
+              description: 'Postal code (kept for backward compatibility)',
+            },
             country: {
               type: 'string',
               example: 'India',
+              default: 'India',
+            },
+            isDefault: {
+              type: 'boolean',
+              example: false,
             },
           },
         },
@@ -295,6 +327,93 @@ const options = {
             },
             error: {
               type: 'string',
+            },
+          },
+        },
+        CheckUserResponse: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true,
+            },
+            exists: {
+              type: 'boolean',
+              example: true,
+              description: 'Whether the user exists with the given email',
+            },
+            message: {
+              type: 'string',
+              example: 'User exists with this email',
+            },
+          },
+        },
+        LoginOTPResponse: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true,
+            },
+            message: {
+              type: 'string',
+              example: 'OTP sent to your email. Please verify to login.',
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              example: 'john@example.com',
+            },
+            expiresIn: {
+              type: 'string',
+              example: '10 minutes',
+            },
+          },
+        },
+        VerifyLoginOTPResponse: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true,
+            },
+            message: {
+              type: 'string',
+              example: 'Login successful!',
+            },
+            accessToken: {
+              type: 'string',
+              example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            },
+            refreshToken: {
+              type: 'string',
+              example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            },
+            user: {
+              type: 'object',
+              properties: {
+                id: {
+                  type: 'string',
+                  example: '64abc123def456789',
+                },
+                username: {
+                  type: 'string',
+                  example: 'johndoe',
+                },
+                email: {
+                  type: 'string',
+                  format: 'email',
+                  example: 'john@example.com',
+                },
+                role: {
+                  type: 'string',
+                  example: 'user',
+                },
+                isEmailVerified: {
+                  type: 'boolean',
+                  example: true,
+                },
+              },
             },
           },
         },

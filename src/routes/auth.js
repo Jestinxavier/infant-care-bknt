@@ -1,9 +1,153 @@
 const express = require("express");
-const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP, getProfile } = require("../controllers/auth");
+const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP, getProfile, updateProfile, checkUserExists, requestLoginOTP, verifyLoginOTP } = require("../controllers/auth");
 const { registerValidation, loginValidation, validate } = require("../middlewares/validators");
 const verifyToken = require("../middlewares/authMiddleware");
 
 const router = express.Router();
+
+/**
+ * @swagger
+ * /api/v1/auth/check-user:
+ *   post:
+ *     summary: Check if user exists by email
+ *     description: Check if a user account exists with the given email address
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *     responses:
+ *       200:
+ *         description: User check completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CheckUserResponse'
+ *       400:
+ *         description: Email is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/check-user", checkUserExists);
+
+/**
+ * @swagger
+ * /api/v1/auth/request-login-otp:
+ *   post:
+ *     summary: Request OTP for login (existing user)
+ *     description: Send a 6-digit OTP to email for existing user login
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *     responses:
+ *       200:
+ *         description: OTP sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/LoginOTPResponse'
+ *       404:
+ *         description: No account found with this email
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       400:
+ *         description: Email not verified or failed to send OTP
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/request-login-otp", requestLoginOTP);
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-login-otp:
+ *   post:
+ *     summary: Verify OTP and login (existing user)
+ *     description: Verify the OTP and login existing user
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *               otp:
+ *                 type: string
+ *                 example: "123456"
+ *                 minLength: 6
+ *                 maxLength: 6
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VerifyLoginOTPResponse'
+ *       400:
+ *         description: Invalid OTP, expired OTP, or too many attempts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: No account found with this email
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post("/verify-login-otp", verifyLoginOTP);
 
 /**
  * @swagger
@@ -375,5 +519,103 @@ router.post("/resend-otp", resendOTP);
  *                   example: User not found
  */
 router.get("/profile", verifyToken, getProfile);
+
+/**
+ * @swagger
+ * /api/v1/auth/profile:
+ *   put:
+ *     summary: Update authenticated user profile
+ *     description: Update the current user's profile information (username, email, phone)
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 minLength: 3
+ *                 example: johndoe
+ *                 description: New username (optional, must be unique)
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *                 description: New email (optional, must be unique, will mark email as unverified if changed)
+ *               phone:
+ *                 type: string
+ *                 example: "+91 9876543210"
+ *                 description: Phone number (optional)
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Profile updated successfully
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: 60d5f484f8d2e63a4c8b4567
+ *                     username:
+ *                       type: string
+ *                       example: johndoe
+ *                     email:
+ *                       type: string
+ *                       example: john@example.com
+ *                     phone:
+ *                       type: string
+ *                       example: "+91 9876543210"
+ *                     role:
+ *                       type: string
+ *                       example: user
+ *                     isEmailVerified:
+ *                       type: boolean
+ *                       example: true
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     updatedAt:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Username or email already taken, or validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: No token provided or invalid token format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal Server Error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.put("/profile", verifyToken, updateProfile);
 
 module.exports = router;

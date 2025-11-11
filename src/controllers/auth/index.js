@@ -4,6 +4,9 @@ const refreshToken = require("./refreshToken");
 const logout = require("./logout");
 const resendOTP = require("./resendVerification");
 const getProfile = require("./getProfile");
+const updateProfile = require("./updateProfile");
+const checkUserExists = require("./checkUserExists");
+const { requestLoginOTP, verifyLoginOTP } = require("./loginWithOTP");
 
 module.exports = {
   login,
@@ -13,4 +16,8 @@ module.exports = {
   logout,
   resendOTP,
   getProfile,
+  updateProfile,
+  checkUserExists,
+  requestLoginOTP,
+  verifyLoginOTP,
 };

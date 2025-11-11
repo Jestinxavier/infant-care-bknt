@@ -207,7 +207,7 @@ All schemas are documented in Swagger UI:
 
 - **User** - User account information
 - **Product** - Product details
-- **Variant** - Product variant (size, color, price, stock)
+- **Variant** - Product variant (age, color, price, stock)
 - **Order** - Order with items and payment info
 - **Payment** - Payment transaction details
 - **Address** - Delivery address

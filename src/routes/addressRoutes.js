@@ -18,11 +18,10 @@ const { createAddress,getAddresses,updateAddress } = require("../controllers/add
  *               - userId
  *               - fullName
  *               - phone
- *               - addressLine1
+ *               - street
  *               - city
  *               - state
  *               - pincode
- *               - country
  *             properties:
  *               userId:
  *                 type: string
@@ -33,12 +32,25 @@ const { createAddress,getAddresses,updateAddress } = require("../controllers/add
  *               phone:
  *                 type: string
  *                 example: '9876543210'
+ *               houseName:
+ *                 type: string
+ *                 example: Green Villa
+ *                 description: House/Building name (optional)
+ *               street:
+ *                 type: string
+ *                 example: 123 Main Street
+ *               landmark:
+ *                 type: string
+ *                 example: Near City Mall
+ *                 description: Landmark for easy location (optional)
  *               addressLine1:
  *                 type: string
  *                 example: 123 Main Street
+ *                 description: Address line 1 (kept for backward compatibility, use street instead)
  *               addressLine2:
  *                 type: string
- *                 example: Apt 4B
+ *                 example: Near City Mall
+ *                 description: Address line 2 (kept for backward compatibility, use landmark instead)
  *               city:
  *                 type: string
  *                 example: Mumbai
@@ -48,9 +60,17 @@ const { createAddress,getAddresses,updateAddress } = require("../controllers/add
  *               pincode:
  *                 type: string
  *                 example: '400001'
+ *               postalCode:
+ *                 type: string
+ *                 example: '400001'
+ *                 description: Postal code (kept for backward compatibility, use pincode instead)
  *               country:
  *                 type: string
  *                 example: India
+ *                 default: India
+ *               isDefault:
+ *                 type: boolean
+ *                 example: false
  *     responses:
  *       201:
  *         description: Address created successfully
@@ -133,12 +153,25 @@ router.get("/:userId", getAddresses);
  *               phone:
  *                 type: string
  *                 example: '9876543211'
+ *               houseName:
+ *                 type: string
+ *                 example: Blue Villa
+ *                 description: House/Building name (optional)
+ *               street:
+ *                 type: string
+ *                 example: 456 New Street
+ *               landmark:
+ *                 type: string
+ *                 example: Near Park
+ *                 description: Landmark for easy location (optional)
  *               addressLine1:
  *                 type: string
  *                 example: 456 New Street
+ *                 description: Address line 1 (kept for backward compatibility, use street instead)
  *               addressLine2:
  *                 type: string
  *                 example: Suite 5C
+ *                 description: Address line 2 (kept for backward compatibility, use landmark instead)
  *               city:
  *                 type: string
  *                 example: Delhi
@@ -148,9 +181,17 @@ router.get("/:userId", getAddresses);
  *               pincode:
  *                 type: string
  *                 example: '110001'
+ *               postalCode:
+ *                 type: string
+ *                 example: '110001'
+ *                 description: Postal code (kept for backward compatibility, use pincode instead)
  *               country:
  *                 type: string
  *                 example: India
+ *                 default: India
+ *               isDefault:
+ *                 type: boolean
+ *                 example: false
  *     responses:
  *       200:
  *         description: Address updated successfully

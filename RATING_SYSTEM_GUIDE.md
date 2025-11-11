@@ -37,9 +37,9 @@ graph TB
 ### Example Calculation
 
 **Product: Nike Air Max 270**
-- Variant 1 (Size 42, Black): 5 reviews → Avg: 4.6 ⭐
-- Variant 2 (Size 43, White): 3 reviews → Avg: 4.3 ⭐
-- Variant 3 (Size 44, Red): 2 reviews → Avg: 5.0 ⭐
+- Variant 1 (Age 42, Black): 5 reviews → Avg: 4.6 ⭐
+- Variant 2 (Age 43, White): 3 reviews → Avg: 4.3 ⭐
+- Variant 3 (Age 44, Red): 2 reviews → Avg: 5.0 ⭐
 
 **Product Overall Rating**: (4.6 + 4.3 + 5.0 + 4.6 + 4.3 + 5.0 + 4.6 + 4.3 + 5.0 + 5.0) / 10 = **4.67** ⭐  
 **Total Reviews**: 10
@@ -68,7 +68,7 @@ graph TB
 {
   productId: ObjectId (ref: Product),
   color: String,
-  size: String,
+  age: String,
   price: Number,
   stock: Number,
   sku: String,
@@ -206,7 +206,7 @@ GET http://localhost:3000/api/v1/product/all?category=Clothing&minRating=4.5&sor
     {
       "_id": "64abc123def456790",
       "productId": "64abc123def456788",
-      "size": "42",
+      "age": "42",
       "color": "Black",
       "price": 12999,
       "stock": 25,
@@ -217,7 +217,7 @@ GET http://localhost:3000/api/v1/product/all?category=Clothing&minRating=4.5&sor
     {
       "_id": "64abc123def456791",
       "productId": "64abc123def456788",
-      "size": "43",
+      "age": "43",
       "color": "White",
       "price": 12999,
       "stock": 30,
@@ -250,7 +250,7 @@ GET http://localhost:3000/api/v1/product/all?category=Clothing&minRating=4.5&sor
       "averageRating": 4.67,
       "totalReviews": 10
     },
-    "size": "42",
+    "age": "42",
     "color": "Black",
     "price": 12999,
     "stock": 25,

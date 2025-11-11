@@ -235,7 +235,7 @@ Request body (multipart/form-data):
 │ category *       Clothing           │
 │ brand *          Nike               │
 │ images          [Choose Files]      │
-│ variants *      [{"size":"M",...}]  │
+│ variants *      [{"age":"M",...}]  │
 └─────────────────────────────────────┘
 
 Response (201):

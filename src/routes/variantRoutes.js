@@ -25,10 +25,10 @@ const router = express.Router();
  *         description: Filter by color
  *         example: Red
  *       - in: query
- *         name: size
+ *         name: age
  *         schema:
  *           type: string
- *         description: Filter by size
+ *         description: Filter by age
  *         example: M
  *       - in: query
  *         name: minPrice
@@ -100,7 +100,7 @@ router.get("/all", getAllVariants);
  *                 type: string
  *                 description: Variant ID to update
  *                 example: 64abc123def456790
- *               size:
+ *               age:
  *                 type: string
  *                 example: L
  *               color:
