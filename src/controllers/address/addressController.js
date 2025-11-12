@@ -16,7 +16,8 @@ const createAddress = async (req, res) => {
       postalCode,
       pincode, // Keep for backward compatibility
       country = "India", // Default to India
-      isDefault 
+      isDefault,
+      nickname = "Home" // Default nickname
     } = req.body;
 
     // Use street if provided, otherwise fallback to addressLine1
@@ -25,6 +26,14 @@ const createAddress = async (req, res) => {
     const finalLandmark = landmark || addressLine2;
     // Use pincode if provided, otherwise fallback to postalCode
     const finalPincode = pincode || postalCode;
+
+    // If this address is set as default, unset all other default addresses for this user
+    if (isDefault) {
+      await Address.updateMany(
+        { userId, isDefault: true },
+        { $set: { isDefault: false } }
+      );
+    }
 
     const address = new Address({
       userId,
@@ -40,7 +49,8 @@ const createAddress = async (req, res) => {
       postalCode: finalPincode,
       pincode: finalPincode, // Keep for backward compatibility
       country: country || "India", // Default to India
-      isDefault
+      isDefault: isDefault || false,
+      nickname: nickname || "Home"
     });
 
     await address.save();

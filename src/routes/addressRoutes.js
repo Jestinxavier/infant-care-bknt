@@ -71,6 +71,11 @@ const { createAddress,getAddresses,updateAddress } = require("../controllers/add
  *               isDefault:
  *                 type: boolean
  *                 example: false
+ *               nickname:
+ *                 type: string
+ *                 example: Home
+ *                 description: Nickname for the address (e.g., Home, Office, Front Home)
+ *                 default: Home
  *     responses:
  *       201:
  *         description: Address created successfully
@@ -121,6 +126,11 @@ router.post("/create", createAddress);
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/Address'
+ *                 message:
+ *                   type: string
+ *                   example: ✅ Addresses fetched successfully
+ *       400:
+ *         description: User ID is required
  *       404:
  *         description: No addresses found
  */
@@ -192,6 +202,10 @@ router.get("/:userId", getAddresses);
  *               isDefault:
  *                 type: boolean
  *                 example: false
+ *               nickname:
+ *                 type: string
+ *                 example: Office
+ *                 description: Nickname for the address (e.g., Home, Office, Front Home)
  *     responses:
  *       200:
  *         description: Address updated successfully

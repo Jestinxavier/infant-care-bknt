@@ -5,15 +5,16 @@ const Payment = require("../../models/Payment");
  
 const createOrder = async (req, res) => {
   try {
-    const { userId, items, addressId, newAddress, paymentMethod } = req.body;
+    const { userId, items, addressId, newAddress, paymentMethod, shippingCost = 0, discount = 0 } = req.body;
 
     if (!userId || !items || items.length === 0) {
       return res.status(400).json({ message: "User ID and order items are required" });
     }
 
-    // Step 1: Build items with full data and calculate total
-    let totalAmount = 0;
+    // Step 1: Validate stock availability and build items with full data
+    let subtotal = 0;
     const orderItems = [];
+    const variantsToUpdate = [];
 
     for (const item of items) {
       const variant = await Variant.findById(item.variantId).populate("productId");
@@ -21,8 +22,15 @@ const createOrder = async (req, res) => {
         return res.status(404).json({ message: `Variant not found: ${item.variantId}` });
       }
 
+      // Check stock availability
+      if (variant.stock < item.quantity) {
+        return res.status(400).json({ 
+          message: `Insufficient stock for ${variant.productId?.name || 'product'}. Available: ${variant.stock}, Requested: ${item.quantity}` 
+        });
+      }
+
       const price = variant.price;
-      totalAmount += price * item.quantity;
+      subtotal += price * item.quantity;
 
       orderItems.push({
         productId: variant.productId._id,
@@ -30,7 +38,19 @@ const createOrder = async (req, res) => {
         quantity: item.quantity,
         price
       });
+
+      // Store variant and quantity for stock update
+      variantsToUpdate.push({
+        variantId: variant._id,
+        quantity: item.quantity,
+        currentStock: variant.stock
+      });
     }
+
+    // Calculate total amount: subtotal + shipping - discount
+    const finalDiscount = discount || 0;
+    const finalShippingCost = shippingCost || 0;
+    const totalAmount = subtotal + finalShippingCost - finalDiscount;
 
     // Step 2: Handle Address
     let finalAddressId = addressId;
@@ -48,14 +68,33 @@ const createOrder = async (req, res) => {
     const order = new Order({
       userId,
       items: orderItems,
+      subtotal,
+      shippingCost: finalShippingCost,
+      discount: finalDiscount,
       totalAmount,
       addressId: finalAddressId,
-      paymentMethod
+      paymentMethod: paymentMethod || "COD"
     });
 
     await order.save();
 
-    // Step 4: Create Payment Record
+    // Step 4: Reduce stock for all variants
+    // Note: Stock is validated before order creation, but we use $inc for atomic decrement
+    for (const item of variantsToUpdate) {
+      const updatedVariant = await Variant.findByIdAndUpdate(
+        item.variantId,
+        { $inc: { stock: -item.quantity } }, // Decrement stock by ordered quantity
+        { new: true }
+      );
+      
+      // Safety check: Ensure stock doesn't go negative (shouldn't happen due to validation)
+      if (updatedVariant && updatedVariant.stock < 0) {
+        console.error(`⚠️ Warning: Stock went negative for variant ${item.variantId}. Stock: ${updatedVariant.stock}`);
+        // In production, you might want to rollback the order here
+      }
+    }
+
+    // Step 5: Create Payment Record
     const payment = new Payment({
       orderId: order._id,
       userId,
@@ -66,7 +105,7 @@ const createOrder = async (req, res) => {
 
     await payment.save();
 
-    // Step 5: If PhonePe or Razorpay, return order details for payment initialization
+    // Step 6: If PhonePe or Razorpay, return order details for payment initialization
     if (paymentMethod === "PhonePe") {
       return res.status(201).json({
         success: true,

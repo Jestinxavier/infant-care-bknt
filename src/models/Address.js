@@ -8,6 +8,10 @@ const addressSchema = new mongoose.Schema({
     required: true
   },
   name: String,
+  nickname: {
+    type: String,
+    default: "Home"
+  },
   fullName: String,
   phone: String,
   houseName: String,
