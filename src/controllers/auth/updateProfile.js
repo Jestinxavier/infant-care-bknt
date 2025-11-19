@@ -16,6 +16,11 @@ const updateProfile = async (req, res) => {
       });
     }
 
+    // Handle avatar upload if file is present
+    if (req.file && req.file.path) {
+      user.avatar = req.file.path; // Cloudinary URL
+    }
+
     // Check if username is being changed and if it's already taken
     if (username && username !== user.username) {
       const existingUser = await User.findOne({ username });
@@ -58,6 +63,7 @@ const updateProfile = async (req, res) => {
         username: user.username,
         email: user.email,
         phone: user.phone,
+        avatar: user.avatar,
         role: user.role,
         isEmailVerified: user.isEmailVerified,
         createdAt: user.createdAt,

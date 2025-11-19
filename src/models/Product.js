@@ -4,7 +4,14 @@ const mongoose = require("mongoose");
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
   description: String,
-  category: { type: String, required: true },
+  category: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: "Category", 
+    required: true,
+    index: true
+  },
+  // Keep legacy category string for backward compatibility during migration
+  categoryName: { type: String },
   tags: [String],
   basePrice: Number,
   // Rating fields (aggregated from all variants)

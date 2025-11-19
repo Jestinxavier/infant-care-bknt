@@ -196,8 +196,9 @@ const sendPasswordResetEmail = async (user, resetToken) => {
   try {
     const transporter = createTransporter();
 
+    // Use dashboard URL for admin password reset, fallback to frontend URL
     const resetUrl = `${
-      process.env.FRONTEND_URL || "http://localhost:3000"
+      process.env.DASHBOARD_URL || process.env.FRONTEND_URL || "http://localhost:5173"
     }/reset-password?token=${resetToken}`;
 
     const mailOptions = {
@@ -252,9 +253,132 @@ const sendPasswordResetEmail = async (user, resetToken) => {
   }
 };
 
+/**
+ * Send admin credentials email
+ * @param {Object} user - User object with email and username
+ * @param {string} password - Generated password
+ */
+const sendAdminCredentialsEmail = async (user, password) => {
+  try {
+    const transporter = createTransporter();
+
+    const mailOptions = {
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
+        process.env.EMAIL_USER
+      }>`,
+      to: user.email,
+      subject: "🔐 Admin Account Created - Dashboard Access Credentials",
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f4f4; }
+            .container { max-width: 600px; margin: 30px auto; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; }
+            .header h1 { margin: 0; font-size: 28px; font-weight: bold; }
+            .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 16px; }
+            .content { padding: 40px 30px; background: #ffffff; }
+            .credentials-box { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border: 2px solid #667eea; padding: 25px; margin: 25px 0; border-radius: 10px; text-align: center; }
+            .credential-item { margin: 15px 0; }
+            .credential-label { font-size: 14px; color: #666; margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+            .credential-value { font-size: 24px; font-weight: bold; color: #667eea; font-family: 'Courier New', monospace; padding: 12px; background: white; border-radius: 6px; margin-top: 5px; display: inline-block; min-width: 200px; }
+            .password-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 20px; margin: 25px 0; border-radius: 5px; }
+            .password-box strong { color: #856404; display: block; margin-bottom: 10px; font-size: 16px; }
+            .password-box ul { margin: 10px 0; padding-left: 20px; color: #856404; }
+            .password-box li { margin: 5px 0; }
+            .info-box { background: #e7f3ff; border-left: 4px solid #2196F3; padding: 20px; margin: 25px 0; border-radius: 5px; }
+            .info-box strong { color: #0d47a1; display: block; margin-bottom: 10px; font-size: 16px; }
+            .button { display: inline-block; padding: 14px 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; font-size: 16px; }
+            .footer { background: #f9f9f9; padding: 25px 30px; text-align: center; color: #666; font-size: 12px; border-top: 1px solid #e0e0e0; }
+            .footer p { margin: 5px 0; }
+            .security-note { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px; text-align: center; }
+            .security-note strong { color: #856404; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🔐 Admin Account Created</h1>
+              <p>Your Dashboard Access Credentials</p>
+            </div>
+            <div class="content">
+              <h2 style="color: #333; margin-top: 0;">Hello ${user.username || "Admin"}! 👋</h2>
+              <p style="font-size: 16px; color: #555;">Your admin account has been successfully created for the <strong>Online Shopping Dashboard</strong>. Use the credentials below to access the admin panel.</p>
+              
+              <div class="credentials-box">
+                <div class="credential-item">
+                  <div class="credential-label">Email Address</div>
+                  <div class="credential-value" style="font-size: 18px; color: #333;">${user.email}</div>
+                </div>
+                <div class="credential-item">
+                  <div class="credential-label">Password</div>
+                  <div class="credential-value" style="font-size: 20px; color: #dc3545; background: #ffe6e6;">${password}</div>
+                </div>
+              </div>
+
+              <div class="security-note">
+                <strong>🔒 Security Alert:</strong> Please change this password immediately after your first login for security purposes.
+              </div>
+
+              <div class="password-box">
+                <strong>⚠️ Important Security Instructions:</strong>
+                <ul style="text-align: left;">
+                  <li>Keep these credentials confidential and secure</li>
+                  <li>Do not share this password with anyone</li>
+                  <li>Change your password after first login</li>
+                  <li>Use a strong, unique password</li>
+                  <li>Enable two-factor authentication if available</li>
+                </ul>
+              </div>
+
+              <div class="info-box">
+                <strong>📋 Next Steps:</strong>
+                <ol style="text-align: left; margin: 10px 0; padding-left: 20px; color: #0d47a1;">
+                  <li>Visit the admin dashboard login page</li>
+                  <li>Enter your email and password</li>
+                  <li>Change your password immediately</li>
+                  <li>Explore the dashboard features</li>
+                </ol>
+              </div>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${process.env.DASHBOARD_URL || "http://localhost:5173"}/login" class="button">Access Admin Dashboard →</a>
+              </div>
+
+              <p style="color: #666; font-size: 14px; margin-top: 30px;">
+                If you have any questions or need assistance, please contact the system administrator.
+              </p>
+
+              <p style="margin-top: 20px;">
+                Best regards,<br>
+                <strong style="color: #667eea;">The Online Shopping Team</strong>
+              </p>
+            </div>
+            <div class="footer">
+              <p><strong>© 2025 Online Shopping Admin Dashboard</strong></p>
+              <p>This is an automated email. Please do not reply to this message.</p>
+              <p style="margin-top: 10px; color: #999;">For security reasons, this email contains sensitive information. Please delete it after saving your credentials securely.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log("✅ Admin credentials email sent:", info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error("❌ Error sending admin credentials email:", error);
+    throw new Error("Failed to send admin credentials email");
+  }
+};
+
 module.exports = {
   generateOTP,
   sendOTPEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendAdminCredentialsEmail,
 };

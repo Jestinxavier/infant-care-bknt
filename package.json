@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "cross-env NODE_ENV=development nodemon src/server.js",
-    "start": "cross-env NODE_ENV=production node src/server.js"
+    "start": "cross-env NODE_ENV=production node src/server.js",
+    "create-admin": "node scripts/createAdmin.js",
+    "seed-categories": "node scripts/seedCategories.js"
   },
   "keywords": [
     "nodejs",

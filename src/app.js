@@ -5,12 +5,39 @@ const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
 
 const app = express();
-// ✅ CORS setup
+// ✅ CORS setup - Allow multiple origins for frontend and dashboard
+const allowedOrigins = [
+  "http://localhost:3000", // Next.js frontend
+  "http://localhost:3001", // Backend API port
+  "http://localhost:5173", // Vite default port
+  "http://localhost:5174", // Vite alternate port
+  "http://localhost:4173", // Vite preview port
+  process.env.FRONTEND_URL,
+  process.env.DASHBOARD_URL,
+].filter(Boolean); // Remove undefined values
+
 app.use(
   cors({
-    origin: "http://localhost:3000", // frontend URLs (React, Vite, etc.)
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // In development, allow all origins for easier testing
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`⚠️  Allowing CORS from: ${origin} (development mode)`);
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
 
@@ -23,6 +50,7 @@ app.use(express.json());
 // Routes
 const authRoutes = require("./routes/auth");
 const productRoutes = require("./routes/product");
+const categoryRoutes = require("./routes/categoryRoutes");
 const variantRoutes = require("./routes/variantRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
@@ -33,6 +61,7 @@ const homepageRoutes = require("./routes/homepageRoutes");
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/product", productRoutes);
+app.use("/api/v1/category", categoryRoutes);
 app.use("/api/v1/variants", variantRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/addresses", addressRoutes);

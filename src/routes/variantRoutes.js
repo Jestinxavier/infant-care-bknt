@@ -1,7 +1,7 @@
 const express = require("express");
 const { parser } = require("../config/cloudinary");
 const verifyToken = require("../middlewares/authMiddleware");
-const {updateVariant, getAllVariants} = require("../controllers/Variant");
+const {updateVariant, getAllVariants, getVariantsByCategory} = require("../controllers/Variant");
 
 const router = express.Router();
 
@@ -78,6 +78,62 @@ const router = express.Router();
  */
 // Get all variants
 router.get("/all", getAllVariants);
+
+/**
+ * @swagger
+ * /api/v1/variants/{slug}:
+ *   get:
+ *     summary: Get variants filtered by category slug
+ *     tags: [Variants]
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Category slug (use 'all' for all categories)
+ *         example: rompers
+ *       - in: query
+ *         name: color
+ *         schema:
+ *           type: string
+ *         description: Filter by color
+ *       - in: query
+ *         name: age
+ *         schema:
+ *           type: string
+ *         description: Filter by age
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: number
+ *         description: Minimum price filter
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: number
+ *         description: Maximum price filter
+ *       - in: query
+ *         name: inStock
+ *         schema:
+ *           type: boolean
+ *         description: Filter by stock availability
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [price-low-to-high, price-high-to-low, highest-rated, most-popular]
+ *         description: Sort variants
+ *     responses:
+ *       200:
+ *         description: Variants retrieved successfully
+ *       404:
+ *         description: Category not found
+ *       500:
+ *         description: Server error
+ */
+// Get variants by category slug
+router.get("/:slug", getVariantsByCategory);
 
 /**
  * @swagger

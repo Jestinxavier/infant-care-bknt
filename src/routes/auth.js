@@ -1,7 +1,8 @@
 const express = require("express");
-const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP, getProfile, updateProfile, checkUserExists, requestLoginOTP, verifyLoginOTP } = require("../controllers/auth");
+const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP, getProfile, updateProfile, checkUserExists, requestLoginOTP, verifyLoginOTP, requestPasswordReset, resetPassword, changePassword } = require("../controllers/auth");
 const { registerValidation, loginValidation, validate } = require("../middlewares/validators");
 const verifyToken = require("../middlewares/authMiddleware");
+const { avatarParser } = require("../config/avatarUpload");
 
 const router = express.Router();
 
@@ -616,6 +617,128 @@ router.get("/profile", verifyToken, getProfile);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put("/profile", verifyToken, updateProfile);
+router.put("/profile", verifyToken, (req, res, next) => {
+  avatarParser.single('avatar')(req, res, (err) => {
+    if (err) {
+      console.error("❌ Avatar upload error:", err);
+      return res.status(400).json({ 
+        success: false,
+        message: "Avatar upload error", 
+        error: err.message 
+      });
+    }
+    next();
+  });
+}, updateProfile);
+
+/**
+ * @swagger
+ * /api/v1/auth/request-password-reset:
+ *   post:
+ *     summary: Request password reset
+ *     description: Send a password reset email to the user
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: admin@example.com
+ *     responses:
+ *       200:
+ *         description: Password reset email sent (if account exists)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: If an account exists with this email, a password reset link has been sent.
+ *       500:
+ *         description: Internal Server Error
+ */
+router.post("/request-password-reset", requestPasswordReset);
+
+/**
+ * @swagger
+ * /api/v1/auth/reset-password:
+ *   post:
+ *     summary: Reset password using token
+ *     description: Reset password using the token from email
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - newPassword
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 example: abc123def456...
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: newpassword123
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *       400:
+ *         description: Invalid token or validation error
+ */
+router.post("/reset-password", resetPassword);
+
+/**
+ * @swagger
+ * /api/v1/auth/change-password:
+ *   post:
+ *     summary: Change password (authenticated users)
+ *     description: Change password for authenticated users
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 format: password
+ *                 example: oldpassword123
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: newpassword123
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *       400:
+ *         description: Current password incorrect or validation error
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/change-password", verifyToken, changePassword);
 
 module.exports = router;

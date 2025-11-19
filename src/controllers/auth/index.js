@@ -7,6 +7,9 @@ const getProfile = require("./getProfile");
 const updateProfile = require("./updateProfile");
 const checkUserExists = require("./checkUserExists");
 const { requestLoginOTP, verifyLoginOTP } = require("./loginWithOTP");
+const requestPasswordReset = require("./requestPasswordReset");
+const resetPassword = require("./resetPassword");
+const changePassword = require("./changePassword");
 
 module.exports = {
   login,
@@ -20,4 +23,7 @@ module.exports = {
   checkUserExists,
   requestLoginOTP,
   verifyLoginOTP,
+  requestPasswordReset,
+  resetPassword,
+  changePassword,
 };

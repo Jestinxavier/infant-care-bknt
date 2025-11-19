@@ -3,6 +3,7 @@ const { parser } = require("../config/cloudinary");
 const { 
   createProduct, 
   updateProduct, 
+  deleteProduct,
   getAllProducts, 
   getProductById, 
   getVariantById 
@@ -360,5 +361,70 @@ router.get("/:productId", getProductById);
  *         description: Server error
  */
 router.get("/variant/:variantId", getVariantById);
+
+/**
+ * @swagger
+ * /api/v1/product/{productId}:
+ *   delete:
+ *     summary: Delete a product and all its variants
+ *     description: Permanently delete a product and all associated variants. This action cannot be undone.
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product ID to delete
+ *         example: 64abc123def456789
+ *     responses:
+ *       200:
+ *         description: Product deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Product and all associated variants deleted successfully
+ *                 deletedProduct:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                 deletedVariantsCount:
+ *                   type: number
+ *                   example: 5
+ *                 deletedReviewsCount:
+ *                   type: number
+ *                   example: 12
+ *                   description: Number of reviews deleted along with variants
+ *       404:
+ *         description: Product not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Product not found
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       500:
+ *         description: Server error
+ */
+router.delete("/:productId", verifyToken, deleteProduct);
 
 module.exports = router;
