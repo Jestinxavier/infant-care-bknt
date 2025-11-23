@@ -1,28 +1,91 @@
-const Variant = require("../../models/Variant");
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
+const { generateSlug } = require("../../utils/slugGenerator");
 
 /**
- * Get variants filtered by category slug with all filters
+ * Generate unique url_key for a variant
+ * Format: <parent-url-key>-<variant-color>-<variant-size>
+ * Uses single hyphen as per URL standards
+ */
+const generateVariantUrlKey = (productUrlKey, variantAttrs) => {
+  if (!productUrlKey) return null;
+
+  const parts = [productUrlKey];
+
+  // Extract color and size from variant attributes (prefer attributes over options)
+  const attrs =
+    variantAttrs instanceof Map
+      ? Object.fromEntries(variantAttrs)
+      : variantAttrs || {};
+
+  const color = attrs.color;
+  const size = attrs.size || attrs.age;
+
+  if (color) {
+    parts.push(generateSlug(color));
+  }
+  if (size) {
+    parts.push(generateSlug(size));
+  }
+
+  return parts.join("-");
+};
+
+/**
+ * Get variants filtered by category slug with pagination and auto-generated filters
+ * Returns each variant as a separate listing item with unique url_key
  */
 const getVariantsByCategory = async (req, res) => {
   try {
     const { slug } = req.params;
-    const { color, minPrice, maxPrice, inStock, sortBy } = req.query;
 
-    let ageParam = req.query.age;
+    // Parse query filters (handles new URL structure)
+    const { parseQueryFilters } = require("../../utils/parseQueryFilters");
+    const filters = parseQueryFilters(req.query);
+
+    const {
+      color = filters.color,
+      minPrice = filters.minPrice,
+      maxPrice = filters.maxPrice,
+      inStock = filters.inStock,
+      sortBy = filters.sortBy,
+      page = filters.page,
+      limit = filters.limit,
+      // Additional filters
+      size = filters.size || filters.age,
+      brand = filters.brand,
+      material = filters.material,
+      pattern = filters.pattern,
+    } = { ...req.query, ...filters };
+
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const skip = (pageNum - 1) * limitNum;
 
     // Find category by slug
     let categoryFilter = {};
-    if (slug && slug !== 'all') {
+    let categoryId = null;
+    let categoryTitle = "All Products"; // Default category title
+
+    if (slug && slug !== "all") {
       const category = await Category.findOne({ slug, isActive: true });
       if (!category) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found"
+        // If category not found, return empty results instead of error
+        return res.status(200).json({
+          success: true,
+          categoryTitle: "Category Not Found",
+          items: [],
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total: 0,
+            totalPages: 0,
+          },
         });
       }
       categoryFilter.category = category._id;
+      categoryId = category._id;
+      categoryTitle = category.name; // Set category title
     }
 
     // Build product filter
@@ -31,160 +94,370 @@ const getVariantsByCategory = async (req, res) => {
       productFilter = categoryFilter;
     }
 
-    // Find products matching category
-    const products = await Product.find(productFilter).select('_id');
-    const productIds = products.map(p => p._id);
+    // Find products matching category (with new structure)
+    const products = await Product.find(productFilter)
+      .populate("category", "name slug")
+      .lean();
 
-    if (productIds.length === 0) {
+    if (products.length === 0) {
       return res.status(200).json({
         success: true,
-        totalVariants: 0,
-        variants: [],
+        categoryTitle: "Category Not Found",
+        items: [],
+        pagination: {
+          page: pageNum || 1,
+          limit: limitNum || 20,
+          total: 0,
+          totalPages: 0,
+        },
       });
     }
 
-    // Build variant filter
-    let filter = {
-      productId: { $in: productIds }
-    };
+    // Process products with new structure
+    let allVariantItems = [];
 
-    if (color) {
-      filter.color = color;
-    }
+    for (const product of products) {
+      // Process embedded variants (new structure)
+      if (product.variants && product.variants.length > 0) {
+        for (const variant of product.variants) {
+          // Apply filters
+          let includeVariant = true;
 
-    // Age filter
-    if (ageParam) {
-      const normalize = (str) => str.replace(/[–—]/g, "-").trim();
+          // Get attributes (prefer attributes over options) with null checks
+          const variantAttrs = variant?.attributes
+            ? variant.attributes instanceof Map
+              ? Object.fromEntries(variant.attributes)
+              : variant.attributes
+            : variant?.options instanceof Map
+            ? Object.fromEntries(variant.options)
+            : variant?.options || {};
 
-      let ages = [];
+          // Color filter (supports array of colors) with null checks
+          if (color) {
+            const variantColor =
+              variantAttrs?.color || variantAttrs?.get?.("color");
+            const colorArray = Array.isArray(color) ? color : [color];
+            if (variantColor && !colorArray.includes(variantColor)) {
+              includeVariant = false;
+            }
+          }
 
-      if (Array.isArray(ageParam)) {
-        ages = ageParam.map(normalize);
-      } else if (ageParam.includes(",")) {
-        ages = ageParam.split(",").map(normalize);
-      } else {
-        ages = [normalize(ageParam)];
+          // Size/Age filter (supports array of sizes) with null checks
+          if (size || filters?.age) {
+            const variantSize =
+              variantAttrs?.size ||
+              variantAttrs?.age ||
+              variantAttrs?.get?.("size") ||
+              variantAttrs?.get?.("age");
+            const ageParam = size || filters?.age;
+            const normalize = (str) => (str || "").replace(/[–—]/g, "-").trim();
+
+            let ages = [];
+            if (Array.isArray(ageParam)) {
+              ages = ageParam.map((a) => normalize(String(a)));
+            } else if (typeof ageParam === "string" && ageParam.includes(",")) {
+              ages = ageParam.split(",").map(normalize);
+            } else if (ageParam) {
+              ages = [normalize(String(ageParam))];
+            }
+
+            if (
+              ages.length > 0 &&
+              !ages.some((age) => {
+                const variantSizeNormalized = normalize(variantSize || "");
+                return (
+                  variantSizeNormalized === age ||
+                  new RegExp(`^${age.replace("-", "[-–—]")}$`, "i").test(
+                    variantSizeNormalized
+                  )
+                );
+              })
+            ) {
+              includeVariant = false;
+            }
+          }
+
+          // Get stock info first with null checks
+          const variantStock =
+            variant?.stockObj?.available !== undefined
+              ? variant.stockObj.available
+              : variant?.stock || 0;
+          const variantIsInStock =
+            variant?.stockObj?.isInStock !== undefined
+              ? variant.stockObj.isInStock
+              : (variantStock ?? 0) > 0;
+
+          // Price filter - use effective price (discountPrice if available, otherwise price) with null checks
+          if (minPrice || maxPrice) {
+            const variantPrice = variant?.pricing?.price || variant?.price || 0;
+            const variantDiscountPrice = variant?.pricing?.discountPrice || variant?.discountPrice;
+            // Use effective price (discountPrice if available, otherwise regular price)
+            const effectivePrice = variantDiscountPrice && variantDiscountPrice > 0 
+              ? variantDiscountPrice 
+              : (variantPrice || 0);
+            
+            if (minPrice && effectivePrice < parseFloat(String(minPrice))) {
+              includeVariant = false;
+            }
+            if (maxPrice && effectivePrice > parseFloat(String(maxPrice))) {
+              includeVariant = false;
+            }
+          }
+
+          // Stock filter with null checks
+          if (inStock === "true" && !variantIsInStock) {
+            includeVariant = false;
+          } else if (inStock === "false" && variantIsInStock) {
+            includeVariant = false;
+          }
+
+          // Only include variants that are in stock (unless filtering for out-of-stock)
+          if (includeVariant && (variantIsInStock || inStock === "false")) {
+            // Use variant.url_key if it exists, otherwise generate it (backward compatibility)
+            const variantUrlKey =
+              variant?.url_key ||
+              generateVariantUrlKey(product?.url_key, variantAttrs);
+
+            // Get pricing with null checks
+            const variantPrice = variant?.pricing?.price || variant?.price || 0;
+            const variantDiscountPrice =
+              variant?.pricing?.discountPrice || variant?.discountPrice;
+
+            allVariantItems.push({
+              _id: variant?.id || (product?._id?.toString() || "") + "-" + (variant?.id || ""),
+              url_key: variantUrlKey || product?.url_key || "",
+              title: product?.title || product?.name || "",
+              price: variantPrice || 0,
+              discountPrice: variantDiscountPrice || null,
+              stock: variantStock || 0,
+              images:
+                variant?.images && variant.images.length > 0
+                  ? variant.images
+                  : product?.images || [],
+              sku: variant?.sku || null,
+              productId: {
+                _id: product?._id?.toString() || "",
+                title: product?.title || product?.name || "",
+                url_key: product?.url_key || "",
+              },
+              category:
+                product?.category?.slug ||
+                product?.categoryName?.toLowerCase().replace(/\s+/g, "-") || "",
+              categoryName: product?.category?.name || product?.categoryName || "",
+              averageRating: product?.averageRating || 0,
+              totalReviews: product?.totalReviews || 0,
+              attributes: variantAttrs || {},
+            });
+          }
+        }
+
+          // If product has variants but none are inStock, add parent product
+        if (product.variants && product.variants.length > 0) {
+          const hasInStockVariant = product.variants.some((v) => {
+            const stock =
+              v.stockObj?.available !== undefined
+                ? v.stockObj.available
+                : v.stock || 0;
+            const isInStock =
+              v.stockObj?.isInStock !== undefined
+                ? v.stockObj.isInStock
+                : stock > 0;
+            return isInStock;
+          });
+
+          if (!hasInStockVariant) {
+            // No inStock variants, add parent product
+            // Calculate price from all variants (even out of stock) - use effective price
+            const variantPrices = product.variants
+              .map((v) => {
+                if (!v) return 0;
+                const vPrice = v.pricing?.price || v.price || 0;
+                const vDiscountPrice = v.pricing?.discountPrice || v.discountPrice;
+                // Use effective price (discountPrice if available, otherwise regular price)
+                return vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
+              })
+              .filter((p) => p > 0);
+            const minVariantPrice =
+              variantPrices.length > 0 ? Math.min(...variantPrices) : 0;
+
+            // Get discountPrice from variant with minVariantPrice (if available)
+            let parentDiscountPrice = null;
+            if (minVariantPrice > 0) {
+              const variantWithMinPrice = product.variants.find((v) => {
+                if (!v) return false;
+                const vPrice = v.pricing?.price || v.price || 0;
+                const vDiscountPrice = v.pricing?.discountPrice || v.discountPrice;
+                const effectivePrice = vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
+                return effectivePrice === minVariantPrice;
+              });
+              if (variantWithMinPrice) {
+                parentDiscountPrice =
+                  variantWithMinPrice.pricing?.discountPrice ||
+                  variantWithMinPrice.discountPrice ||
+                  null;
+              }
+            }
+
+            // If no price from variants, check product's own price fields
+            const parentPrice =
+              minVariantPrice ||
+              product?.pricing?.price ||
+              product?.price ||
+              product?.basePrice ||
+              0;
+            if (
+              parentPrice === product?.pricing?.price ||
+              parentPrice === product?.price
+            ) {
+              parentDiscountPrice =
+                product?.pricing?.discountPrice || product?.discountPrice || null;
+            }
+
+            // Apply price filter to parent product (use filterMinPrice/filterMaxPrice to avoid conflict with local minPrice variable)
+            let includeParent = true;
+            const filterMinPrice = filters?.minPrice;
+            const filterMaxPrice = filters?.maxPrice;
+            if (filterMinPrice || filterMaxPrice) {
+              const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0 
+                ? parentDiscountPrice 
+                : (parentPrice || 0);
+              
+              if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+                includeParent = false;
+              }
+              if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+                includeParent = false;
+              }
+            }
+
+            if (includeParent) {
+              allVariantItems.push({
+                _id: product?._id?.toString() || "",
+                url_key: product?.url_key || "",
+                title: product?.title || product?.name || "",
+                price: parentPrice || 0,
+                discountPrice: parentDiscountPrice || null,
+                stock: 0,
+                images: product?.images || [],
+                sku: null,
+                productId: {
+                  _id: product?._id?.toString() || "",
+                  title: product?.title || product?.name || "",
+                  url_key: product?.url_key || "",
+                },
+                category:
+                  product?.category?.slug ||
+                  product?.categoryName?.toLowerCase().replace(/\s+/g, "-") || "",
+                categoryName: product?.category?.name || product?.categoryName || "",
+                averageRating: product?.averageRating || 0,
+                totalReviews: product?.totalReviews || 0,
+                attributes: {},
+              });
+            }
+          }
+        } else if (!product.variants || product.variants.length === 0) {
+          // Product has no variants at all, add parent product
+          // Use product's own price fields
+          const parentPrice =
+            product.pricing?.price || product.price || product.basePrice || 0;
+          const parentDiscountPrice =
+            product.pricing?.discountPrice || product.discountPrice || null;
+
+          // Apply price filter to parent product (use filterMinPrice/filterMaxPrice to avoid conflict)
+          let includeParent = true;
+          const filterMinPrice = filters?.minPrice;
+          const filterMaxPrice = filters?.maxPrice;
+          if (filterMinPrice || filterMaxPrice) {
+            const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0 
+              ? parentDiscountPrice 
+              : (parentPrice || 0);
+            
+            if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+              includeParent = false;
+            }
+            if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+              includeParent = false;
+            }
+          }
+
+          if (includeParent) {
+            allVariantItems.push({
+              _id: product?._id?.toString() || "",
+              url_key: product?.url_key || "",
+              title: product?.title || product?.name || "",
+              subtitle: product?.subtitle || null,
+              price: parentPrice || 0,
+              discountPrice: parentDiscountPrice || null,
+              stock: 0,
+              images: product?.images || [],
+              sku: null,
+              productId: {
+                _id: product?._id?.toString() || "",
+                title: product?.title || product?.name || "",
+                url_key: product?.url_key || "",
+              },
+              category:
+                product?.category?.slug ||
+                product?.categoryName?.toLowerCase().replace(/\s+/g, "-") || "",
+              categoryName: product?.category?.name || product?.categoryName || "",
+              averageRating: product?.averageRating || 0,
+              totalReviews: product?.totalReviews || 0,
+              attributes: {},
+            });
+          }
+        }
       }
-
-      // Convert 3-6_months → regex matching ALL dash types
-      let regexArray = ages.map((age) => {
-        const pattern = age.replace("-", "[-–—]");
-        return new RegExp(`^${pattern}$`, "i");
-      });
-
-      filter.age = { $in: regexArray };
     }
 
-    // Price filter
-    if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = parseFloat(minPrice);
-      if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
-    }
-
-    // Stock filter
-    if (inStock === "true") {
-      filter.stock = { $gt: 0 };
-    } else if (inStock === "false") {
-      filter.stock = 0;
-    }
-
-    // Sorting logic
-    let sort = {};
+    // Sorting
+    let sortedItems = [...allVariantItems];
     switch (sortBy) {
+      case "price_low":
       case "price-low-to-high":
-        sort.price = 1;
+        sortedItems.sort((a, b) => (a.price || 0) - (b.price || 0));
         break;
+      case "price_high":
       case "price-high-to-low":
-        sort.price = -1;
+        sortedItems.sort((a, b) => (b.price || 0) - (a.price || 0));
         break;
-      case "highest-rated":
-        sort.averageRating = -1;
+      case "newest":
+        sortedItems.sort(
+          (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+        );
         break;
+      case "popularity":
       case "most-popular":
-        sort.totalReviews = -1;
+        sortedItems.sort(
+          (a, b) => (b.totalReviews || 0) - (a.totalReviews || 0)
+        );
+        break;
+      case "rating":
+      case "highest-rated":
+        sortedItems.sort(
+          (a, b) => (b.averageRating || 0) - (a.averageRating || 0)
+        );
         break;
       default:
-        sort.createdAt = -1;
+        sortedItems.sort(
+          (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+        );
     }
 
-    // Fetch and populate variants
-    // Use .lean() to get plain JavaScript objects instead of Mongoose documents
-    const variants = await Variant.find(filter)
-      .populate("productId", "name description category averageRating totalReviews")
-      .lean()
-      .sort(sort);
-
-    // Normalize output
-    // Since we're using .lean(), variants are already plain objects
-    const processedVariants = variants.map((variant) => {
-      // variant is already a plain object from .lean()
-      const variantObj = { ...variant };
-
-      // Debug: Log the raw variant to see what we have
-      console.log(`🔍 Processing variant ${variant._id}:`, {
-        hasPrice: 'price' in variantObj,
-        priceValue: variantObj.price,
-        priceType: typeof variantObj.price,
-        allKeys: Object.keys(variantObj),
-      });
-
-      // Explicitly ensure price is included and converted to number
-      let priceValue = variantObj.price;
-      
-      if (priceValue != null && priceValue !== undefined) {
-        const numPrice = Number(priceValue);
-        if (!isNaN(numPrice)) {
-          variantObj.price = numPrice;
-          console.log(`✅ Set price for variant ${variant._id}: ${numPrice}`);
-        } else {
-          console.warn(`⚠️ Variant ${variant._id} has invalid price value:`, priceValue);
-          variantObj.price = 0;
-        }
-      } else {
-        // Log warning if price is missing
-        console.warn(`⚠️ Variant ${variant._id} is missing price field completely`);
-        console.warn(`   variantObj keys:`, Object.keys(variantObj));
-        console.warn(`   variantObj:`, JSON.stringify(variantObj, null, 2));
-        variantObj.price = 0; // Default to 0 if missing
-      }
-
-      // Handle backward compatibility
-      if (variantObj.size && !variantObj.age) {
-        variantObj.age = variantObj.size;
-      }
-
-      // Normalize returned age
-      if (variantObj.age) {
-        variantObj.age = variantObj.age.replace(/[–—]/g, "-");
-      }
-
-      // Ensure _id is a string
-      variantObj._id = variantObj._id?.toString() || variant._id?.toString();
-
-      // Ensure stock is a number
-      if (variantObj.stock != null) {
-        variantObj.stock = Number(variantObj.stock);
-      }
-
-      // Handle productId
-      if (variantObj.productId && typeof variantObj.productId === 'object') {
-        variantObj.productId._id = variantObj.productId._id?.toString() || variantObj.productId._id;
-        
-        // Handle category in product
-        if (variantObj.productId.category && typeof variantObj.productId.category === 'object') {
-          variantObj.productId.categoryId = variantObj.productId.category._id?.toString();
-          variantObj.productId.categoryName = variantObj.productId.category.name;
-        }
-      }
-
-      return variantObj;
-    });
+    // Pagination
+    const total = sortedItems.length;
+    const totalPages = Math.ceil(total / limitNum);
+    const paginatedItems = sortedItems.slice(skip, skip + limitNum);
 
     res.status(200).json({
       success: true,
-      totalVariants: processedVariants.length,
-      variants: processedVariants,
+      categoryTitle: categoryTitle || "All Products",
+      items: paginatedItems || [],
+      pagination: {
+        page: pageNum || 1,
+        limit: limitNum || 20,
+        total: total || 0,
+        totalPages: totalPages || 0,
+      },
     });
   } catch (err) {
     console.error("❌ Error fetching variants by category:", err);
@@ -197,4 +470,3 @@ const getVariantsByCategory = async (req, res) => {
 };
 
 module.exports = getVariantsByCategory;
-

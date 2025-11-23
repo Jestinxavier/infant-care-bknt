@@ -1,7 +1,7 @@
 const createProduct = require("./createProduct");
 const updateProduct = require("./updateProduct");
 const deleteProduct = require("./deleteProduct");
-const { getAllProducts, getProductById, getVariantById } = require("./getProducts");
+const { getAllProducts, getProductById, getProductByUrlKey, getVariantById } = require("./getProducts");
 
 module.exports = {
   createProduct,
@@ -9,5 +9,6 @@ module.exports = {
   deleteProduct,
   getAllProducts,
   getProductById,
+  getProductByUrlKey,
   getVariantById
 };

@@ -94,39 +94,117 @@ router.get("/all", getAllVariants);
  *         description: Category slug (use 'all' for all categories)
  *         example: rompers
  *       - in: query
+ *         name: price
+ *         schema:
+ *           type: string
+ *         description: Price range as comma-separated min,max (e.g., "554,999")
+ *         example: "554,999"
+ *       - in: query
  *         name: color
  *         schema:
  *           type: string
- *         description: Filter by color
+ *         description: Filter by color(s) as comma-separated values (e.g., "blue,green")
+ *         example: "blue,green"
  *       - in: query
  *         name: age
  *         schema:
  *           type: string
- *         description: Filter by age
+ *         description: Filter by size/age as comma-separated values (e.g., "0-3,newborn")
+ *         example: "0-3,newborn"
+ *       - in: query
+ *         name: inStock
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *         description: Filter by stock availability
+ *         example: "true"
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           enum: [newest, price_low, price_high, rating, popularity]
+ *         description: Sort order (also accepts 'sortBy' for backward compatibility)
+ *         example: price_low
  *       - in: query
  *         name: minPrice
  *         schema:
  *           type: number
- *         description: Minimum price filter
+ *         description: Minimum price (legacy format, use 'price' for new format)
  *       - in: query
  *         name: maxPrice
  *         schema:
  *           type: number
- *         description: Maximum price filter
- *       - in: query
- *         name: inStock
- *         schema:
- *           type: boolean
- *         description: Filter by stock availability
+ *         description: Maximum price (legacy format, use 'price' for new format)
  *       - in: query
  *         name: sortBy
  *         schema:
  *           type: string
- *           enum: [price-low-to-high, price-high-to-low, highest-rated, most-popular]
- *         description: Sort variants
+ *           enum: [newest, price_low, price_high, rating, popularity]
+ *         description: Sort order (legacy format, use 'sort' for new format)
  *     responses:
  *       200:
  *         description: Variants retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 categoryTitle:
+ *                   type: string
+ *                   description: Category title (e.g., "Rompers", "All Products")
+ *                   example: "Rompers"
+ *                 items:
+ *                   type: array
+ *                   description: Array of variant items (each variant listed separately). Filtered by price range using effective price (discountPrice if available, otherwise regular price).
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       url_key:
+ *                         type: string
+ *                         description: Unique URL key for variant
+ *                       title:
+ *                         type: string
+ *                       price:
+ *                         type: number
+ *                         description: Regular price
+ *                       discountPrice:
+ *                         type: number
+ *                         nullable: true
+ *                         description: Discount price (if available)
+ *                       stock:
+ *                         type: number
+ *                       images:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                       attributes:
+ *                         type: object
+ *                         description: Variant attributes (color, size, etc.)
+ *                       averageRating:
+ *                         type: number
+ *                       totalReviews:
+ *                         type: number
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 20
+ *                     total:
+ *                       type: integer
+ *                       description: Total number of items matching filters (after price filtering)
+ *                       example: 100
+ *                     totalPages:
+ *                       type: integer
+ *                       example: 5
  *       404:
  *         description: Category not found
  *       500:

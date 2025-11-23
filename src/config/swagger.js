@@ -417,6 +417,213 @@ const options = {
             },
           },
         },
+        CartItem: {
+          type: 'object',
+          properties: {
+            _id: {
+              type: 'string',
+              description: 'Cart item ID',
+              example: '64abc123def456789',
+            },
+            productId: {
+              oneOf: [
+                { type: 'string' },
+                {
+                  type: 'object',
+                  properties: {
+                    _id: { type: 'string' },
+                    title: { type: 'string' },
+                    url_key: { type: 'string' },
+                    images: {
+                      type: 'array',
+                      items: { type: 'string' },
+                    },
+                  },
+                },
+              ],
+              description: 'Product ID or populated product object',
+              example: '64abc123def456789',
+            },
+            variantId: {
+              type: 'string',
+              nullable: true,
+              description: 'Variant ID (null for products without variants)',
+              example: 'variant_123',
+            },
+            quantity: {
+              type: 'number',
+              minimum: 1,
+              description: 'Item quantity',
+              example: 2,
+            },
+            priceSnapshot: {
+              type: 'number',
+              minimum: 0,
+              description: 'Price at time of adding to cart',
+              example: 999,
+            },
+            discountPriceSnapshot: {
+              type: 'number',
+              nullable: true,
+              minimum: 0,
+              description: 'Discounted price at time of adding to cart',
+              example: 799,
+            },
+            titleSnapshot: {
+              type: 'string',
+              description: 'Product title at time of adding to cart',
+              example: 'Premium Organic Cotton Infant Jumpsuit',
+            },
+            imageSnapshot: {
+              type: 'string',
+              description: 'Product image URL at time of adding to cart',
+              example: 'https://picsum.photos/seed/red03/600',
+            },
+            skuSnapshot: {
+              type: 'string',
+              nullable: true,
+              description: 'SKU at time of adding to cart',
+              example: 'CJ-RED-0-3',
+            },
+            attributesSnapshot: {
+              type: 'object',
+              additionalProperties: { type: 'string' },
+              nullable: true,
+              description: 'Variant attributes at time of adding to cart',
+              example: { color: 'red', size: '0-3' },
+            },
+          },
+        },
+        Cart: {
+          type: 'object',
+          properties: {
+            cartId: {
+              type: 'string',
+              description: 'Unique cart identifier (format: cart_<nanoid>)',
+              example: 'cart_a1b2c3d4e5f6g7h8i9j0k',
+            },
+            userId: {
+              type: 'string',
+              nullable: true,
+              description: 'User ID if cart belongs to authenticated user',
+              example: '64abc123def456789',
+            },
+            items: {
+              type: 'array',
+              items: {
+                $ref: '#/components/schemas/CartItem',
+              },
+              description: 'Array of cart items',
+            },
+            subtotal: {
+              type: 'number',
+              minimum: 0,
+              description: 'Subtotal of all items',
+              example: 1998,
+            },
+            tax: {
+              type: 'number',
+              minimum: 0,
+              description: 'Tax amount',
+              example: 0,
+            },
+            shippingEstimate: {
+              type: 'number',
+              minimum: 0,
+              description: 'Estimated shipping cost',
+              example: 0,
+            },
+            total: {
+              type: 'number',
+              minimum: 0,
+              description: 'Total amount (subtotal + tax + shipping)',
+              example: 1998,
+            },
+            itemCount: {
+              type: 'number',
+              description: 'Total number of items in cart',
+              example: 2,
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Cart creation timestamp',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Cart last update timestamp',
+            },
+          },
+        },
+        AddItemToCartRequest: {
+          type: 'object',
+          required: ['productId'],
+          properties: {
+            productId: {
+              type: 'string',
+              description: 'Product ID',
+              example: '64abc123def456789',
+            },
+            variantId: {
+              type: 'string',
+              nullable: true,
+              description: 'Variant ID (required for products with variants)',
+              example: 'variant_123',
+            },
+            quantity: {
+              type: 'number',
+              minimum: 1,
+              default: 1,
+              description: 'Quantity to add',
+              example: 2,
+            },
+          },
+        },
+        UpdateItemQuantityRequest: {
+          type: 'object',
+          required: ['quantity'],
+          properties: {
+            quantity: {
+              type: 'number',
+              minimum: 0,
+              description: 'New quantity (0 to remove item)',
+              example: 3,
+            },
+          },
+        },
+        MergeCartRequest: {
+          type: 'object',
+          required: ['guestCartId', 'userCartId'],
+          properties: {
+            guestCartId: {
+              type: 'string',
+              description: 'Guest cart ID to merge from',
+              example: 'cart_a1b2c3d4e5f6g7h8i9j0k',
+            },
+            userCartId: {
+              type: 'string',
+              description: 'User cart ID to merge into',
+              example: 'cart_z9y8x7w6v5u4t3s2r1q0p',
+            },
+          },
+        },
+        CartResponse: {
+          type: 'object',
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true,
+            },
+            message: {
+              type: 'string',
+              example: 'Item added to cart',
+            },
+            cart: {
+              $ref: '#/components/schemas/Cart',
+            },
+          },
+        },
       },
     },
     tags: [
@@ -433,6 +640,10 @@ const options = {
         description: 'Product variant management',
       },
       {
+        name: 'Filters',
+        description: 'Product filter options and configurations',
+      },
+      {
         name: 'Orders',
         description: 'Order management endpoints',
       },
@@ -447,6 +658,10 @@ const options = {
       {
         name: 'Reviews',
         description: 'Product review endpoints',
+      },
+      {
+        name: 'Cart',
+        description: 'Shopping cart management endpoints',
       },
     ],
   },

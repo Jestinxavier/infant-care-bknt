@@ -1,25 +1,200 @@
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
-const { parser } = require("../../config/cloudinary");
+const Category = require("../../models/Category");
+const mongoose = require("mongoose");
+const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
 
 const updateProduct = async (req, res) => {
   try {
-    const { productId, name, description, category, variants } = req.body;
-
-    // 1️⃣ Update product basic info
-    const product = await Product.findByIdAndUpdate(
+    const {
       productId,
-      { name, description, category },
-      { new: true }
-    );
+      // New structure fields
+      title,
+      description,
+      category,
+      status,
+      variantOptions,
+      variants: variantsArray,
+      details,
+      pricing, // Parent-level pricing
+      stockObj, // Parent-level stock
+      refreshSlug = false,
+      // Legacy fields
+      name,
+      variants: legacyVariants,
+    } = req.body;
 
-    if (!product) return res.status(404).json({ message: "Product not found" });
+    // Find product
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
 
-    // 2️⃣ Update variants
-    if (variants) {
-      const variantsArray = JSON.parse(variants); // parse JSON string if sent
-      for (const v of variantsArray) {
-        // If variant exists, update; else create
+    // Update title/name
+    const newTitle = title || name;
+    if (newTitle && newTitle !== product.title) {
+      product.title = newTitle;
+      product.name = newTitle; // Sync for backward compatibility
+
+      // Regenerate url_key only if refreshSlug is true
+      if (refreshSlug) {
+        const checkUrlKeyExists = async (urlKey) => {
+          const existing = await Product.findOne({
+            url_key: urlKey,
+            _id: { $ne: productId },
+          });
+          return !!existing;
+        };
+
+        product.url_key = await generateUniqueUrlKey(
+          newTitle,
+          checkUrlKeyExists,
+          product.url_key
+        );
+      }
+    }
+
+    // Update other fields
+    if (description !== undefined) product.description = description;
+    if (status !== undefined) product.status = status;
+    if (pricing !== undefined) product.pricing = pricing;
+    if (stockObj !== undefined) product.stockObj = stockObj;
+
+    // Update category
+    if (category) {
+      let categoryId = category;
+      let categoryName = null;
+
+      if (!mongoose.Types.ObjectId.isValid(category)) {
+        const foundCategory = await Category.findOne({
+          name: category.trim(),
+          isActive: true,
+        });
+        if (foundCategory) {
+          categoryId = foundCategory._id;
+          categoryName = foundCategory.name;
+        }
+      } else {
+        const foundCategory = await Category.findById(category);
+        if (foundCategory && foundCategory.isActive) {
+          categoryName = foundCategory.name;
+        }
+      }
+
+      if (categoryId) {
+        product.category = categoryId;
+        if (categoryName) product.categoryName = categoryName;
+      }
+    }
+
+    // Update variantOptions
+    if (variantOptions !== undefined) {
+      product.variantOptions = variantOptions;
+    }
+
+    // Update variants (new structure)
+    if (variantsArray !== undefined && Array.isArray(variantsArray)) {
+      const { generateSlug } = require("../../utils/slugGenerator");
+
+      const processedVariants = variantsArray.map((v, index) => {
+        // Map images from uploaded files
+        const images =
+          req.files && req.files.length > 0
+            ? req.files
+                .filter((f) => f.fieldname.includes(v.sku || v.id || index))
+                .map((f) => f.path)
+            : v.images || [];
+
+        // Convert attributes/options object to Map if needed
+        let attributesMap = new Map();
+        const attrs = v.attributes || v.options || {};
+        if (attrs) {
+          if (attrs instanceof Map) {
+            attributesMap = attrs;
+          } else if (typeof attrs === "object") {
+            attributesMap = new Map(Object.entries(attrs));
+          }
+        }
+
+        // Support both direct fields and nested pricing/stock
+        const price = v.pricing?.price || v.price || 0;
+        const discountPrice =
+          v.pricing?.discountPrice || v.discountPrice || null;
+        const stock =
+          v.stockObj?.available !== undefined
+            ? v.stockObj.available
+            : v.stock || 0;
+        const isInStock =
+          v.stockObj?.isInStock !== undefined
+            ? v.stockObj.isInStock
+            : stock > 0;
+
+        // Generate variant url_key: <parent-url-key>-<color>-<size>
+        // Use existing url_key if provided, otherwise generate from attributes
+        let variantUrlKey = v.url_key;
+        if (!variantUrlKey && product.url_key) {
+          const attrsObj = Object.fromEntries(attributesMap);
+          const parts = [product.url_key];
+          if (attrsObj.color) parts.push(generateSlug(attrsObj.color));
+          if (attrsObj.size || attrsObj.age)
+            parts.push(generateSlug(attrsObj.size || attrsObj.age));
+          variantUrlKey = parts.join("-");
+        }
+
+        return {
+          id: v.id || `variant-${Date.now()}-${index}`,
+          url_key: variantUrlKey, // Store url_key in variant
+          sku: v.sku,
+          // Keep direct fields for backward compatibility
+          price: price,
+          discountPrice: discountPrice,
+          stock: stock,
+          // New nested format
+          pricing: {
+            price: price,
+            ...(discountPrice ? { discountPrice: discountPrice } : {}),
+          },
+          stockObj: {
+            available: stock,
+            isInStock: isInStock,
+          },
+          images: images.length > 0 ? images : v.images || [],
+          attributes: attributesMap, // New format
+          options: attributesMap, // Keep for backward compatibility
+          weight: v.weight,
+          length: v.length,
+          height: v.height,
+          width: v.width,
+        };
+      });
+
+      product.variants = processedVariants;
+
+      // Auto-select first variant if only one exists
+      // No need to set selectedOptions - variant selection is determined from URL
+    }
+
+    // Update details
+    if (details !== undefined) {
+      product.details = details;
+    }
+
+    // DO NOT allow rating fields to be updated manually
+    // They are calculated from reviews
+
+    await product.save();
+
+    // Update legacy variants if provided (for backward compatibility)
+    if (legacyVariants) {
+      const legacyVariantsArray =
+        typeof legacyVariants === "string"
+          ? JSON.parse(legacyVariants)
+          : legacyVariants;
+
+      for (const v of legacyVariantsArray) {
         let variant = await Variant.findOne({ _id: v._id });
         if (variant) {
           variant.color = v.color || variant.color;
@@ -27,7 +202,6 @@ const updateProduct = async (req, res) => {
           variant.price = v.price || variant.price;
           variant.stock = v.stock || variant.stock;
 
-          // Update images if new files uploaded
           if (req.files && req.files.length > 0) {
             const images = req.files
               .filter((f) => f.fieldname.includes(v.sku || v.age))
@@ -37,10 +211,12 @@ const updateProduct = async (req, res) => {
 
           await variant.save();
         } else {
-          // Create new variant
-          const images = req.files
-            .filter((f) => f.fieldname.includes(v.sku || v.age))
-            .map((f) => f.path);
+          const images =
+            req.files && req.files.length > 0
+              ? req.files
+                  .filter((f) => f.fieldname.includes(v.sku || v.age))
+                  .map((f) => f.path)
+              : [];
 
           await Variant.create({
             productId,
@@ -55,10 +231,23 @@ const updateProduct = async (req, res) => {
       }
     }
 
-    res.status(200).json({ message: "Product updated successfully", product });
+    res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      product: {
+        _id: product._id.toString(),
+        title: product.title,
+        url_key: product.url_key,
+        variants: product.variants,
+      },
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("❌ Error updating product:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 

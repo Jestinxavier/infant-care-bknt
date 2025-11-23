@@ -1,12 +1,13 @@
 const express = require("express");
 const { parser } = require("../config/cloudinary");
-const { 
-  createProduct, 
-  updateProduct, 
+const {
+  createProduct,
+  updateProduct,
   deleteProduct,
-  getAllProducts, 
-  getProductById, 
-  getVariantById 
+  getAllProducts,
+  getProductById,
+  getProductByUrlKey,
+  getVariantById,
 } = require("../controllers/product");
 const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
@@ -80,7 +81,10 @@ const router = express.Router();
  *         description: Unauthorized - Invalid or missing token
  */
 // Use `parser.array` to accept multiple images (field name must match Postman/frontend)
-router.post("/create",verifyToken,(req, res, next) => {
+router.post(
+  "/create",
+  verifyToken,
+  (req, res, next) => {
     parser.any()(req, res, function (err) {
       if (err) {
         console.error("❌ Multer/Cloudinary Error:", err);
@@ -89,7 +93,9 @@ router.post("/create",verifyToken,(req, res, next) => {
       console.log("✅ Multer parsing done");
       next();
     });
-  } , createProduct );
+  },
+  createProduct
+);
 
 /**
  * @swagger
@@ -150,7 +156,7 @@ router.post("/create",verifyToken,(req, res, next) => {
  *       401:
  *         description: Unauthorized
  */
-  // Update product
+// Update product
 router.put(
   "/update",
   verifyToken,
@@ -220,6 +226,139 @@ router.put(
  *                         example: 42
  *       500:
  *         description: Server error
+ */
+/**
+ * @swagger
+ * /api/v1/product/all:
+ *   get:
+ *     summary: Get all products (returns variants as separate items if inStock, otherwise parent)
+ *     description: Returns all products. If a product has inStock variants, returns those variants as separate items. Otherwise returns the parent product. Supports pagination and filtering.
+ *     tags: [Products]
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *         description: Filter by category slug (use 'all' for all categories)
+ *         example: jumpsuits
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Items per page
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           enum: [newest, price_low, price_high, rating, popularity]
+ *         description: Sort order (also accepts 'sortBy' for backward compatibility)
+ *         example: price_low
+ *       - in: query
+ *         name: price
+ *         schema:
+ *           type: string
+ *         description: Price range as comma-separated min,max (e.g., "554,999")
+ *         example: "554,999"
+ *       - in: query
+ *         name: color
+ *         schema:
+ *           type: string
+ *         description: Filter by color(s) as comma-separated values (e.g., "blue,green")
+ *         example: "blue,green"
+ *       - in: query
+ *         name: age
+ *         schema:
+ *           type: string
+ *         description: Filter by size/age as comma-separated values (e.g., "0-3,newborn")
+ *         example: "0-3,newborn"
+ *       - in: query
+ *         name: inStock
+ *         schema:
+ *           type: string
+ *           enum: [true, false]
+ *         description: Filter by stock availability
+ *         example: "true"
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: number
+ *         description: Minimum price (legacy format, use 'price' for new format)
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: number
+ *         description: Maximum price (legacy format, use 'price' for new format)
+ *     responses:
+ *       200:
+ *         description: Products retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 categoryTitle:
+ *                   type: string
+ *                   description: Category title (e.g., "Rompers", "All Products")
+ *                   example: "Rompers"
+ *                 items:
+ *                   type: array
+ *                   description: Array of products or variants (variants listed separately if inStock). Filtered by price range using effective price (discountPrice if available, otherwise regular price).
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       url_key:
+ *                         type: string
+ *                         description: Unique URL key for product/variant
+ *                       title:
+ *                         type: string
+ *                       price:
+ *                         type: number
+ *                         description: Regular price
+ *                       discountPrice:
+ *                         type: number
+ *                         nullable: true
+ *                         description: Discount price (if available)
+ *                       stock:
+ *                         type: number
+ *                       images:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                       attributes:
+ *                         type: object
+ *                         description: Variant attributes (color, size, etc.)
+ *                       averageRating:
+ *                         type: number
+ *                       totalReviews:
+ *                         type: number
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 20
+ *                     total:
+ *                       type: integer
+ *                       description: Total number of items matching filters (after price filtering)
+ *                       example: 100
+ *                     totalPages:
+ *                       type: integer
+ *                       example: 5
  */
 router.get("/all", getAllProducts);
 
@@ -293,6 +432,33 @@ router.get("/all", getAllProducts);
  *       500:
  *         description: Server error
  */
+// New endpoint: Get product by url_key (primary method)
+/**
+ * @swagger
+ * /api/v1/product/url/{url_key}:
+ *   get:
+ *     summary: Get single product by url_key with variants
+ *     description: Get detailed product information by url_key including all variants and ratings. Supports backward compatibility with _id.
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: url_key
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product url_key (e.g., "infant-organic-cotton-jumpsuit")
+ *         example: infant-organic-cotton-jumpsuit
+ *     responses:
+ *       200:
+ *         description: Product retrieved successfully
+ *       404:
+ *         description: Product not found
+ *       500:
+ *         description: Server error
+ */
+router.get("/url/:url_key", getProductByUrlKey);
+
+// Legacy endpoint: Get product by ID (backward compatibility)
 router.get("/:productId", getProductById);
 
 /**
