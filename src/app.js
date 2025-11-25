@@ -37,7 +37,7 @@ app.use(
     },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-cart-id"],
   })
 );
 
@@ -53,7 +53,7 @@ const productRoutes = require("./routes/product");
 const categoryRoutes = require("./routes/categoryRoutes");
 const variantRoutes = require("./routes/variantRoutes");
 const filterRoutes = require("./routes/filterRoutes");
-const cartRoutes = require("./routes/cartRoutes");
+const hybridCartRoutes = require("./routes/hybridCartRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
@@ -66,7 +66,7 @@ app.use("/api/v1/product", productRoutes);
 app.use("/api/v1/category", categoryRoutes);
 app.use("/api/v1/variants", variantRoutes);
 app.use("/api/v1/filter", filterRoutes);
-app.use("/api/v1/cart", cartRoutes);
+app.use("/api/v1/cart", hybridCartRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/addresses", addressRoutes);
 app.use("/api/v1/review", reviewRoutes);
