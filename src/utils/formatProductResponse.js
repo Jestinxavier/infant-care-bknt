@@ -107,15 +107,73 @@ const formatProductResponse = (product) => {
       value: productObj.averageRating || 0,
       totalReviews: productObj.totalReviews || 0,
     },
-    pricing: {
-      price: formattedVariants.length > 0 
-        ? Math.min(...formattedVariants.map(v => v.pricing.price).filter(p => p > 0))
-        : 0,
-    },
-    stock: {
-      available: formattedVariants.reduce((sum, v) => sum + v.stock.available, 0),
-      isInStock: formattedVariants.some(v => v.stock.isInStock),
-    },
+    pricing: (() => {
+      // Calculate pricing from variants if available
+      let parentPrice = 0;
+      let parentDiscountPrice = null;
+      
+      if (formattedVariants.length > 0) {
+        // Get all variant effective prices (discountPrice if available, otherwise regular price)
+        const variantEffectivePrices = formattedVariants
+          .map(v => {
+            const vPrice = v.pricing.price || 0;
+            const vDiscountPrice = v.pricing.discountPrice;
+            // Use effective price (discountPrice if available, otherwise regular price)
+            return vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
+          })
+          .filter(p => p > 0);
+        
+        if (variantEffectivePrices.length > 0) {
+          const minEffectivePrice = Math.min(...variantEffectivePrices);
+          
+          // Find the variant with the minimum effective price
+          const variantWithMinPrice = formattedVariants.find(v => {
+            const vPrice = v.pricing.price || 0;
+            const vDiscountPrice = v.pricing.discountPrice;
+            const effectivePrice = vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
+            return effectivePrice === minEffectivePrice;
+          });
+          
+          if (variantWithMinPrice) {
+            // Set parentPrice to the variant's regular price
+            parentPrice = variantWithMinPrice.pricing.price || 0;
+            // Set parentDiscountPrice to the variant's discountPrice if it exists
+            parentDiscountPrice = variantWithMinPrice.pricing.discountPrice || null;
+          }
+        }
+      }
+      
+      // Fallback to product's own pricing fields if no variants or variant prices are 0
+      if (parentPrice === 0) {
+        parentPrice = productObj.pricing?.price || productObj.price || productObj.basePrice || 0;
+        parentDiscountPrice = productObj.pricing?.discountPrice || productObj.discountPrice || null;
+      }
+      
+      return {
+        price: parentPrice,
+        ...(parentDiscountPrice ? { discountPrice: parentDiscountPrice } : {}),
+      };
+    })(),
+    stock: (() => {
+      // If product has variants, calculate from variants
+      if (formattedVariants.length > 0) {
+        return {
+          available: formattedVariants.reduce((sum, v) => sum + v.stock.available, 0),
+          isInStock: formattedVariants.some(v => v.stock.isInStock),
+        };
+      }
+      
+      // If no variants, use product's own stock fields
+      const productStock = productObj.stockObj?.available !== undefined
+        ? productObj.stockObj.available
+        : (productObj.stock !== undefined ? productObj.stock : 0);
+      const productIsInStock = productStock > 0;
+      
+      return {
+        available: productStock,
+        isInStock: productIsInStock,
+      };
+    })(),
     variantOptions: formattedVariantOptions,
     variants: formattedVariants,
     details: formattedDetails,

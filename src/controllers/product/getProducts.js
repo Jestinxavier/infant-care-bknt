@@ -18,12 +18,12 @@ const getAllProducts = async (req, res) => {
       sortBy,
       page = filters.page,
       limit = filters.limit,
-      // Filters
+      // Filters - prioritize parsed filters over raw query params
       color = filters.color,
       size = filters.size || filters.age,
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
-      inStock = filters.inStock,
+      inStock = filters.inStock || req.query.inStock,
     } = { ...req.query, ...filters };
 
     const pageNum = parseInt(page, 10);
@@ -44,6 +44,19 @@ const getAllProducts = async (req, res) => {
       if (categoryDoc) {
         filter.category = categoryDoc._id;
         categoryTitle = categoryDoc.name || categoryTitle; // Set category title
+      } else {
+        // Category not found - return empty results
+        return res.status(200).json({
+          success: true,
+          categoryTitle: "Category not found",
+          items: [],
+          pagination: {
+            page: pageNum || 1,
+            limit: limitNum || 20,
+            total: 0,
+            totalPages: 0,
+          },
+        });
       }
     }
     if (minRating) {
@@ -116,8 +129,9 @@ const getAllProducts = async (req, res) => {
                 : stock > 0;
             return isInStock;
           });
-          variantsToProcess =
-            inStock === "true" ? inStockVariants : inStockVariants;
+          // If inStock="true" is explicitly set, show all variants (including out of stock)
+          // Otherwise, show only inStock variants by default
+          variantsToProcess = inStock === "true" ? productObj.variants : inStockVariants;
         }
 
         // If there are variants to process, add them as separate items
@@ -248,9 +262,21 @@ const getAllProducts = async (req, res) => {
           }
         } else {
           // No variants to process, add parent product (only if inStock filter allows)
-          // If filtering for out-of-stock, skip parent products
-          if (inStock === "false") {
-            continue; // Skip parent products when filtering for out-of-stock
+          const totalStock = productObj.variants.reduce((sum, v) => {
+            return (
+              sum +
+              (v.stockObj?.available !== undefined
+                ? v.stockObj.available
+                : v.stock || 0)
+            );
+          }, 0);
+          const parentIsInStock = totalStock > 0;
+          
+          // Apply stock filter to parent products
+          if (inStock === "true" && !parentIsInStock) {
+            continue; // Skip parent products without stock when filtering for inStock
+          } else if (inStock === "false" && parentIsInStock) {
+            continue; // Skip parent products with stock when filtering for out-of-stock
           }
           // Calculate price from all variants (even out of stock) - use effective price
           const variantPrices = productObj.variants
@@ -305,14 +331,27 @@ const getAllProducts = async (req, res) => {
               null;
           }
 
-          const totalStock = productObj.variants.reduce((sum, v) => {
-            return (
-              sum +
-              (v.stockObj?.available !== undefined
-                ? v.stockObj.available
-                : v.stock || 0)
-            );
-          }, 0);
+          // Apply price filter to parent products
+          const filterMinPrice = filters?.minPrice;
+          const filterMaxPrice = filters?.maxPrice;
+          let includeParent = true;
+          
+          if (filterMinPrice || filterMaxPrice) {
+            const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0
+              ? parentDiscountPrice
+              : parentPrice || 0;
+            
+            if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+              includeParent = false;
+            }
+            if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+              includeParent = false;
+            }
+          }
+          
+          if (!includeParent) {
+            continue;
+          }
 
           allItems.push({
             _id: productObj._id.toString(),
@@ -345,6 +384,45 @@ const getAllProducts = async (req, res) => {
           0;
         const parentDiscountPrice =
           productObj.pricing?.discountPrice || productObj.discountPrice || null;
+        
+        // Apply stock filter to products without variants
+        // Check actual stock value first, then fallback to isInStock flag
+        const productStock = productObj.stockObj?.available !== undefined
+          ? productObj.stockObj.available
+          : (productObj.stock !== undefined ? productObj.stock : 0);
+        // Product is in stock if stock > 0, regardless of isInStock flag
+        const productIsInStock = productStock > 0;
+        
+        // Apply stock filter - inStock can be "true", "false", true, false, or undefined
+        // Normalize inStock to string for comparison
+        const inStockFilter = String(inStock).toLowerCase();
+        if (inStockFilter === "true" && !productIsInStock) {
+          continue; // Skip products without stock when filtering for inStock
+        } else if (inStockFilter === "false" && productIsInStock) {
+          continue; // Skip products with stock when filtering for out-of-stock
+        }
+        
+        // Apply price filter to products without variants
+        const filterMinPrice = filters?.minPrice;
+        const filterMaxPrice = filters?.maxPrice;
+        let includeProduct = true;
+        
+        if (filterMinPrice || filterMaxPrice) {
+          const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0
+            ? parentDiscountPrice
+            : parentPrice || 0;
+          
+          if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+            includeProduct = false;
+          }
+          if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+            includeProduct = false;
+          }
+        }
+        
+        if (!includeProduct) {
+          continue;
+        }
 
         allItems.push({
           _id: productObj._id.toString(),
@@ -353,7 +431,7 @@ const getAllProducts = async (req, res) => {
           subtitle: productObj.subtitle,
           price: parentPrice,
           discountPrice: parentDiscountPrice,
-          stock: 0,
+          stock: productStock,
           images: productObj.images || [],
           sku: null,
           productId: {
@@ -370,12 +448,20 @@ const getAllProducts = async (req, res) => {
       }
     }
 
-    // Sorting
+    // Sorting - use effective price (discountPrice if available, otherwise price)
     let sortedItems = [...allItems];
     if (sortBy === "price_low") {
-      sortedItems.sort((a, b) => (a.price || 0) - (b.price || 0));
+      sortedItems.sort((a, b) => {
+        const aEffectivePrice = (a.discountPrice && a.discountPrice > 0) ? a.discountPrice : (a.price || 0);
+        const bEffectivePrice = (b.discountPrice && b.discountPrice > 0) ? b.discountPrice : (b.price || 0);
+        return aEffectivePrice - bEffectivePrice;
+      });
     } else if (sortBy === "price_high") {
-      sortedItems.sort((a, b) => (b.price || 0) - (a.price || 0));
+      sortedItems.sort((a, b) => {
+        const aEffectivePrice = (a.discountPrice && a.discountPrice > 0) ? a.discountPrice : (a.price || 0);
+        const bEffectivePrice = (b.discountPrice && b.discountPrice > 0) ? b.discountPrice : (b.price || 0);
+        return bEffectivePrice - aEffectivePrice;
+      });
     } else if (sortBy === "rating") {
       sortedItems.sort(
         (a, b) => (b.averageRating || 0) - (a.averageRating || 0)
