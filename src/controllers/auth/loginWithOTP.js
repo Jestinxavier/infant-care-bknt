@@ -154,11 +154,21 @@ const verifyLoginOTP = async (req, res) => {
     // Store refresh token
     await Token.create({ userId: user._id, refreshToken });
 
+    // Set refresh token as HttpOnly cookie
+    res.cookie("refresh_token", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // HTTPS only in production
+      sameSite: "Strict",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
     res.status(200).json({
       success: true,
       message: "Login successful!",
       accessToken,
-      refreshToken,
+      // Don't send refreshToken in response body for security
+      // It's now in HttpOnly cookie
       user: {
         id: user._id,
         username: user.username,

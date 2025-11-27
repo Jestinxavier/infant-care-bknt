@@ -1,6 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const { createAddress,getAddresses,updateAddress } = require("../controllers/address");
+const {
+  createAddress,
+  getAddresses,
+  updateAddress,
+} = require("../controllers/address");
 
 /**
  * @swagger
@@ -134,7 +138,7 @@ router.post("/create", createAddress);
  *       404:
  *         description: No addresses found
  */
-router.get("/:userId", getAddresses);
+router.post("/:userId", getAddresses);
 
 /**
  * @swagger

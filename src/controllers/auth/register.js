@@ -31,7 +31,23 @@ const requestOTP = async (req, res) => {
 const verifyOTP = async (req, res) => {
   try {
     const result = await authService.verifyOTPAndRegister(req.body);
-    res.status(201).json(result);
+    
+    // Set refresh token as HttpOnly cookie
+    if (result.refreshToken) {
+      res.cookie("refresh_token", result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production", // HTTPS only in production
+        sameSite: "Strict",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+      
+      // Remove refreshToken from response body for security
+      const { refreshToken, ...responseData } = result;
+      res.status(201).json(responseData);
+    } else {
+      res.status(201).json(result);
+    }
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

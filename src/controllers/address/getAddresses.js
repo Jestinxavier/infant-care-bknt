@@ -5,7 +5,9 @@ const getAddresses = async (req, res) => {
     const { userId } = req.params;
 
     if (!userId) {
-      return res.status(400).json({ success: false, message: "User ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID is required" });
     }
 
     const addresses = await Address.find({ userId });
@@ -13,11 +15,17 @@ const getAddresses = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "✅ Addresses fetched successfully",
-      addresses
+      addresses,
     });
   } catch (err) {
     console.error("❌ Error fetching addresses:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
