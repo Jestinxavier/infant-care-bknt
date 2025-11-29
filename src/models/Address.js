@@ -21,6 +21,7 @@ const addressSchema = new mongoose.Schema({
   addressLine2: String, // Keep for backward compatibility
   city: String,
   state: String,
+  district: String,
   postalCode: String,
   pincode: String, // Keep for backward compatibility
   country: {

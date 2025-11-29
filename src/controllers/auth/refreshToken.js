@@ -4,7 +4,6 @@ const refreshToken = async (req, res) => {
   try {
     const token = req.cookies?.refresh_token;
 
-    console.log("-------------------------", req.cookies);
     if (!token) {
       return res.status(401).json({ message: "No refresh token provided" });
     }

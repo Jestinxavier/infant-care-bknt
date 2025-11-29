@@ -12,7 +12,8 @@ const createAddress = async (req, res) => {
       addressLine1, // Keep for backward compatibility
       addressLine2, // Keep for backward compatibility
       city, 
-      state, 
+      state,
+      district,
       postalCode,
       pincode, // Keep for backward compatibility
       country = "India", // Default to India
@@ -46,6 +47,7 @@ const createAddress = async (req, res) => {
       addressLine2: finalLandmark, // Keep for backward compatibility
       city,
       state,
+      district,
       postalCode: finalPincode,
       pincode: finalPincode, // Keep for backward compatibility
       country: country || "India", // Default to India

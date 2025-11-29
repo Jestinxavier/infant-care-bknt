@@ -4,6 +4,7 @@ const {
   createAddress,
   getAddresses,
   updateAddress,
+  deleteAddress,
 } = require("../controllers/address");
 
 /**
@@ -61,6 +62,10 @@ const {
  *               state:
  *                 type: string
  *                 example: Maharashtra
+ *               district:
+ *                 type: string
+ *                 example: '1'
+ *                 description: District ID or name (optional)
  *               pincode:
  *                 type: string
  *                 example: '400001'
@@ -230,4 +235,41 @@ router.post("/:userId", getAddresses);
  *         description: Address not found
  */
 router.put("/:addressId", updateAddress);
+
+/**
+ * @swagger
+ * /api/v1/addresses/{addressId}:
+ *   delete:
+ *     summary: Delete an address
+ *     tags: [Addresses]
+ *     parameters:
+ *       - in: path
+ *         name: addressId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Address ID to delete
+ *         example: 64abc123def456791
+ *     responses:
+ *       200:
+ *         description: Address deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: ✅ Address deleted successfully
+ *       400:
+ *         description: Address ID is required
+ *       404:
+ *         description: Address not found
+ *       500:
+ *         description: Internal Server Error
+ */
+router.delete("/:addressId", deleteAddress);
 module.exports = router;
