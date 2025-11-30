@@ -1,3 +1,6 @@
+export const TEST_MODE = true;
+export const TEST_OTP = "123456";
+
 export const PRODUCTS = [
   {
     title: "Premium Organic Cotton Infant Jumpsuit",

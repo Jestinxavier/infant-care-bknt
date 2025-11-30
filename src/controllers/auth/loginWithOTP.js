@@ -10,6 +10,7 @@ const { generateOTP, sendOTPEmail } = require("../../services/emailService");
 const requestLoginOTP = async (req, res) => {
   try {
     const { email } = req.body;
+    const platform = req.headers["platform"] || req.headers["Platform"] || "frontend";
 
     if (!email) {
       return res.status(400).json({
@@ -32,6 +33,14 @@ const requestLoginOTP = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Please verify your email first. Check your inbox for verification link.",
+      });
+    }
+
+    // If platform is "dashboard", verify user has admin role
+    if (platform === "dashboard" && user.role !== "admin" && user.role !== "super-admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin or Super Admin role required.",
       });
     }
 
@@ -85,6 +94,7 @@ const requestLoginOTP = async (req, res) => {
 const verifyLoginOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
+    const platform = req.headers["platform"] || req.headers["Platform"] || "frontend";
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -99,6 +109,14 @@ const verifyLoginOTP = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "No account found with this email",
+      });
+    }
+
+    // If platform is "dashboard", verify user has admin role
+    if (platform === "dashboard" && (user.role !== "admin" && user.role !== "super-admin" && user.role !== "moderator")) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin or Super Admin role required.",
       });
     }
 
@@ -167,8 +185,7 @@ const verifyLoginOTP = async (req, res) => {
       success: true,
       message: "Login successful!",
       accessToken,
-      // Don't send refreshToken in response body for security
-      // It's now in HttpOnly cookie
+      refreshToken, // Include refreshToken in response for client-side storage
       user: {
         id: user._id,
         username: user.username,

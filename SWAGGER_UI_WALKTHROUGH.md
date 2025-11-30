@@ -306,7 +306,7 @@ Type "payment" → Shows:
 
 Type "address" → Shows:
   - POST /api/v1/addresses/create
-  - GET /api/v1/addresses/{userId}
+  - POST /api/v1/addresses (Get user addresses - requires userId in body)
   - PUT /api/v1/addresses/{addressId}
 ```
 

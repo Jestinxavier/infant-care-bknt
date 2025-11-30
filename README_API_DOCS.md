@@ -87,7 +87,7 @@ All routes now have **detailed Swagger documentation**:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/create` | Create address |
-| GET | `/:userId` | Get user addresses |
+| POST | `/` | Get user addresses (requires userId in body) |
 | PUT | `/:addressId` | Update address |
 
 ### ⭐ Reviews (`/api/v1/review`)

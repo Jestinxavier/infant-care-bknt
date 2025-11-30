@@ -108,18 +108,23 @@ router.post("/create", createAddress);
 
 /**
  * @swagger
- * /api/v1/addresses/{userId}:
- *   get:
+ * /api/v1/addresses:
+ *   post:
  *     summary: Get all addresses for a user
  *     tags: [Addresses]
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema:
- *           type: string
- *         description: User ID
- *         example: 64abc123def456789
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *                 description: User ID
+ *                 example: 64abc123def456789
  *     responses:
  *       200:
  *         description: Addresses retrieved successfully
@@ -143,7 +148,7 @@ router.post("/create", createAddress);
  *       404:
  *         description: No addresses found
  */
-router.post("/:userId", getAddresses);
+router.post("/", getAddresses);
 
 /**
  * @swagger

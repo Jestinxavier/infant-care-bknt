@@ -1,6 +1,25 @@
 const express = require("express");
-const { requestOTP, verifyOTP, login, refreshToken, logout, resendOTP, getProfile, updateProfile, checkUserExists, requestLoginOTP, verifyLoginOTP, requestPasswordReset, resetPassword, changePassword } = require("../controllers/auth");
-const { registerValidation, loginValidation, validate } = require("../middlewares/validators");
+const {
+  requestOTP,
+  verifyOTP,
+  login,
+  refreshToken,
+  logout,
+  resendOTP,
+  getProfile,
+  updateProfile,
+  checkUserExists,
+  requestLoginOTP,
+  verifyLoginOTP,
+  requestPasswordReset,
+  resetPassword,
+  changePassword,
+} = require("../controllers/auth");
+const {
+  registerValidation,
+  loginValidation,
+  validate,
+} = require("../middlewares/validators");
 const verifyToken = require("../middlewares/authMiddleware");
 const { avatarParser } = require("../config/avatarUpload");
 
@@ -519,7 +538,7 @@ router.post("/resend-otp", resendOTP);
  *                   type: string
  *                   example: User not found
  */
-router.get("/profile", verifyToken, getProfile);
+router.post("/profile", verifyToken, getProfile);
 
 /**
  * @swagger
@@ -617,19 +636,24 @@ router.get("/profile", verifyToken, getProfile);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put("/profile", verifyToken, (req, res, next) => {
-  avatarParser.single('avatar')(req, res, (err) => {
-    if (err) {
-      console.error("❌ Avatar upload error:", err);
-      return res.status(400).json({ 
-        success: false,
-        message: "Avatar upload error", 
-        error: err.message 
-      });
-    }
-    next();
-  });
-}, updateProfile);
+router.put(
+  "/profile",
+  verifyToken,
+  (req, res, next) => {
+    avatarParser.single("avatar")(req, res, (err) => {
+      if (err) {
+        console.error("❌ Avatar upload error:", err);
+        return res.status(400).json({
+          success: false,
+          message: "Avatar upload error",
+          error: err.message,
+        });
+      }
+      next();
+    });
+  },
+  updateProfile
+);
 
 /**
  * @swagger

@@ -121,6 +121,15 @@ POST /api/v1/addresses/create
 }
 ```
 
+### Get User Addresses
+```bash
+POST /api/v1/addresses
+{
+  "userId": "64abc123..."
+}
+# Returns: { success: true, addresses: [...], message: "✅ Addresses fetched successfully" }
+```
+
 ### Add Review
 ```bash
 POST /api/v1/review/add

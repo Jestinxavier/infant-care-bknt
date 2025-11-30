@@ -8,9 +8,12 @@ const { formatProductResponse } = require("../../utils/formatProductResponse");
  */
 const getAllProducts = async (req, res) => {
   try {
+    // Support both GET (query params) and POST (body) requests
+    const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
+    
     // Parse query filters (handles new URL structure)
     const { parseQueryFilters } = require("../../utils/parseQueryFilters");
-    const filters = parseQueryFilters(req.query);
+    const filters = parseQueryFilters(requestData);
 
     const {
       category,
@@ -23,8 +26,8 @@ const getAllProducts = async (req, res) => {
       size = filters.size || filters.age,
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
-      inStock = filters.inStock || req.query.inStock,
-    } = { ...req.query, ...filters };
+      inStock = filters.inStock || requestData.inStock,
+    } = { ...requestData, ...filters };
 
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
@@ -511,7 +514,8 @@ const getAllProducts = async (req, res) => {
  */
 const getProductByUrlKey = async (req, res) => {
   try {
-    const { url_key } = req.params;
+    // Support both GET (params) and POST (body or params) requests
+    const url_key = req.params.url_key || req.body?.url_key;
 
     // Validate url_key
     if (!url_key || url_key === "undefined" || url_key === "null") {
@@ -646,7 +650,8 @@ const getProductByUrlKey = async (req, res) => {
  */
 const getProductById = async (req, res) => {
   try {
-    const { productId } = req.params;
+    // Support both GET (params) and POST (body or params) requests
+    const productId = req.params.productId || req.body?.productId;
 
     // Validate productId
     if (!productId || productId === "undefined" || productId === "null") {

@@ -361,6 +361,8 @@ router.put(
  *                       example: 5
  */
 router.get("/all", getAllProducts);
+// POST endpoint for fetching products (for dashboard)
+router.post("/all", getAllProducts);
 
 /**
  * @swagger
@@ -457,9 +459,12 @@ router.get("/all", getAllProducts);
  *         description: Server error
  */
 router.get("/url/:url_key", getProductByUrlKey);
+router.post("/url/:url_key", getProductByUrlKey);
 
 // Legacy endpoint: Get product by ID (backward compatibility)
 router.get("/:productId", getProductById);
+// POST endpoint for fetching product by ID (for dashboard)
+router.post("/:productId", getProductById);
 
 /**
  * @swagger

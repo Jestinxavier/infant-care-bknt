@@ -3,10 +3,10 @@ const User = require("../models/user");
 const PendingUser = require("../models/PendingUser");
 const Token = require("../models/token");
 const { generateAccessToken, generateRefreshToken } = require("../utils/token");
-const { 
-  generateOTP, 
-  sendOTPEmail, 
-  sendWelcomeEmail 
+const {
+  generateOTP,
+  sendOTPEmail,
+  sendWelcomeEmail,
 } = require("./emailService");
 
 /**
@@ -14,7 +14,7 @@ const {
  */
 exports.requestOTP = async ({ email }) => {
   // Check if email already exists in verified users
-  
+
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     throw new Error("Email is already registered");
@@ -28,35 +28,41 @@ exports.requestOTP = async ({ email }) => {
   await PendingUser.deleteMany({ email });
 
   // Create OTP record (no user data stored yet)
-  const pendingOTP = await PendingUser.create({ 
-    email, 
+  const pendingOTP = await PendingUser.create({
+    email,
     otp,
-    otpExpires
+    otpExpires,
   });
 
   // Send OTP email
   try {
     await sendOTPEmail({ email }, otp);
-    console.log('✅ OTP sent to:', email);
+    console.log("✅ OTP sent to:", email);
   } catch (emailError) {
     // Delete OTP record if email fails
     await PendingUser.deleteOne({ _id: pendingOTP._id });
-    console.error('❌ Failed to send OTP:', emailError);
-    throw new Error('Failed to send OTP email. Please try again.');
+    console.error("❌ Failed to send OTP:", emailError);
+    throw new Error("Failed to send OTP email. Please try again.");
   }
 
   return {
     success: true,
-    message: 'OTP sent to your email. Please verify to complete registration.',
+    message: "OTP sent to your email. Please verify to complete registration.",
     email: email,
-    expiresIn: '10 minutes'
+    expiresIn: "10 minutes",
   };
 };
 
 /**
  * Step 2: Verify OTP and create user account with all data
  */
-exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) => {
+exports.verifyOTPAndRegister = async ({
+  email,
+  username,
+  password,
+  otp,
+  role,
+}) => {
   // Check if email already registered
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -71,9 +77,11 @@ exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) 
 
   // Find OTP record
   const pendingOTP = await PendingUser.findOne({ email });
-  
+
   if (!pendingOTP) {
-    throw new Error("No OTP request found for this email. Please request a new OTP.");
+    throw new Error(
+      "No OTP request found for this email. Please request a new OTP."
+    );
   }
 
   // Check if OTP expired
@@ -92,7 +100,9 @@ exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) 
   if (pendingOTP.otp !== otp) {
     pendingOTP.attempts += 1;
     await pendingOTP.save();
-    throw new Error(`Invalid OTP. ${5 - pendingOTP.attempts} attempts remaining.`);
+    throw new Error(
+      `Invalid OTP. ${5 - pendingOTP.attempts} attempts remaining.`
+    );
   }
 
   // OTP is valid - Create user account
@@ -100,8 +110,8 @@ exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) 
     username,
     email,
     password, // Will be hashed by pre-save hook
-    role: role || 'user',
-    isEmailVerified: true // Email verified via OTP
+    role: role || "user",
+    isEmailVerified: true, // Email verified via OTP
   });
 
   // Delete OTP record
@@ -118,12 +128,12 @@ exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) 
   try {
     await sendWelcomeEmail(user);
   } catch (error) {
-    console.error('❌ Failed to send welcome email:', error);
+    console.error("❌ Failed to send welcome email:", error);
   }
 
   return {
     success: true,
-    message: 'Registration successful! Welcome to Online Shopping.',
+    message: "Registration successful! Welcome to Online Shopping.",
     accessToken,
     refreshToken,
     user: {
@@ -131,21 +141,63 @@ exports.verifyOTPAndRegister = async ({ email, username, password, otp, role }) 
       username: user.username,
       email: user.email,
       role: user.role,
-      isEmailVerified: user.isEmailVerified
-    }
+      isEmailVerified: user.isEmailVerified,
+    },
   };
 };
 
-exports.loginUser = async ({ email, password }) => {
-  const user = await User.findOne({ email });
-  if (!user) throw new Error("Invalid credentials");
+exports.loginUser = async ({ email, password }, platform = "frontend") => {
+  // Normalize email (lowercase and trim)
+  const normalizedEmail = email?.toLowerCase()?.trim();
+  if (!normalizedEmail) throw new Error("Email is required");
+
+  const user = await User.findOne({ email: normalizedEmail });
+  if (!user) {
+    console.error(
+      "❌ Login failed: User not found for email:",
+      normalizedEmail
+    );
+    throw new Error("Invalid credentials");
+  }
+
+  if (!password) {
+    console.error("❌ Login failed: Password not provided");
+    throw new Error("Password is required");
+  }
+
+  // Debug: Log password comparison attempt (don't log actual password)
+  console.log("🔐 Attempting password comparison for user:", user.email);
+  console.log("🔐 Password hash exists:", !!user.password);
+  console.log(
+    "🔐 Password hash starts with $2:",
+    user.password?.startsWith("$2")
+  );
 
   const isMatch = await user.comparePassword(password);
-  if (!isMatch) throw new Error("Invalid credentials");
+  if (!isMatch) {
+    console.error(
+      "❌ Login failed: Password mismatch for user:",
+      normalizedEmail
+    );
+    throw new Error("Invalid credentials");
+  }
+
+  console.log("✅ Password verified successfully for user:", normalizedEmail);
 
   // Check if email is verified
   if (!user.isEmailVerified) {
-    throw new Error("Please verify your email before logging in. Check your inbox for the verification link.");
+    throw new Error(
+      "Please verify your email before logging in. Check your inbox for the verification link."
+    );
+  }
+
+  // If platform is "dashboard", verify user has admin role
+  if (
+    platform === "dashboard" &&
+    user.role !== "admin" &&
+    user.role !== "super-admin"
+  ) {
+    throw new Error("Access denied. Admin or Super Admin role required.");
   }
 
   // Remove old refresh tokens (only one active refresh token per user)
@@ -164,8 +216,8 @@ exports.loginUser = async ({ email, password }) => {
       username: user.username,
       email: user.email,
       role: user.role,
-      isEmailVerified: user.isEmailVerified
-    }
+      isEmailVerified: user.isEmailVerified,
+    },
   };
 };
 
@@ -212,11 +264,14 @@ exports.resendOTP = async (email) => {
   await pendingUser.save();
 
   // Send OTP email
-  await sendOTPEmail({ email: pendingUser.email, username: pendingUser.username }, otp);
+  await sendOTPEmail(
+    { email: pendingUser.email, username: pendingUser.username },
+    otp
+  );
 
   return {
     success: true,
     message: "New OTP sent to your email",
-    expiresIn: '10 minutes'
+    expiresIn: "10 minutes",
   };
 };

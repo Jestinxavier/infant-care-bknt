@@ -2,7 +2,8 @@ const Address = require("../../models/Address");
 
 const getAddresses = async (req, res) => {
   try {
-    const { userId } = req.params;
+    // Read userId from request body (for POST) or params (for backward compatibility)
+    const { userId } = req.body || req.params;
 
     if (!userId) {
       return res

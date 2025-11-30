@@ -2,7 +2,9 @@ const authService = require("../../services/service");
 
 const login = async (req, res) => {
   try {
-    const { accessToken, refreshToken, user } = await authService.loginUser(req.body);
+    const platform = req.headers["platform"] || req.headers["Platform"] || "frontend";
+    
+    const { accessToken, refreshToken, user } = await authService.loginUser(req.body, platform);
     
     // Set refresh token as HttpOnly cookie
     res.cookie("refresh_token", refreshToken, {
@@ -14,14 +16,18 @@ const login = async (req, res) => {
     });
     
     res.json({ 
+      success: true,
       message: "Login successful", 
-      accessToken, 
-      // Don't send refreshToken in response body for security
-      // It's now in HttpOnly cookie
+      accessToken,
+      refreshToken, // Include refreshToken in response for client-side storage
       user // Include user info in response
     });
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    console.error("❌ Login error:", err.message);
+    res.status(400).json({ 
+      success: false,
+      message: err.message 
+    });
   }
 };
 

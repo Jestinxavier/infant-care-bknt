@@ -189,7 +189,7 @@ Use this with:
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | POST | `/api/v1/addresses/create` | Create address | ❌ |
-| GET | `/api/v1/addresses/:userId` | Get user addresses | ❌ |
+| POST | `/api/v1/addresses` | Get user addresses (requires userId in body) | ❌ |
 | PUT | `/api/v1/addresses/:addressId` | Update address | ❌ |
 
 ### Review Endpoints
