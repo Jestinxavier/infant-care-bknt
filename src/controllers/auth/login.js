@@ -2,9 +2,8 @@ const authService = require("../../services/service");
 
 const login = async (req, res) => {
   try {
-    const platform = req.headers["platform"] || req.headers["Platform"] || "frontend";
-    
-    const { accessToken, refreshToken, user } = await authService.loginUser(req.body, platform);
+    // Note: Platform header checks removed - admin access controlled by route prefix
+    const { accessToken, refreshToken, user } = await authService.loginUser(req.body);
     
     // Set refresh token as HttpOnly cookie
     res.cookie("refresh_token", refreshToken, {

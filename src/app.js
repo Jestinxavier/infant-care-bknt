@@ -42,7 +42,6 @@ app.use(
       "Authorization",
       "X-Requested-With",
       "x-cart-id",
-      "platform",
     ],
   })
 );
@@ -67,6 +66,11 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const homepageRoutes = require("./routes/homepageRoutes");
 
+// Admin routes - using environment variable for prefix
+const adminRoutes = require("./routes/adminRoutes");
+const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
+
+// Storefront routes (unchanged)
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/product", productRoutes);
 app.use("/api/v1/category", categoryRoutes);
@@ -79,6 +83,9 @@ app.use("/api/v1/review", reviewRoutes);
 app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/health", healthRoutes);
 app.use("/api/v1/homepage", homepageRoutes);
+
+// Admin routes - mounted with configurable prefix
+app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
 
 // Swagger API Documentation
 app.use(

@@ -1,7 +1,11 @@
 // controllers/cart/hybridCartController.js
+const { CART_ID } = require("../../../resources/constants");
 const Cart = require("../../models/Cart");
 const Product = require("../../models/Product");
-const { isValidCartId, generateCartId } = require("../../utils/cartIdGenerator");
+const {
+  isValidCartId,
+  generateCartId,
+} = require("../../utils/cartIdGenerator");
 const { formatCartResponse } = require("../../utils/formatCartResponse");
 
 /**
@@ -50,7 +54,8 @@ const getProductDataForCart = async (productId, variantId = null) => {
       title: product.title,
       image: product.images?.[0] || "",
       price: product.pricing?.price || product.price || 0,
-      discountPrice: product.pricing?.discountPrice || product.discountPrice || null,
+      discountPrice:
+        product.pricing?.discountPrice || product.discountPrice || null,
       stockObj: product.stockObj || {
         available: product.stock || 0,
         isInStock: (product.stock || 0) > 0,
@@ -69,7 +74,8 @@ const getProductDataForCart = async (productId, variantId = null) => {
     title: product.title, // Use product title
     image: variant.images?.[0] || product.images?.[0] || "",
     price: variant.pricing?.price || variant.price || 0,
-    discountPrice: variant.pricing?.discountPrice || variant.discountPrice || null,
+    discountPrice:
+      variant.pricing?.discountPrice || variant.discountPrice || null,
     stockObj: variant.stockObj || {
       available: variant.stock || 0,
       isInStock: (variant.stock || 0) > 0,
@@ -123,7 +129,7 @@ const createCart = async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: "/",
     };
-    res.cookie("cart_id", newCartId, cookieOptions);
+    res.cookie(CART_ID, newCartId, cookieOptions);
 
     const formatted = formatCartResponse(cart);
 
@@ -174,7 +180,7 @@ const setCookie = async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: "/",
     };
-    res.cookie("cart_id", cartId, cookieOptions);
+    res.cookie(CART_ID, cartId, cookieOptions);
 
     res.status(200).json({
       success: true,
@@ -253,12 +259,15 @@ const addItem = async (req, res) => {
           maxAge: 30 * 24 * 60 * 60 * 1000,
           path: "/",
         };
-        res.cookie("cart_id", cartId, cookieOptions);
+        res.cookie(CART_ID, cartId, cookieOptions);
       }
     }
 
     // Get product data
-    const productData = await getProductDataForCart(item.productId, item.variantId || null);
+    const productData = await getProductDataForCart(
+      item.productId,
+      item.variantId || null
+    );
 
     // Prepare item data with snapshots
     const itemData = {
@@ -584,7 +593,8 @@ const getProductData = async (req, res) => {
             id: variant.id,
             image: variant.images?.[0] || product.images?.[0] || "",
             price: variant.pricing?.price || variant.price || 0,
-            discountPrice: variant.pricing?.discountPrice || variant.discountPrice || null,
+            discountPrice:
+              variant.pricing?.discountPrice || variant.discountPrice || null,
             stockObj: variant.stockObj || {
               available: variant.stock || 0,
               isInStock: (variant.stock || 0) > 0,
@@ -689,7 +699,10 @@ const mergeCart = async (req, res) => {
     }
 
     // Find or create user cart
-    let userCart = await Cart.findOne({ userId, cartId: { $ne: guestCart.cartId } });
+    let userCart = await Cart.findOne({
+      userId,
+      cartId: { $ne: guestCart.cartId },
+    });
 
     if (!userCart) {
       // Create new user cart
@@ -734,7 +747,7 @@ const mergeCart = async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: "/",
     };
-    res.cookie("cart_id", userCart.cartId, cookieOptions);
+    res.cookie(CART_ID, userCart.cartId, cookieOptions);
 
     const formatted = formatCartResponse(userCart);
 
@@ -768,4 +781,3 @@ module.exports = {
   getSummary,
   mergeCart,
 };
-

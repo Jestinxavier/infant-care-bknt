@@ -146,7 +146,7 @@ exports.verifyOTPAndRegister = async ({
   };
 };
 
-exports.loginUser = async ({ email, password }, platform = "frontend") => {
+exports.loginUser = async ({ email, password }) => {
   // Normalize email (lowercase and trim)
   const normalizedEmail = email?.toLowerCase()?.trim();
   if (!normalizedEmail) throw new Error("Email is required");
@@ -191,14 +191,8 @@ exports.loginUser = async ({ email, password }, platform = "frontend") => {
     );
   }
 
-  // If platform is "dashboard", verify user has admin role
-  if (
-    platform === "dashboard" &&
-    user.role !== "admin" &&
-    user.role !== "super-admin"
-  ) {
-    throw new Error("Access denied. Admin or Super Admin role required.");
-  }
+  // Note: Admin role verification is now handled by route-level middleware
+  // No platform header checks needed
 
   // Remove old refresh tokens (only one active refresh token per user)
   await Token.deleteMany({ userId: user._id });

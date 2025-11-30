@@ -633,7 +633,7 @@ const options = {
       },
       {
         name: 'Products',
-        description: 'Product management endpoints',
+        description: 'Product management endpoints (Storefront)',
       },
       {
         name: 'Variants',
@@ -645,7 +645,7 @@ const options = {
       },
       {
         name: 'Orders',
-        description: 'Order management endpoints',
+        description: 'Order management endpoints (Storefront)',
       },
       {
         name: 'Payments',
@@ -662,6 +662,10 @@ const options = {
       {
         name: 'Cart',
         description: 'Shopping cart management endpoints',
+      },
+      {
+        name: 'Admin',
+        description: 'Admin dashboard API endpoints - Requires admin authentication. All endpoints are prefixed with /api/v1/admin (configurable via ADMIN_API_PREFIX env variable).',
       },
     ],
   },

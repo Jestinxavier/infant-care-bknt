@@ -1,14 +1,15 @@
 // middleware/validateCart.js
+const { CART_ID } = require("../../resources/constants");
 const Cart = require("../models/Cart");
 const { isValidCartId } = require("../utils/cartIdGenerator");
 
 /**
  * Validate Cart Middleware
- * 
+ *
  * Reads cartId from:
  * 1. x-cart-id header (preferred)
  * 2. cookie fallback (cart_id cookie)
- * 
+ *
  * Validates cart existence and expiry.
  * If expired, responds with { expired: true } (200 status).
  * If not found, attaches null to req.cart (controller can create if needed).
@@ -18,7 +19,7 @@ const validateCart = async (req, res, next) => {
   try {
     // Get cartId from header or cookie
     const cartIdFromHeader = req.headers["x-cart-id"];
-    const cartIdFromCookie = req.cookies?.cart_id;
+    const cartIdFromCookie = req.cookies?.[CART_ID];
     const cartId = cartIdFromHeader || cartIdFromCookie;
 
     // If no cartId provided, let controller handle (may create new cart)
@@ -69,4 +70,3 @@ const validateCart = async (req, res, next) => {
 };
 
 module.exports = { validateCart };
-

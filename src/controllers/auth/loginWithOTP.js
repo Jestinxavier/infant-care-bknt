@@ -10,7 +10,6 @@ const { generateOTP, sendOTPEmail } = require("../../services/emailService");
 const requestLoginOTP = async (req, res) => {
   try {
     const { email } = req.body;
-    const platform = req.headers["platform"] || req.headers["Platform"] || "frontend";
 
     if (!email) {
       return res.status(400).json({
@@ -36,13 +35,8 @@ const requestLoginOTP = async (req, res) => {
       });
     }
 
-    // If platform is "dashboard", verify user has admin role
-    if (platform === "dashboard" && user.role !== "admin" && user.role !== "super-admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Admin or Super Admin role required.",
-      });
-    }
+    // Note: Admin role verification is now handled by route-level middleware
+    // No platform header checks needed
 
     // Generate OTP
     const otp = generateOTP();
@@ -94,7 +88,6 @@ const requestLoginOTP = async (req, res) => {
 const verifyLoginOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
-    const platform = req.headers["platform"] || req.headers["Platform"] || "frontend";
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -112,13 +105,8 @@ const verifyLoginOTP = async (req, res) => {
       });
     }
 
-    // If platform is "dashboard", verify user has admin role
-    if (platform === "dashboard" && (user.role !== "admin" && user.role !== "super-admin" && user.role !== "moderator")) {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Admin or Super Admin role required.",
-      });
-    }
+    // Note: Admin role verification is now handled by route-level middleware
+    // No platform header checks needed
 
     // Find OTP record
     const pendingOTP = await PendingUser.findOne({ email: user.email });

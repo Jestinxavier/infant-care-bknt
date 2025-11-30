@@ -1,6 +1,11 @@
 export const TEST_MODE = true;
 export const TEST_OTP = "123456";
 
+// required cookies
+export const CART_ID = "cart_id";
+export const ACCESS_TOKEN = "access_token";
+export const REFRESH_TOKEN = "refresh_token";
+
 export const PRODUCTS = [
   {
     title: "Premium Organic Cotton Infant Jumpsuit",
