@@ -28,6 +28,50 @@ const createAddress = async (req, res) => {
     // Use pincode if provided, otherwise fallback to postalCode
     const finalPincode = pincode || postalCode;
 
+    // Check for duplicate address: same userId, pincode, address line, and phone
+    // Only check if all required fields are present
+    let duplicateAddress = null;
+    if (finalPincode && finalStreet && phone) {
+      duplicateAddress = await Address.findOne({
+        userId,
+        phone: phone,
+        $and: [
+          {
+            $or: [
+              { postalCode: finalPincode },
+              { pincode: finalPincode }
+            ]
+          },
+          {
+            $or: [
+              { street: finalStreet },
+              { addressLine1: finalStreet }
+            ]
+          }
+        ]
+      });
+    }
+
+    // If duplicate found, return existing address ID
+    if (duplicateAddress) {
+      // Update isDefault if needed
+      if (isDefault && !duplicateAddress.isDefault) {
+        await Address.updateMany(
+          { userId, isDefault: true },
+          { $set: { isDefault: false } }
+        );
+        duplicateAddress.isDefault = true;
+        await duplicateAddress.save();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "✅ Address already exists",
+        address: duplicateAddress,
+        isDuplicate: true
+      });
+    }
+
     // If this address is set as default, unset all other default addresses for this user
     if (isDefault) {
       await Address.updateMany(
