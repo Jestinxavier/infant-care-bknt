@@ -42,6 +42,7 @@ app.use(
       "Authorization",
       "X-Requested-With",
       "x-cart-id",
+      "Access-Control-Allow-Origin",
     ],
   })
 );
