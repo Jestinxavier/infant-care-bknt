@@ -61,7 +61,7 @@ const getHomepageById = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching homepage data:", err);
-    
+
     // Handle invalid ObjectId
     if (err.name === "CastError") {
       return res.status(400).json({
@@ -82,4 +82,3 @@ module.exports = {
   getHomepage,
   getHomepageById,
 };
-

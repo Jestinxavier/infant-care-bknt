@@ -1,6 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const { createOrder, getOrders, getOrderById } = require("../controllers/Order");
+const {
+  createOrder,
+  getOrders,
+  getOrderById,
+} = require("../controllers/Order");
 const verifyToken = require("../middlewares/authMiddleware");
 
 /**
@@ -149,11 +153,11 @@ const verifyToken = require("../middlewares/authMiddleware");
  *                 example: COD
  *               shippingCost:
  *                 type: number
- *                 description: Shipping cost in rupees (default: 0)
+ *                 description: "Shipping cost in rupees (default: 0)"
  *                 example: 60
  *               discount:
  *                 type: number
- *                 description: Discount amount in rupees (default: 0)
+ *                 description: "Discount amount in rupees (default: 0)"
  *                 example: 150
  *     responses:
  *       201:

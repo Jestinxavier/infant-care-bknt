@@ -65,7 +65,11 @@ const reviewRoutes = require("./routes/reviewRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const homepageRoutes = require("./routes/homepageRoutes");
-const cmsRoutes = require("./routes/cmsRoutes");
+// Old CMS routes (keeping for backward compatibility if needed)
+// const cmsRoutes = require("./routes/cmsRoutes");
+
+// New feature-based CMS routes
+const cmsAdminRoutes = require("./features/cms/cms.admin.routes");
 
 // Admin routes - using environment variable for prefix
 const adminRoutes = require("./routes/adminRoutes");
@@ -87,8 +91,8 @@ app.use("/api/v1/homepage", homepageRoutes);
 
 // Admin routes - mounted with configurable prefix
 app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
-// CMS routes under admin
-app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsRoutes);
+// CMS routes under admin (using new feature-based routes)
+app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsAdminRoutes);
 
 // Swagger API Documentation
 app.use(
