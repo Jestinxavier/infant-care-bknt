@@ -80,9 +80,9 @@ class CmsAdminController {
           : "N/A",
     });
 
-    // Ensure content is always an array for homepage/about pages
+    // Ensure content is always an array for homepage/about/policies pages
     if (
-      (page === "home" || page === "about") &&
+      (page === "home" || page === "about" || page === "policies") &&
       !Array.isArray(content.content)
     ) {
       console.warn(
@@ -106,7 +106,92 @@ class CmsAdminController {
    */
   updateContent = asyncHandler(async (req, res) => {
     const { page, content } = req.body;
+
+    console.log(`📥 [CMS] POST /admin/cms - updateContent called`);
+    console.log("📥 [CMS] Request body:", {
+      page,
+      hasContent: !!content,
+      contentType: Array.isArray(content)
+        ? `array[${content.length}]`
+        : typeof content,
+      contentPreview: Array.isArray(content)
+        ? content.slice(0, 2).map((b) => ({
+            block_type: b.block_type,
+            enabled: b.enabled,
+            order: b.order,
+            hasData: !!b.data || Object.keys(b).length > 3,
+          }))
+        : "not array",
+    });
+
+    // Validation
+    if (!page) {
+      return res
+        .status(400)
+        .json(ApiResponse.error("Page parameter is required", 400).toJSON());
+    }
+
+    if (content === undefined || content === null) {
+      return res
+        .status(400)
+        .json(ApiResponse.error("Content is required", 400).toJSON());
+    }
+
     const updated = await cmsService.updateContent(page, content);
+
+    console.log(`📤 [CMS] Update successful for page "${page}":`, {
+      page: updated.page,
+      title: updated.title,
+      contentLength: Array.isArray(updated.content)
+        ? updated.content.length
+        : "not array",
+      blockTypes: Array.isArray(updated.content)
+        ? updated.content.map((b) => b.block_type || "unknown")
+        : "N/A",
+    });
+
+    res
+      .status(200)
+      .json(
+        ApiResponse.success(
+          "CMS content updated successfully",
+          updated
+        ).toJSON()
+      );
+  });
+
+  /**
+   * Update CMS content by page (PUT /admin/cms/:page)
+   */
+  updateContentByPage = asyncHandler(async (req, res) => {
+    const { page } = req.params;
+    const { content } = req.body;
+
+    console.log(`📥 [CMS] PUT /admin/cms/${page} - updateContentByPage called`);
+    console.log("📥 [CMS] Request body:", {
+      page,
+      hasContent: !!content,
+      contentType: Array.isArray(content)
+        ? `array[${content.length}]`
+        : typeof content,
+    });
+
+    // Validation
+    if (!content || content === null) {
+      return res
+        .status(400)
+        .json(ApiResponse.error("Content is required", 400).toJSON());
+    }
+
+    const updated = await cmsService.updateContent(page, content);
+
+    console.log(`📤 [CMS] Update successful for page "${page}":`, {
+      page: updated.page,
+      title: updated.title,
+      contentLength: Array.isArray(updated.content)
+        ? updated.content.length
+        : "not array",
+    });
 
     res
       .status(200)

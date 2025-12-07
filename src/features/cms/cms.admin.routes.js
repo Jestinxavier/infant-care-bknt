@@ -3,6 +3,8 @@ const router = express.Router();
 const cmsAdminController = require("./cms.admin.controller");
 const verifyToken = require("../../middlewares/authMiddleware");
 const requireAdmin = require("../../middlewares/adminMiddleware");
+const { validate } = require("../../core/middleware/validator");
+const cmsValidation = require("./cms.validation");
 
 /**
  * @swagger
@@ -45,8 +47,62 @@ router.get("/:page", cmsAdminController.getContentByPage);
  *     tags: [Admin CMS]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - page
+ *               - content
+ *             properties:
+ *               page:
+ *                 type: string
+ *                 enum: [home, about, policies, header, footer]
+ *               title:
+ *                 type: string
+ *               content:
+ *                 type: array
+ *                 description: Array of blocks for home/about pages, or single object for others
  */
-router.post("/", cmsAdminController.updateContent);
+router.post(
+  "/",
+  validate(cmsValidation.validateUpdateContent),
+  cmsAdminController.updateContent
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/cms/{page}:
+ *   put:
+ *     summary: "[Admin] Update CMS content for specific page"
+ *     tags: [Admin CMS]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: page
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [home, about, policies, header, footer]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               content:
+ *                 type: array
+ *                 description: Array of blocks for home/about pages, or single object for others
+ */
+router.put(
+  "/:page",
+  validate(cmsValidation.validateUpdateContentByPage),
+  cmsAdminController.updateContentByPage
+);
 
 /**
  * @swagger
@@ -60,4 +116,3 @@ router.post("/", cmsAdminController.updateContent);
 router.delete("/:page", cmsAdminController.deleteContent);
 
 module.exports = router;
-

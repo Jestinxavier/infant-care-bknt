@@ -5,7 +5,7 @@ const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
 
 // ✅ Load environment from root .env file
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -13,18 +13,24 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-cloudinary.api.ping()
-  .then(res => console.log("✅ Cloudinary ping success:", res))
-  .catch(err => console.error("❌ Cloudinary ping failed:", err));
+cloudinary.api
+  .ping()
+  .then((res) => console.log("✅ Cloudinary ping success:", res))
+  .catch((err) => console.error("❌ Cloudinary ping failed:", err));
 
 // Debug log
 console.log("🌩️ Cloudinary Config Check:", {
   name: process.env.CLOUDINARY_CLOUD_NAME,
-  key: process.env.CLOUDINARY_API_KEY ? `✅,${process.env.CLOUDINARY_API_KEY}` : "❌ Missing",
-  secret: process.env.CLOUDINARY_API_SECRET ? `✅,${process.env.CLOUDINARY_API_SECRET}` : "❌ Missing",
+  key: process.env.CLOUDINARY_API_KEY
+    ? `✅,${process.env.CLOUDINARY_API_KEY}`
+    : "❌ Missing",
+  secret: process.env.CLOUDINARY_API_SECRET
+    ? `✅,${process.env.CLOUDINARY_API_SECRET}`
+    : "❌ Missing",
 });
 
-const storage = new CloudinaryStorage({
+// Storage for product images
+const productStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "products",
@@ -33,7 +39,17 @@ const storage = new CloudinaryStorage({
   },
 });
 
-const parser = multer({ storage });
+// Storage for CMS/media uploads (supports more formats including webp)
+const mediaStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "cms",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    // No transformation - preserve original dimensions for CMS
+  },
+});
 
-module.exports = { cloudinary, parser };
+const parser = multer({ storage: productStorage });
+const mediaParser = multer({ storage: mediaStorage });
 
+module.exports = { cloudinary, parser, mediaParser };

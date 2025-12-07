@@ -24,12 +24,10 @@ class CmsService {
    * Get all CMS content
    */
   async getAllContent() {
-    // For homepage and about: fetch ALL documents (each is a block)
-    // For others: fetch single document
     const [homepageData, aboutData, policyData, headerData, footerData] =
       await Promise.all([
-        Homepage.find({}).sort({ createdAt: 1 }),
-        About.find({}).sort({ createdAt: 1 }),
+        Homepage.findOne({}),
+        About.findOne({}),
         Policy.findOne({}),
         Header.findOne({}),
         Footer.findOne({}),
@@ -37,64 +35,51 @@ class CmsService {
 
     const content = [];
 
-    // Helper function to extract content from document(s)
-    const extractContent = (docs, isMultiDocument = false) => {
-      if (!docs || (Array.isArray(docs) && docs.length === 0)) return null;
-
-      if (isMultiDocument && Array.isArray(docs)) {
-        // Multiple documents - each is a block
-        return docs.map((doc) => {
-          const docObj = doc.toObject ? doc.toObject() : doc;
-          const { _id, __v, createdAt, updatedAt, ...blockData } = docObj;
-          return blockData;
-        });
-      } else if (!Array.isArray(docs)) {
-        // Single document
-        const docObject = docs.toObject ? docs.toObject() : docs;
-        // If document has a 'content' field and it's an array, use that
-        if (docObject.content && Array.isArray(docObject.content)) {
-          return docObject.content;
-        }
-        // Otherwise, use the entire document (remove MongoDB fields)
-        const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
-        return rest;
+    // Helper function to extract content from document
+    const extractContent = (doc) => {
+      if (!doc) return null;
+      const docObject = doc.toObject ? doc.toObject() : doc;
+      // If document has a 'content' field and it's an array, use that
+      if (docObject.content && Array.isArray(docObject.content)) {
+        return docObject.content;
       }
-      return null;
+      // Otherwise, use the entire document
+      return docObject;
     };
 
-    if (homepageData && homepageData.length > 0) {
+    if (homepageData) {
       content.push({
         page: "home",
         title: "Home Page",
-        content: extractContent(homepageData, true),
+        content: extractContent(homepageData),
       });
     }
-    if (aboutData && aboutData.length > 0) {
+    if (aboutData) {
       content.push({
         page: "about",
         title: "About Us",
-        content: extractContent(aboutData, true),
+        content: extractContent(aboutData),
       });
     }
     if (policyData) {
       content.push({
         page: "policies",
         title: "Policies",
-        content: extractContent(policyData, false),
+        content: extractContent(policyData),
       });
     }
     if (headerData) {
       content.push({
         page: "header",
         title: "Header",
-        content: extractContent(headerData, false),
+        content: extractContent(headerData),
       });
     }
     if (footerData) {
       content.push({
         page: "footer",
         title: "Footer",
-        content: extractContent(footerData, false),
+        content: extractContent(footerData),
       });
     }
 
@@ -112,69 +97,109 @@ class CmsService {
       );
     }
 
-    // For homepage and about pages, fetch ALL documents (each document is a block/widget)
-    // For other pages (header/footer), fetch a single document
-    const isMultiDocumentPage = page === "home" || page === "about";
+    // Try to find a single document first (most common case)
+    let document = await pageConfig.model.findOne({});
 
-    let content = [];
-
-    if (isMultiDocumentPage) {
-      // Fetch all documents - each document is a block/widget
-      const allDocuments = await pageConfig.model
-        .find({})
-        .sort({ createdAt: 1 });
-
-      if (!allDocuments || allDocuments.length === 0) {
-        throw ApiError.notFound(`CMS content for page '${page}' not found`);
-      }
-
+    // If no document found, try to find all documents (in case blocks are separate documents)
+    let allDocuments = [];
+    if (!document) {
+      allDocuments = await pageConfig.model.find({});
       console.log(
-        `🔍 [CMS Service] Found ${allDocuments.length} documents for page "${page}"`
+        `🔍 [CMS Service] No single document found, found ${allDocuments.length} documents`
+      );
+    }
+
+    // If no content exists, return empty structure instead of throwing error
+    // This allows the frontend to work with empty pages and create new content
+    if (!document && allDocuments.length === 0) {
+      console.log(
+        `⚠️ [CMS Service] No content found for page '${page}', returning empty structure`
       );
 
-      // Convert each document to plain object and remove MongoDB internal fields
+      // Return appropriate empty structure based on page type
+      // For pages with blocks (home, about, policies), return empty array
+      // For header/footer, return appropriate empty structure
+      const isBlockBasedPage =
+        page === "home" || page === "about" || page === "policies";
+      const emptyContent = isBlockBasedPage ? [] : {};
+
+      return {
+        page,
+        title: pageConfig.title,
+        content: emptyContent,
+      };
+    }
+
+    // Convert Mongoose document to plain object
+    const docObject = document
+      ? document.toObject
+        ? document.toObject()
+        : document
+      : null;
+
+    console.log(`🔍 [CMS Service] Raw document for page "${page}":`, {
+      hasDocument: !!document,
+      documentCount: allDocuments.length,
+      hasContent: docObject ? !!docObject.content : false,
+      contentType: docObject ? typeof docObject.content : "N/A",
+      isArray: docObject ? Array.isArray(docObject.content) : false,
+      contentLength:
+        docObject && Array.isArray(docObject.content)
+          ? docObject.content.length
+          : "N/A",
+      keys: docObject ? Object.keys(docObject).slice(0, 10) : [],
+    });
+
+    // Extract content field if it exists, otherwise use the entire document
+    // For homepage/about: document has { content: [...blocks] }
+    // For header/footer: document IS the content
+    let content = docObject;
+
+    // Case 1: Single document with content array (most common)
+    if (docObject && docObject.content && Array.isArray(docObject.content)) {
+      content = docObject.content;
+      console.log(
+        `✅ [CMS Service] Extracted content array with ${content.length} blocks`
+      );
+
+      // Log first few blocks for debugging
+      if (content.length > 0) {
+        console.log(
+          `📦 [CMS Service] First 3 blocks:`,
+          content.slice(0, 3).map((block) => ({
+            block_type: block.block_type,
+            enabled: block.enabled,
+            hasContent: !!block.content,
+          }))
+        );
+      }
+    }
+    // Case 2: Multiple documents where each document is a block (legacy structure)
+    else if (allDocuments.length > 0) {
       content = allDocuments.map((doc) => {
         const docObj = doc.toObject ? doc.toObject() : doc;
-        // Remove MongoDB internal fields but keep the block structure
-        const { _id, __v, createdAt, updatedAt, ...blockData } = docObj;
-        return blockData;
+        // Remove MongoDB internal fields
+        delete docObj._id;
+        delete docObj.__v;
+        delete docObj.createdAt;
+        delete docObj.updatedAt;
+        return docObj;
       });
-
       console.log(
         `✅ [CMS Service] Extracted ${content.length} blocks from multiple documents`
       );
-      console.log(
-        `📦 [CMS Service] Block types:`,
-        content.map((block) => block.block_type || "unknown")
-      );
-    } else {
-      // For header/footer: fetch single document
-      const document = await pageConfig.model.findOne({});
-
-      if (!document) {
-        throw ApiError.notFound(`CMS content for page '${page}' not found`);
-      }
-
-      // Convert Mongoose document to plain object
-      const docObject = document.toObject ? document.toObject() : document;
-
-      console.log(`🔍 [CMS Service] Raw document for page "${page}":`, {
-        hasContent: !!docObject.content,
-        contentType: typeof docObject.content,
-        isArray: Array.isArray(docObject.content),
-        keys: Object.keys(docObject).slice(0, 10),
-      });
-
-      // For header/footer, the document IS the content (or has a content field)
-      if (docObject.content && Array.isArray(docObject.content)) {
-        content = docObject.content;
-      } else {
-        // Remove MongoDB internal fields
-        const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
-        content = rest;
-      }
-
-      console.log(`✅ [CMS Service] Extracted content for page "${page}"`);
+    }
+    // Case 3: Single document without content field (use entire document)
+    else if (docObject) {
+      // Remove MongoDB internal fields
+      const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
+      content = rest;
+      console.log(`⚠️ [CMS Service] Using entire document as content`);
+    }
+    // Case 4: For header/footer, document IS the content
+    else {
+      console.log(`⚠️ [CMS Service] No content found, using empty array`);
+      content = [];
     }
 
     return {
@@ -195,69 +220,41 @@ class CmsService {
       );
     }
 
-    const isHomeOrAbout = page === "home" || page === "about";
+    const existing = await pageConfig.model.findOne({});
     let updated;
 
-    if (isHomeOrAbout && Array.isArray(contentData)) {
-      // For homepage/about: contentData is an array of blocks
-      // Each block should be saved as a separate document
-      // First, delete all existing documents
-      await pageConfig.model.deleteMany({});
+    // For homepage/about/policies: contentData is an array of blocks, need to wrap in { content: [...] }
+    // For header/footer: contentData is the object itself
+    const isBlockBasedPage =
+      page === "home" || page === "about" || page === "policies";
+    const updateData =
+      isBlockBasedPage && Array.isArray(contentData)
+        ? { content: contentData }
+        : contentData;
 
-      // Then create new documents for each block
-      const createdDocs = await pageConfig.model.insertMany(contentData);
-
-      // Convert to plain objects and remove MongoDB fields
-      updated = createdDocs.map((doc) => {
-        const docObj = doc.toObject ? doc.toObject() : doc;
-        const { _id, __v, createdAt, updatedAt, ...blockData } = docObj;
-        return blockData;
+    if (existing) {
+      // Merge with existing data
+      const existingObj = existing.toObject ? existing.toObject() : existing;
+      const merged = { ...existingObj, ...updateData };
+      updated = await pageConfig.model.findOneAndUpdate({}, merged, {
+        new: true,
       });
-
-      console.log(
-        `✅ [CMS Service] Updated ${page} with ${updated.length} blocks`
-      );
     } else {
-      // For header/footer/policies: contentData is a single object
-      const existing = await pageConfig.model.findOne({});
+      // Create new
+      updated = await pageConfig.model.create(updateData);
+    }
 
-      if (existing) {
-        // Merge with existing data
-        const existingObj = existing.toObject ? existing.toObject() : existing;
-        const merged = { ...existingObj, ...contentData };
-        const updatedDoc = await pageConfig.model.findOneAndUpdate({}, merged, {
-          new: true,
-        });
-
-        // Extract content for response
-        const docObject = updatedDoc.toObject
-          ? updatedDoc.toObject()
-          : updatedDoc;
-        if (docObject.content && Array.isArray(docObject.content)) {
-          updated = docObject.content;
-        } else {
-          const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
-          updated = rest;
-        }
-      } else {
-        // Create new
-        const createdDoc = await pageConfig.model.create(contentData);
-        const docObject = createdDoc.toObject
-          ? createdDoc.toObject()
-          : createdDoc;
-        if (docObject.content && Array.isArray(docObject.content)) {
-          updated = docObject.content;
-        } else {
-          const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
-          updated = rest;
-        }
-      }
+    // Extract content for response (same logic as getContentByPage)
+    const docObject = updated.toObject ? updated.toObject() : updated;
+    let content = docObject;
+    if (docObject.content && Array.isArray(docObject.content)) {
+      content = docObject.content;
     }
 
     return {
       page,
       title: pageConfig.title,
-      content: updated,
+      content,
     };
   }
 

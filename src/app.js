@@ -93,6 +93,9 @@ app.use("/api/v1/homepage", homepageRoutes);
 app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
 // CMS routes under admin (using new feature-based routes)
 app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsAdminRoutes);
+// Media routes under admin
+const mediaRoutes = require("./routes/mediaRoutes");
+app.use(`/api/v1${ADMIN_PREFIX}/media`, mediaRoutes);
 
 // Swagger API Documentation
 app.use(
