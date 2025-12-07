@@ -29,7 +29,7 @@ router.use(requireAdmin);
 router.get(
   "/",
   validate(productValidation.list),
-  productAdminController.getAllProducts
+  productAdminController.getAllProducts,
 );
 
 /**
@@ -44,7 +44,7 @@ router.get(
 router.post(
   "/",
   validate(productValidation.create),
-  productAdminController.createProduct
+  productAdminController.createProduct,
 );
 
 /**
@@ -59,7 +59,7 @@ router.post(
 router.get(
   "/:id",
   validate(productValidation.getById),
-  productAdminController.getProductById
+  productAdminController.getProductById,
 );
 
 /**
@@ -74,7 +74,7 @@ router.get(
 router.put(
   "/:id",
   validate([...productValidation.getById, ...productValidation.update]),
-  productAdminController.updateProduct
+  productAdminController.updateProduct,
 );
 
 /**
@@ -89,7 +89,7 @@ router.put(
 router.delete(
   "/:id",
   validate(productValidation.delete),
-  productAdminController.deleteProduct
+  productAdminController.deleteProduct,
 );
 
 /**
@@ -104,7 +104,7 @@ router.delete(
 router.patch(
   "/:id/status",
   validate(productValidation.getById),
-  productAdminController.updateProductStatus
+  productAdminController.updateProductStatus,
 );
 
 /**
@@ -117,5 +117,71 @@ router.patch(
  *       - bearerAuth: []
  */
 router.patch("/bulk/status", productAdminController.bulkUpdateStatus);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/check-sku/{sku}:
+ *   get:
+ *     summary: "[Admin] Check SKU availability"
+ *     tags: [Admin Products]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get("/check-sku/:sku", productAdminController.checkSkuAvailability);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/check-url-key/{urlKey}:
+ *   get:
+ *     summary: "[Admin] Check URL key availability"
+ *     tags: [Admin Products]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  "/check-url-key/:urlKey",
+  productAdminController.checkUrlKeyAvailability,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/generate-sku:
+ *   post:
+ *     summary: "[Admin] Generate SKU suggestion"
+ *     tags: [Admin Products]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/generate-sku", productAdminController.generateSkuSuggestion);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/{id}/lock-sku:
+ *   patch:
+ *     summary: "[Admin] Lock product SKU"
+ *     tags: [Admin Products]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch(
+  "/:id/lock-sku",
+  validate(productValidation.getById),
+  productAdminController.lockProductSku,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/{id}/variants/{variantId}/lock-sku:
+ *   patch:
+ *     summary: "[Admin] Lock variant SKU"
+ *     tags: [Admin Products]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch(
+  "/:id/variants/:variantId/lock-sku",
+  validate(productValidation.getById),
+  productAdminController.lockVariantSku,
+);
 
 module.exports = router;
