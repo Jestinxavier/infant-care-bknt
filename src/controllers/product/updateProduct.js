@@ -3,6 +3,10 @@ const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const {
+  extractImagePublicIds,
+  finalizeImages,
+} = require("../../utils/mediaFinalizer");
 
 const updateProduct = async (req, res) => {
   try {
@@ -186,6 +190,29 @@ const updateProduct = async (req, res) => {
     // They are calculated from reviews
 
     await product.save();
+
+    // Mark all images as final (remove temp tags)
+    try {
+      const productData = {
+        images: product.images,
+        variants: product.variants,
+      };
+      const imagePublicIds = extractImagePublicIds(productData);
+      if (imagePublicIds.length > 0) {
+        const finalizeResult = await finalizeImages(imagePublicIds);
+        console.log("✅ [Product] Finalized images:", {
+          total: imagePublicIds.length,
+          succeeded: finalizeResult.success.length,
+          failed: finalizeResult.failed.length,
+        });
+      }
+    } catch (finalizeError) {
+      // Non-critical error - log but don't fail the request
+      console.warn(
+        "⚠️ [Product] Failed to finalize images (non-critical):",
+        finalizeError
+      );
+    }
 
     // Update legacy variants if provided (for backward compatibility)
     if (legacyVariants) {

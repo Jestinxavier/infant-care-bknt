@@ -3,53 +3,57 @@ const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const {
+  extractImagePublicIds,
+  finalizeImages,
+} = require("../../utils/mediaFinalizer");
 
 const createProduct = async (req, res) => {
   try {
     console.log("📦 Creating product - Request received");
     console.log("Request body keys:", Object.keys(req.body || {}));
     console.log("Request files:", req.files?.length || 0, "files");
-    
+
     // Parse FormData fields - FormData sends all fields as strings
     // Need to handle JSON strings and parse them
     let parsedBody = { ...req.body };
-    
+
     // Parse JSON string fields from FormData
-    if (typeof parsedBody.variants === 'string') {
+    if (typeof parsedBody.variants === "string") {
       try {
         parsedBody.variants = JSON.parse(parsedBody.variants);
       } catch (e) {
-        console.error('Error parsing variants JSON:', e);
+        console.error("Error parsing variants JSON:", e);
         parsedBody.variants = [];
       }
     }
-    
-    if (typeof parsedBody.variantOptions === 'string') {
+
+    if (typeof parsedBody.variantOptions === "string") {
       try {
         parsedBody.variantOptions = JSON.parse(parsedBody.variantOptions);
       } catch (e) {
-        console.error('Error parsing variantOptions JSON:', e);
+        console.error("Error parsing variantOptions JSON:", e);
         parsedBody.variantOptions = [];
       }
     }
-    
-    if (typeof parsedBody.details === 'string') {
+
+    if (typeof parsedBody.details === "string") {
       try {
         parsedBody.details = JSON.parse(parsedBody.details);
       } catch (e) {
         parsedBody.details = [];
       }
     }
-    
-    if (typeof parsedBody.pricing === 'string') {
+
+    if (typeof parsedBody.pricing === "string") {
       try {
         parsedBody.pricing = JSON.parse(parsedBody.pricing);
       } catch (e) {
         parsedBody.pricing = null;
       }
     }
-    
-    if (typeof parsedBody.stockObj === 'string') {
+
+    if (typeof parsedBody.stockObj === "string") {
       try {
         parsedBody.stockObj = JSON.parse(parsedBody.stockObj);
       } catch (e) {
@@ -91,10 +95,10 @@ const createProduct = async (req, res) => {
         message: "Product title/name is required",
       });
     }
-    
+
     // Normalize status to lowercase - Product model expects: draft, proposed, published, rejected
     let normalizedStatus = status || "draft";
-    if (typeof normalizedStatus === 'string') {
+    if (typeof normalizedStatus === "string") {
       normalizedStatus = normalizedStatus.toLowerCase();
       // Map "archived" to "draft" since Product model doesn't support "archived"
       // Valid statuses: draft, proposed, published, rejected
@@ -119,23 +123,23 @@ const createProduct = async (req, res) => {
         name: category.trim(),
         isActive: true,
       });
-      
+
       // If not found, try case-insensitive match
       if (!foundCategory) {
         foundCategory = await Category.findOne({
-          name: { $regex: new RegExp(`^${category.trim()}$`, 'i') },
+          name: { $regex: new RegExp(`^${category.trim()}$`, "i") },
           isActive: true,
         });
       }
-      
+
       // If still not found, try to match partial (e.g., "Romper" -> "Rompers")
       if (!foundCategory) {
         foundCategory = await Category.findOne({
-          name: { $regex: new RegExp(`^${category.trim()}s?$`, 'i') },
+          name: { $regex: new RegExp(`^${category.trim()}s?$`, "i") },
           isActive: true,
         });
       }
-      
+
       if (foundCategory) {
         categoryId = foundCategory._id;
         categoryName = foundCategory.name;
@@ -164,45 +168,48 @@ const createProduct = async (req, res) => {
         const existing = await Product.findOne({ url_key: urlKey });
         return !!existing;
       };
-      productUrlKey = await generateUniqueUrlKey(productTitle, checkUrlKeyExists);
+      productUrlKey = await generateUniqueUrlKey(
+        productTitle,
+        checkUrlKeyExists
+      );
     }
 
     // Process product images
     let productImages = [];
-    
+
     // First, check if images metadata was sent as JSON
-    if (parsedBody.images && typeof parsedBody.images === 'string') {
+    if (parsedBody.images && typeof parsedBody.images === "string") {
       try {
         const imageMetadata = JSON.parse(parsedBody.images);
         if (Array.isArray(imageMetadata)) {
           productImages = imageMetadata;
         }
       } catch (e) {
-        console.error('Error parsing images JSON:', e);
+        console.error("Error parsing images JSON:", e);
       }
     }
-    
+
     // Then, process any uploaded files (these will be uploaded to Cloudinary)
     if (req.files && req.files.length > 0) {
       // Filter product-level images (not variant images)
       const productImageFiles = req.files.filter(
-        (f) => 
-          (f.fieldname.startsWith('product_image_') || 
-           f.fieldname.startsWith('images')) &&
-          !f.fieldname.includes('variant_') && 
-          !f.fieldname.includes('variant')
+        (f) =>
+          (f.fieldname.startsWith("product_image_") ||
+            f.fieldname.startsWith("images")) &&
+          !f.fieldname.includes("variant_") &&
+          !f.fieldname.includes("variant")
       );
-      
+
       // Files are already uploaded to Cloudinary by multer-cloudinary
       const uploadedImageMetadata = productImageFiles.map((f) => ({
         url: f.path || f.secure_url || f.url,
         public_id: f.public_id || f.filename,
         width: f.width || 0,
         height: f.height || 0,
-        format: f.format || 'jpg',
+        format: f.format || "jpg",
         size: f.bytes || 0,
       }));
-      
+
       // Combine metadata from JSON and uploaded files
       productImages = [...productImages, ...uploadedImageMetadata];
     }
@@ -213,43 +220,43 @@ const createProduct = async (req, res) => {
       processedVariants = variantsArray.map((v, index) => {
         // Process variant images
         let variantImages = [];
-        
+
         // First, use images from variant object (metadata already uploaded)
         if (v.images && Array.isArray(v.images)) {
           variantImages = v.images.map((img) => {
-            if (typeof img === 'object' && img.url) {
+            if (typeof img === "object" && img.url) {
               return img;
             }
-            return typeof img === 'string' ? { url: img } : img;
+            return typeof img === "string" ? { url: img } : img;
           });
         }
-        
+
         // Then, add any newly uploaded files for this variant
         if (req.files && req.files.length > 0) {
           const variantImageFiles = req.files.filter((f) => {
             const fieldName = f.fieldname.toLowerCase();
-            const variantId = (v.id || '').toString().toLowerCase();
-            const variantSku = (v.sku || '').toString().toLowerCase();
+            const variantId = (v.id || "").toString().toLowerCase();
+            const variantSku = (v.sku || "").toString().toLowerCase();
             const variantIndexStr = index.toString();
-            
+
             return (
-              fieldName.includes('variant_') &&
-              (fieldName.includes(variantId) || 
-               fieldName.includes(variantSku) ||
-               fieldName.includes(variantIndexStr))
+              fieldName.includes("variant_") &&
+              (fieldName.includes(variantId) ||
+                fieldName.includes(variantSku) ||
+                fieldName.includes(variantIndexStr))
             );
           });
-          
+
           // Files are already uploaded to Cloudinary by multer-cloudinary
           const uploadedVariantImages = variantImageFiles.map((f) => ({
             url: f.path || f.secure_url || f.url,
             public_id: f.public_id || f.filename,
             width: f.width || 0,
             height: f.height || 0,
-            format: f.format || 'jpg',
+            format: f.format || "jpg",
             size: f.bytes || 0,
           }));
-          
+
           variantImages = [...variantImages, ...uploadedVariantImages];
         }
 
@@ -319,8 +326,11 @@ const createProduct = async (req, res) => {
     // Parse tags if it's a string
     let parsedTags = [];
     if (tags) {
-      if (typeof tags === 'string') {
-        parsedTags = tags.split(',').map(t => t.trim()).filter(Boolean);
+      if (typeof tags === "string") {
+        parsedTags = tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
       } else if (Array.isArray(tags)) {
         parsedTags = tags;
       }
@@ -379,6 +389,25 @@ const createProduct = async (req, res) => {
       await Variant.insertMany(variantData);
     }
 
+    // Mark all images as final (remove temp tags)
+    try {
+      const imagePublicIds = extractImagePublicIds(productData);
+      if (imagePublicIds.length > 0) {
+        const finalizeResult = await finalizeImages(imagePublicIds);
+        console.log("✅ [Product] Finalized images:", {
+          total: imagePublicIds.length,
+          succeeded: finalizeResult.success.length,
+          failed: finalizeResult.failed.length,
+        });
+      }
+    } catch (finalizeError) {
+      // Non-critical error - log but don't fail the request
+      console.warn(
+        "⚠️ [Product] Failed to finalize images (non-critical):",
+        finalizeError
+      );
+    }
+
     // No need to set selectedOptions - variant selection is determined from URL
 
     res.status(201).json({
@@ -398,12 +427,12 @@ const createProduct = async (req, res) => {
     console.error("Request files count:", req.files?.length || 0);
     console.error("Error name:", err.name);
     console.error("Error code:", err.code);
-    
+
     // Handle validation errors
-    if (err.name === 'ValidationError') {
-      const validationErrors = Object.keys(err.errors || {}).map(key => ({
+    if (err.name === "ValidationError") {
+      const validationErrors = Object.keys(err.errors || {}).map((key) => ({
         field: key,
-        message: err.errors[key].message
+        message: err.errors[key].message,
       }));
       return res.status(400).json({
         success: false,
@@ -412,7 +441,7 @@ const createProduct = async (req, res) => {
         error: err.message,
       });
     }
-    
+
     // Handle duplicate key errors (e.g., duplicate SKU or url_key)
     if (err.code === 11000) {
       const duplicateField = Object.keys(err.keyPattern || {})[0];
@@ -422,12 +451,12 @@ const createProduct = async (req, res) => {
         error: err.message,
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
       error: err.message,
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+      ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
     });
   }
 };
