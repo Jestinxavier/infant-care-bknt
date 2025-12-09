@@ -11,11 +11,11 @@ const getAllProducts = async (req, res) => {
   try {
     // Support both GET (query params) and POST (body) requests
     // If POST, check for nested filters object first, then use body directly
-    let requestData = req.method === 'POST' ? (req.body || {}) : req.query;
-    
+    let requestData = req.method === "POST" ? req.body || {} : req.query;
+
     // If body has a filters property, extract from there (for backward compatibility)
     // Otherwise, use body directly (new format)
-    if (req.method === 'POST' && req.body) {
+    if (req.method === "POST" && req.body) {
       if (req.body.filters) {
         requestData = { ...req.body.filters };
       } else {
@@ -23,7 +23,7 @@ const getAllProducts = async (req, res) => {
         requestData = req.body;
       }
     }
-    
+
     const {
       category,
       page = 1,
@@ -41,14 +41,11 @@ const getAllProducts = async (req, res) => {
 
     // Build filter for admin (can include inactive/draft products)
     let filter = {};
-    
+
     if (category && category !== "all") {
       const Category = require("../../models/Category");
       const categoryDoc = await Category.findOne({
-        $or: [
-          { slug: category },
-          { _id: category }
-        ]
+        $or: [{ slug: category }, { _id: category }],
       });
       if (categoryDoc) {
         filter.category = categoryDoc._id;
@@ -89,12 +86,13 @@ const getAllProducts = async (req, res) => {
       .lean();
 
     // Transform products for admin dashboard using utility function
-    const formattedProducts = products.map(product => transformForDashboard(product));
+    const formattedProducts = products.map((product) =>
+      transformForDashboard(product)
+    );
 
     res.status(200).json({
       success: true,
-      items: formattedProducts, // Use 'items' to match frontend expectation
-      products: formattedProducts, // Also include 'products' for backward compatibility
+      items: formattedProducts, // Use 'items' as the standard field name
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -143,8 +141,11 @@ const getProductById = async (req, res) => {
 
     // Get legacy variants if needed
     const legacyVariants = await Variant.find({ productId }).lean();
-    if (legacyVariants.length > 0 && (!productObj.variants || productObj.variants.length === 0)) {
-      productObj.variants = legacyVariants.map(v => ({
+    if (
+      legacyVariants.length > 0 &&
+      (!productObj.variants || productObj.variants.length === 0)
+    ) {
+      productObj.variants = legacyVariants.map((v) => ({
         ...v,
         _id: v._id.toString(),
       }));
@@ -168,4 +169,3 @@ module.exports = {
   getAllProducts,
   getProductById,
 };
-
