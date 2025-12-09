@@ -1,0 +1,91 @@
+const BaseRepository = require("../../core/BaseRepository");
+const Product = require("./product.model");
+
+/**
+ * Product Repository
+ * Handles all database operations for products
+ * Extends BaseRepository for common operations
+ */
+class ProductRepository extends BaseRepository {
+  constructor() {
+    super(Product);
+  }
+
+  /**
+   * Find products by category
+   */
+  async findByCategory(categoryId, options = {}) {
+    return this.findAll({ category: categoryId }, options);
+  }
+
+  /**
+   * Find products by status
+   */
+  async findByStatus(status, options = {}) {
+    return this.findAll({ status }, options);
+  }
+
+  /**
+   * Find product by URL key
+   */
+  async findByUrlKey(urlKey, options = {}) {
+    return this.findOne({ url_key: urlKey }, options);
+  }
+
+  /**
+   * Search products by text
+   */
+  async search(searchTerm, options = {}) {
+    const filter = {
+      $text: { $search: searchTerm },
+      status: "published",
+    };
+    return this.findAll(filter, {
+      ...options,
+      sort: { score: { $meta: "textScore" } },
+    });
+  }
+
+  /**
+   * Find products with filters
+   */
+  async findWithFilters(filters = {}, options = {}) {
+    const query = { status: "published" };
+
+    if (filters.category) {
+      query.category = filters.category;
+    }
+
+    if (filters.minPrice || filters.maxPrice) {
+      query["variants.price"] = {};
+      if (filters.minPrice) {
+        query["variants.price"].$gte = filters.minPrice;
+      }
+      if (filters.maxPrice) {
+        query["variants.price"].$lte = filters.maxPrice;
+      }
+    }
+
+    if (filters.inStock !== undefined) {
+      query["variants.stock"] = filters.inStock ? { $gt: 0 } : 0;
+    }
+
+    return this.findAll(query, options);
+  }
+
+  /**
+   * Update product status
+   */
+  async updateStatus(productId, status) {
+    return this.updateById(productId, { status });
+  }
+
+  /**
+   * Bulk update status
+   */
+  async bulkUpdateStatus(productIds, status) {
+    return this.updateMany({ _id: { $in: productIds } }, { status });
+  }
+}
+
+module.exports = new ProductRepository();

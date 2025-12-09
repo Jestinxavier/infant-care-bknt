@@ -1,190 +1,361 @@
-# 📦 Product Model Migration Guide
+# Migration Guide: MVC to Feature-Based Architecture
 
-## Overview
+## 🎯 Migration Overview
 
-The Product model has been updated with a new unified structure. MongoDB itself doesn't need manual schema changes - Mongoose handles schema validation at the application level. However, **existing products in your database need to be migrated** to populate the new fields.
-
-## What Changed?
-
-### New Fields Added:
-- `url_key` - Unique identifier for product URLs (replaces `_id` for lookups)
-- `variantOptions[]` - Array of product options (Color, Size, etc.)
-- `variants[]` - Embedded variant array (moved from separate Variant collection)
-- `selectedOptions` - Default selected variant options
-- `details[]` - Additional product details array
-
-### Fields Removed from Manual Input:
-- `averageRating` - Now calculated from reviews (read-only)
-- `totalReviews` - Now calculated from reviews (read-only)
-
-## Step-by-Step Migration
-
-### 1. **Backup Your Database** (Recommended)
-
-Before running any migration, backup your MongoDB database:
-
-```bash
-# Using mongodump (if you have MongoDB tools installed)
-mongodump --uri="your-mongodb-connection-string" --out=./backup-$(date +%Y%m%d)
-```
-
-Or use MongoDB Atlas backup feature if you're using Atlas.
-
-### 2. **Ensure Environment Variables Are Set**
-
-Make sure your `.env` file has the MongoDB connection string:
-
-```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority
-```
-
-**Note:** The migration script will use `MONGODB_URI` or `MONGO_URI` (checks both).
-
-### 3. **Run the Migration Script**
-
-Navigate to the backend directory and run:
-
-```bash
-cd backend
-node src/scripts/migrateProductsToNewStructure.js
-```
-
-### 4. **What the Migration Does**
-
-The script will:
-1. ✅ Generate `url_key` for all products without one (from title/name)
-2. ✅ Migrate legacy Variant collection data into embedded `variants[]` array
-3. ✅ Extract `variantOptions` from existing variants (Color, Age/Size)
-4. ✅ Set `selectedOptions` to first variant if only one exists
-5. ✅ Sync `title` and `name` fields for backward compatibility
-6. ✅ Set default `status` to "published" for existing products
-
-### 5. **Expected Output**
-
-You should see output like:
-
-```
-✅ Connected to MongoDB
-📦 Found 25 products to migrate
-  ✓ Generated url_key: infant-organic-cotton-jumpsuit
-  ✓ Migrated 3 legacy variants to embedded structure
-✅ Migrated product: Infant Organic Cotton Jumpsuit
-  ⏭️  Skipped (already migrated): Another Product Name
-...
-
-📊 Migration Summary:
-  ✅ Migrated: 20
-  ⏭️  Skipped: 5
-  ❌ Errors: 0
-
-✅ Migration completed!
-✅ Database connection closed
-```
-
-### 6. **Verify Migration**
-
-After migration, verify the changes:
-
-#### Option A: Check via MongoDB Compass or Atlas UI
-- Open your database
-- Navigate to the `products` collection
-- Check a product document - it should have:
-  - `url_key` field
-  - `variants[]` array (if product had variants)
-  - `variantOptions[]` array (if variants exist)
-
-#### Option B: Check via API
-```bash
-# Get a product by url_key
-curl http://localhost:3000/api/v1/product/url/infant-organic-cotton-jumpsuit
-
-# Should return product with new structure
-```
-
-#### Option C: Check via MongoDB Shell
-```javascript
-// Connect to MongoDB
-use your-database-name
-
-// Check a product
-db.products.findOne({ url_key: "infant-organic-cotton-jumpsuit" })
-
-// Should show:
-// - url_key: "infant-organic-cotton-jumpsuit"
-// - variants: [ { id, sku, price, stock, ... } ]
-// - variantOptions: [ { name, code, values: [...] } ]
-```
-
-## Troubleshooting
-
-### Error: "MONGODB_URI is missing"
-**Solution:** Check your `.env` file has `MONGODB_URI` or `MONGO_URI` set.
-
-### Error: "Connection timeout"
-**Solution:** 
-- Check your MongoDB connection string is correct
-- Ensure MongoDB Atlas IP whitelist includes your IP (or `0.0.0.0/0` for all)
-- Check network connectivity
-
-### Error: "Duplicate url_key"
-**Solution:** The script handles this automatically by appending `-1`, `-2`, etc. If you see this error, it means there's a conflict that couldn't be resolved. Check your products manually.
-
-### Products Not Migrating
-**Solution:**
-- Check if products already have `url_key` (they'll be skipped)
-- Check MongoDB connection is working
-- Review error messages in the migration output
-
-## Post-Migration Checklist
-
-- [ ] All products have `url_key` field
-- [ ] Legacy variants migrated to embedded `variants[]` array
-- [ ] `variantOptions` extracted correctly
-- [ ] API endpoints work with new structure
-- [ ] Frontend can fetch products by `url_key`
-- [ ] Category listing shows variants as separate items
-
-## Rollback (If Needed)
-
-If you need to rollback:
-
-1. **Restore from backup:**
-   ```bash
-   mongorestore --uri="your-mongodb-connection-string" ./backup-YYYYMMDD
-   ```
-
-2. **Or manually remove new fields** (not recommended):
-   ```javascript
-   // MongoDB shell
-   db.products.updateMany(
-     {},
-     { $unset: { url_key: "", variants: "", variantOptions: "", selectedOptions: "", details: "" } }
-   )
-   ```
-
-## Important Notes
-
-1. **No Data Loss:** The migration is additive - it only adds new fields. Existing data remains intact.
-
-2. **Backward Compatibility:** The code maintains backward compatibility with legacy structure during transition.
-
-3. **Legacy Variants Collection:** The old `variants` collection is not deleted - it's kept for reference. You can delete it later after verifying everything works.
-
-4. **Indexes:** MongoDB will automatically create indexes for `url_key` when documents are saved.
-
-5. **Rating Fields:** `averageRating` and `totalReviews` are now read-only and calculated from reviews. They cannot be manually set.
-
-## Next Steps
-
-After successful migration:
-
-1. Test product creation via dashboard
-2. Test product fetching by `url_key`
-3. Test category listing with filters
-4. Monitor for any issues
-5. Consider deleting legacy `variants` collection after verification (optional)
+This guide helps you migrate from the current MVC structure to the new feature-based modular architecture.
 
 ---
 
-**Need Help?** Check the migration script logs for detailed error messages.
+## 📋 Pre-Migration Checklist
 
+- [ ] Backup your current codebase
+- [ ] Ensure all tests pass
+- [ ] Document current API endpoints
+- [ ] List all dependencies
+
+---
+
+## 🔄 Step-by-Step Migration
+
+### Step 1: Set Up Core Infrastructure
+
+**Create core files:**
+1. `src/core/ApiResponse.js` ✅
+2. `src/core/ApiError.js` ✅
+3. `src/core/BaseRepository.js` ✅
+4. `src/core/middleware/errorMiddleware.js` ✅
+5. `src/core/middleware/asyncHandler.js` ✅
+6. `src/core/middleware/validator.js` ✅
+
+**Update `app.js`:**
+```javascript
+// Add error middleware at the end
+const errorMiddleware = require("./core/middleware/errorMiddleware");
+app.use(errorMiddleware);
+```
+
+---
+
+### Step 2: Migrate One Feature (Product Example)
+
+**Follow this order for each file:**
+
+1. **Create Model** (`features/product/product.model.js`)
+   - Copy from `models/Product.js`
+   - Keep schema exactly the same
+
+2. **Create Repository** (`features/product/product.repository.js`)
+   - Extend BaseRepository
+   - Move all database queries from controller
+   - Example:
+   ```javascript
+   // OLD: In controller
+   const products = await Product.find({ status: "published" });
+   
+   // NEW: In repository
+   async findByStatus(status, options) {
+     return this.findAll({ status }, options);
+   }
+   ```
+
+3. **Create Domain Rules** (`features/product/rules/`)
+   - Extract pure business logic
+   - No Express, MongoDB dependencies
+   - Example: pricing calculations, inventory checks
+
+4. **Create Service** (`features/product/product.service.js`)
+   - Move ALL business logic from controller
+   - Use repository for data access
+   - Use domain rules for calculations
+   - Example:
+   ```javascript
+   // OLD: In controller
+   const products = await Product.find({ status: "published" });
+   const filtered = products.filter(p => p.price > minPrice);
+   
+   // NEW: In service
+   async getAllProducts(filters, options) {
+     const filter = { status: "published" };
+     if (filters.minPrice) {
+       filter["variants.price"] = { $gte: filters.minPrice };
+     }
+     return productRepository.findAll(filter, options);
+   }
+   ```
+
+5. **Create Validation** (`features/product/product.validation.js`)
+   - Move validation from controller
+   - Use express-validator
+
+6. **Create Storefront Controller** (`features/product/product.controller.js`)
+   - Only HTTP handling
+   - Call service
+   - Format response with ApiResponse
+   - Example:
+   ```javascript
+   // OLD
+   const products = await Product.find({});
+   res.json({ success: true, data: products });
+   
+   // NEW
+   const result = await productService.getAllProducts(req.query, { isAdmin: false });
+   res.status(200).json(ApiResponse.success("Products fetched", result.data).toJSON());
+   ```
+
+7. **Create Admin Controller** (`features/product/product.admin.controller.js`)
+   - Similar to storefront but with `{ isAdmin: true }`
+   - Additional admin-only operations
+
+8. **Create Routes** (`features/product/product.routes.js`)
+   - Define endpoints
+   - Apply validation middleware
+   - Map to controller methods
+
+9. **Create Admin Routes** (`features/product/product.admin.routes.js`)
+   - Apply auth + admin middleware
+   - Map to admin controller
+
+---
+
+### Step 3: Update App.js
+
+**Old way:**
+```javascript
+const productRoutes = require("./routes/product");
+app.use("/api/v1/product", productRoutes);
+```
+
+**New way:**
+```javascript
+// Storefront routes
+const productRoutes = require("./features/product/product.routes");
+app.use("/api/v1/product", productRoutes);
+
+// Admin routes
+const productAdminRoutes = require("./features/product/product.admin.routes");
+const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
+app.use(`/api/v1${ADMIN_PREFIX}/products`, productAdminRoutes);
+```
+
+---
+
+### Step 4: Migrate Remaining Features
+
+**Priority order:**
+1. ✅ Product (example done)
+2. Category
+3. Variant
+4. Cart
+5. Order
+6. Payment
+7. User/Auth
+8. Address
+9. Review
+10. CMS (already isolated)
+
+**For each feature, follow Step 2 pattern.**
+
+---
+
+### Step 5: Update Error Handling
+
+**Old way:**
+```javascript
+try {
+  // code
+} catch (err) {
+  res.status(500).json({ error: err.message });
+}
+```
+
+**New way:**
+```javascript
+// Use asyncHandler wrapper
+const asyncHandler = require("../../core/middleware/asyncHandler");
+
+getProduct = asyncHandler(async (req, res) => {
+  // Errors automatically caught and sent to errorMiddleware
+  const product = await productService.getProductById(id);
+  res.json(ApiResponse.success("Product fetched", product).toJSON());
+});
+```
+
+---
+
+### Step 6: Update Response Format
+
+**Old way:**
+```javascript
+res.json({
+  success: true,
+  message: "Success",
+  data: products
+});
+```
+
+**New way:**
+```javascript
+res.status(200).json(
+  ApiResponse.success("Products fetched successfully", products).toJSON()
+);
+```
+
+---
+
+### Step 7: Testing
+
+**For each migrated feature:**
+1. Test all storefront endpoints
+2. Test all admin endpoints
+3. Verify error handling
+4. Check response format
+5. Validate business logic
+
+---
+
+### Step 8: Cleanup
+
+**After all features migrated:**
+1. Delete old `controllers/` folder
+2. Delete old `routes/` folder
+3. Keep `models/` temporarily (for reference)
+4. Update all imports
+5. Remove unused dependencies
+
+---
+
+## 🔍 Code Comparison Examples
+
+### Before (MVC - Controller with Business Logic)
+
+```javascript
+// controllers/product/getProducts.js
+const Product = require("../../models/Product");
+
+const getProducts = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, category, status = "published" } = req.query;
+    
+    // Business logic in controller ❌
+    const filter = { status };
+    if (category) filter.category = category;
+    
+    const skip = (page - 1) * limit;
+    const products = await Product.find(filter)
+      .skip(skip)
+      .limit(limit)
+      .populate("category");
+    
+    const total = await Product.countDocuments(filter);
+    
+    res.json({
+      success: true,
+      data: products,
+      pagination: { page, limit, total }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+```
+
+### After (Feature-Based - Separated Concerns)
+
+```javascript
+// features/product/product.repository.js
+class ProductRepository extends BaseRepository {
+  async findByStatus(status, options) {
+    return this.findAll({ status }, options);
+  }
+}
+
+// features/product/product.service.js
+class ProductService {
+  async getAllProducts(filters, options = {}) {
+    const filter = {};
+    if (!options.isAdmin) {
+      filter.status = "published";
+    } else if (filters.status) {
+      filter.status = filters.status;
+    }
+    if (filters.category) {
+      filter.category = filters.category;
+    }
+    return productRepository.findAll(filter, {
+      page: filters.page,
+      limit: filters.limit,
+      populate: [{ path: "category" }]
+    });
+  }
+}
+
+// features/product/product.controller.js
+getAllProducts = asyncHandler(async (req, res) => {
+  const result = await productService.getAllProducts(req.query, { isAdmin: false });
+  res.status(200).json(
+    ApiResponse.paginated("Products fetched", result.data, result.pagination).toJSON()
+  );
+});
+```
+
+---
+
+## ⚠️ Common Pitfalls
+
+1. **Don't put business logic in controllers**
+   - ❌ Bad: `if (price > 100) { ... }` in controller
+   - ✅ Good: Move to service or domain rule
+
+2. **Don't put database queries in services**
+   - ❌ Bad: `await Product.find()` in service
+   - ✅ Good: `await productRepository.findAll()`
+
+3. **Don't mix Express with domain rules**
+   - ❌ Bad: `req` or `res` in rules
+   - ✅ Good: Pure functions only
+
+4. **Don't duplicate code between admin and storefront**
+   - ❌ Bad: Copy service logic
+   - ✅ Good: Use same service with `isAdmin` flag
+
+---
+
+## 📊 Migration Progress Tracker
+
+- [x] Core infrastructure
+- [x] Product feature (example)
+- [ ] Category feature
+- [ ] Variant feature
+- [ ] Cart feature
+- [ ] Order feature
+- [ ] Payment feature
+- [ ] User/Auth feature
+- [ ] Address feature
+- [ ] Review feature
+- [x] CMS feature (already isolated)
+
+---
+
+## 🎓 Learning Resources
+
+- Study the Product feature example (complete implementation)
+- Review BaseRepository for common patterns
+- Check domain rules for pure function examples
+- See ApiResponse/ApiError for response standards
+
+---
+
+## 🚀 Next Steps After Migration
+
+1. Add TypeScript (optional)
+2. Add unit tests for services and rules
+3. Add integration tests for controllers
+4. Implement caching (Redis)
+5. Add queues for background jobs
+6. Set up event emitters
+7. Add rate limiting
+8. Implement webhook handlers
+
+---
+
+This migration will transform your codebase into a scalable, maintainable, enterprise-ready architecture.
