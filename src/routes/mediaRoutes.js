@@ -128,5 +128,76 @@ router.post("/upload", ...mediaController.uploadMedia);
  */
 router.delete("/delete", mediaController.deleteMedia);
 
-module.exports = router;
+/**
+ * @swagger
+ * /api/v1/admin/media/finalize:
+ *   post:
+ *     summary: "[Admin] Mark images as final (remove temp tag)"
+ *     description: Remove temp-upload tag from Cloudinary and mark images as final in database. Called when form is submitted.
+ *     tags: [Admin Media]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicIds
+ *             properties:
+ *               publicIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of Cloudinary public_ids to finalize
+ *                 example: ["cms/abc123", "cms/def456"]
+ *     responses:
+ *       200:
+ *         description: Images finalized successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/finalize", mediaController.finalizeMedia);
 
+/**
+ * @swagger
+ * /api/v1/admin/media/delete-temp:
+ *   post:
+ *     summary: "[Admin] Batch delete temp images"
+ *     description: Delete multiple temporary images from Cloudinary and database. Used for cancel/cleanup operations.
+ *     tags: [Admin Media]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicIds
+ *             properties:
+ *               publicIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of Cloudinary public_ids to delete
+ *                 example: ["cms/abc123", "cms/def456"]
+ *     responses:
+ *       200:
+ *         description: Temp images deleted successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal server error
+ */
+router.post("/delete-temp", mediaController.deleteTempMedia);
+
+module.exports = router;
