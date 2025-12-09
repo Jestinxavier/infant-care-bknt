@@ -87,9 +87,11 @@ class CmsService {
   }
 
   /**
-   * Get CMS content by page
+   * Get CMS content by page (and optionally by slug for policies)
+   * @param {string} page - The page identifier (home, about, policies, header, footer)
+   * @param {string} [slug] - Optional slug for filtering policies (privacy, terms, shipping, returns)
    */
-  async getContentByPage(page) {
+  async getContentByPage(page, slug = null) {
     const pageConfig = this.modelMap[page];
     if (!pageConfig) {
       throw ApiError.badRequest(
@@ -97,7 +99,37 @@ class CmsService {
       );
     }
 
-    // Try to find a single document first (most common case)
+    // For homepage, always fetch all documents (widgets are stored as separate documents)
+    // Similar to how /api/v1/homepage endpoint works
+    if (page === "home") {
+      const allDocuments = await pageConfig.model.find({});
+      console.log(
+        `✅ [CMS Service] Homepage: Found ${allDocuments.length} widget documents`
+      );
+
+      if (allDocuments.length === 0) {
+        return {
+          page,
+          title: pageConfig.title,
+          content: [],
+        };
+      }
+
+      // Convert all documents to plain objects and remove MongoDB internal fields
+      const content = allDocuments.map((doc) => {
+        const docObj = doc.toObject ? doc.toObject() : doc;
+        const { _id, __v, createdAt, updatedAt, ...rest } = docObj;
+        return rest;
+      });
+
+      return {
+        page,
+        title: pageConfig.title,
+        content,
+      };
+    }
+
+    // For other pages, try to find a single document first (most common case)
     let document = await pageConfig.model.findOne({});
 
     // If no document found, try to find all documents (in case blocks are separate documents)
@@ -117,11 +149,19 @@ class CmsService {
       );
 
       // Return appropriate empty structure based on page type
-      // For pages with blocks (home, about, policies), return empty array
+      // For pages with blocks (home, about), return empty array
+      // For policies, return empty string
       // For header/footer, return appropriate empty structure
-      const isBlockBasedPage =
-        page === "home" || page === "about" || page === "policies";
-      const emptyContent = isBlockBasedPage ? [] : {};
+      const isBlockBasedPage = page === "home" || page === "about";
+      const isPoliciesPage = page === "policies";
+      let emptyContent;
+      if (isBlockBasedPage) {
+        emptyContent = [];
+      } else if (isPoliciesPage) {
+        emptyContent = "";
+      } else {
+        emptyContent = {};
+      }
 
       return {
         page,
@@ -152,11 +192,62 @@ class CmsService {
 
     // Extract content field if it exists, otherwise use the entire document
     // For homepage/about: document has { content: [...blocks] }
+    // For policies: document has { content: "html string" }
     // For header/footer: document IS the content
     let content = docObject;
 
-    // Case 1: Single document with content array (most common)
-    if (docObject && docObject.content && Array.isArray(docObject.content)) {
+    // Case 1: Policies page - content is a string
+    if (page === "policies" && docObject && docObject.content) {
+      if (typeof docObject.content === "string") {
+        content = docObject.content;
+        console.log(
+          `✅ [CMS Service] Extracted policy content (string, length: ${content.length})`
+        );
+
+        // If slug is provided, try to extract that section from HTML using regex
+        if (slug && typeof content === "string") {
+          const sectionMatch = content.match(
+            new RegExp(
+              `<section[^>]*id=["']${slug}["'][^>]*>([\\s\\S]*?)<\\/section>`,
+              "i"
+            )
+          );
+          if (sectionMatch) {
+            content = sectionMatch[0];
+            console.log(
+              `🔍 [CMS Service] Extracted policy section with slug '${slug}'`
+            );
+          } else {
+            console.log(
+              `⚠️ [CMS Service] No section found with slug '${slug}', returning full content`
+            );
+          }
+        }
+      } else if (Array.isArray(docObject.content)) {
+        // Legacy format: convert array to HTML string
+        console.log(
+          `⚠️ [CMS Service] Converting legacy array format to HTML string`
+        );
+        const policyBlocks = docObject.content;
+        content = policyBlocks
+          .map((block) => {
+            if (block && block.html) {
+              return `<section id="${block.slug || "policy"}">\n<h1>${
+                block.title || "Policy"
+              }</h1>\n${block.html}\n</section>`;
+            }
+            return "";
+          })
+          .filter(Boolean)
+          .join("\n\n");
+      }
+    }
+    // Case 2: Single document with content array (homepage/about)
+    else if (
+      docObject &&
+      docObject.content &&
+      Array.isArray(docObject.content)
+    ) {
       content = docObject.content;
       console.log(
         `✅ [CMS Service] Extracted content array with ${content.length} blocks`
@@ -174,7 +265,19 @@ class CmsService {
         );
       }
     }
-    // Case 2: Multiple documents where each document is a block (legacy structure)
+    // Case 2.5: Footer/Header pages with content object
+    else if (
+      (page === "footer" || page === "header") &&
+      docObject &&
+      docObject.content &&
+      typeof docObject.content === "object" &&
+      !Array.isArray(docObject.content)
+    ) {
+      // For footer/header, extract the content object
+      content = docObject.content;
+      console.log(`✅ [CMS Service] Extracted ${page} content object`);
+    }
+    // Case 3: Multiple documents where each document is a block (legacy structure)
     else if (allDocuments.length > 0) {
       content = allDocuments.map((doc) => {
         const docObj = doc.toObject ? doc.toObject() : doc;
@@ -189,14 +292,14 @@ class CmsService {
         `✅ [CMS Service] Extracted ${content.length} blocks from multiple documents`
       );
     }
-    // Case 3: Single document without content field (use entire document)
+    // Case 4: Single document without content field (use entire document)
     else if (docObject) {
       // Remove MongoDB internal fields
       const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
       content = rest;
       console.log(`⚠️ [CMS Service] Using entire document as content`);
     }
-    // Case 4: For header/footer, document IS the content
+    // Case 5: For header/footer, document IS the content
     else {
       console.log(`⚠️ [CMS Service] No content found, using empty array`);
       content = [];
@@ -223,14 +326,29 @@ class CmsService {
     const existing = await pageConfig.model.findOne({});
     let updated;
 
-    // For homepage/about/policies: contentData is an array of blocks, need to wrap in { content: [...] }
+    // For homepage/about: contentData is an array of blocks, need to wrap in { content: [...] }
+    // For policies: contentData is a string (HTML), need to wrap in { content: string }
     // For header/footer: contentData is the object itself
-    const isBlockBasedPage =
-      page === "home" || page === "about" || page === "policies";
-    const updateData =
-      isBlockBasedPage && Array.isArray(contentData)
-        ? { content: contentData }
-        : contentData;
+    const isBlockBasedPage = page === "home" || page === "about";
+    const isPoliciesPage = page === "policies";
+    const isFooterOrHeaderPage = page === "footer" || page === "header";
+
+    let updateData;
+    if (isBlockBasedPage && Array.isArray(contentData)) {
+      updateData = { content: contentData };
+    } else if (isPoliciesPage && typeof contentData === "string") {
+      // Store policies as single HTML string
+      updateData = { content: contentData };
+    } else if (
+      isFooterOrHeaderPage &&
+      typeof contentData === "object" &&
+      contentData !== null
+    ) {
+      // For footer/header, wrap the contentData in a content field
+      updateData = { content: contentData };
+    } else {
+      updateData = contentData;
+    }
 
     if (existing) {
       // Merge with existing data
@@ -247,7 +365,22 @@ class CmsService {
     // Extract content for response (same logic as getContentByPage)
     const docObject = updated.toObject ? updated.toObject() : updated;
     let content = docObject;
-    if (docObject.content && Array.isArray(docObject.content)) {
+
+    // For policies, content is a string
+    if (page === "policies" && docObject.content) {
+      content = docObject.content; // Already a string from updateData
+    }
+    // For footer/header, content is an object
+    else if (
+      (page === "footer" || page === "header") &&
+      docObject.content &&
+      typeof docObject.content === "object" &&
+      !Array.isArray(docObject.content)
+    ) {
+      content = docObject.content; // Extract the content object
+    }
+    // For home/about, content is an array
+    else if (docObject.content && Array.isArray(docObject.content)) {
       content = docObject.content;
     }
 

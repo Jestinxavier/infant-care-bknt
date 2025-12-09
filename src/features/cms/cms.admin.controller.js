@@ -80,15 +80,36 @@ class CmsAdminController {
           : "N/A",
     });
 
-    // Ensure content is always an array for homepage/about/policies pages
-    if (
-      (page === "home" || page === "about" || page === "policies") &&
-      !Array.isArray(content.content)
-    ) {
-      console.warn(
-        `⚠️ [CMS] Content for ${page} is not an array, converting...`
-      );
-      content.content = content.content ? [content.content] : [];
+    // Ensure content is in correct format for each page type
+    if (page === "policies") {
+      // Policies should be a string
+      if (typeof content.content !== "string") {
+        console.warn(
+          `⚠️ [CMS] Content for ${page} is not a string, converting...`
+        );
+        // If it's an array (legacy), convert to HTML string
+        if (Array.isArray(content.content)) {
+          content.content = content.content
+            .map((block) => {
+              if (block && block.html) {
+                return `<section id="${block.slug || "policy"}">\n<h1>${block.title || "Policy"}</h1>\n${block.html}\n</section>`;
+              }
+              return "";
+            })
+            .filter(Boolean)
+            .join("\n\n");
+        } else {
+          content.content = "";
+        }
+      }
+    } else if (page === "home" || page === "about") {
+      // Home/About should be an array
+      if (!Array.isArray(content.content)) {
+        console.warn(
+          `⚠️ [CMS] Content for ${page} is not an array, converting...`
+        );
+        content.content = content.content ? [content.content] : [];
+      }
     }
 
     res

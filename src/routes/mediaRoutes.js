@@ -126,7 +126,7 @@ router.post("/upload", ...mediaController.uploadMedia);
  *       500:
  *         description: Internal server error
  */
-router.delete("/delete/:publicId", mediaController.deleteMedia);
+router.delete("/delete", mediaController.deleteMedia);
 
 module.exports = router;
 

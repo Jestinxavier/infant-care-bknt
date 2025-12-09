@@ -24,26 +24,28 @@ class MediaController {
 
       try {
         // req.file contains Cloudinary metadata
+        // Note: multer-storage-cloudinary v4 populates 'path' (secure_url) and 'filename' (public_id)
         const fileData = req.file;
 
         console.log("✅ [Media] File uploaded successfully:", {
           originalname: fileData.originalname,
           mimetype: fileData.mimetype,
           size: fileData.size,
-          public_id: fileData.public_id,
-          url: fileData.url,
+          filename: fileData.filename,
+          path: fileData.path,
         });
 
         // Return Cloudinary metadata in the expected format
+        // Fallback to standard Multer fields if specific keys are missing
         const metadata = {
-          url: fileData.url,
-          public_id: fileData.public_id,
-          width: fileData.width,
-          height: fileData.height,
-          format: fileData.format,
-          resource_type: fileData.resource_type,
-          bytes: fileData.bytes,
-          created_at: fileData.created_at,
+          url: fileData.path || fileData.url || fileData.secure_url,
+          public_id: fileData.filename || fileData.public_id,
+          width: fileData.width || 0, // dimensions might not be returned by storage engine directly
+          height: fileData.height || 0,
+          format: fileData.format || fileData.mimetype?.split("/")[1] || "website",
+          resource_type: fileData.resource_type || "image",
+          bytes: fileData.size || fileData.bytes,
+          created_at: fileData.created_at || new Date().toISOString(),
           alt: fileData.originalname, // Use original filename as alt text
         };
 
@@ -64,7 +66,8 @@ class MediaController {
    * DELETE /api/v1/admin/media/delete/:publicId
    */
   deleteMedia = asyncHandler(async (req, res) => {
-    const { publicId } = req.params;
+    // Check params (legacy), query (standard), or body (alternative)
+    const publicId = req.params.publicId || req.query.publicId || req.body.publicId;
 
     if (!publicId) {
       return res.status(400).json(

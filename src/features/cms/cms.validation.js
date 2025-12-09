@@ -66,6 +66,7 @@ const cmsValidation = {
       .custom((value, { req }) => {
         const page = req.params.page;
         const isHomeOrAbout = page === "home" || page === "about";
+        const isPolicies = page === "policies";
 
         if (isHomeOrAbout) {
           // For home/about pages, content must be an array
@@ -79,10 +80,18 @@ const cmsValidation = {
               throw new Error(`Block at index ${index} is missing required field 'block_type'`);
             }
           });
+        } else if (isPolicies) {
+          // For policies page, content must be a string (single HTML content)
+          if (typeof value !== "string") {
+            throw new Error("Content for policies page must be a string (HTML content)");
+          }
+          if (value.trim() === "") {
+            throw new Error("Policy content cannot be empty");
+          }
         } else {
-          // For other pages, content should be an object
+          // For header/footer pages, content should be an object
           if (Array.isArray(value)) {
-            throw new Error("Content for header/footer/policies pages must be an object, not an array");
+            throw new Error("Content for header/footer pages must be an object, not an array");
           }
           if (typeof value !== "object" || value === null) {
             throw new Error("Content must be an object");
