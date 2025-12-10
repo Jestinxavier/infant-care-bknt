@@ -120,6 +120,16 @@ const createCart = async (req, res) => {
     if (cartId) {
       const existingCart = await Cart.findOne({ cartId });
       if (existingCart) {
+        // Safe Claim: If cart is unowned and user is logged in
+        if (!existingCart.userId && userId) {
+          // Check if user has another cart
+          const otherCart = await Cart.findOne({ userId, cartId: { $ne: cartId } });
+          if (!otherCart) {
+            existingCart.userId = userId;
+            await existingCart.save();
+          }
+        }
+
         const formatted = formatCartResponse(existingCart);
         return res.status(200).json({
           success: true,
@@ -286,6 +296,17 @@ const addItem = async (req, res) => {
           path: "/",
         };
         res.cookie(CART_ID, cartId, cookieOptions);
+      }
+    } else {
+      // Safe Claim: If cart is unowned and user is logged in
+      const userId = req.user?.id;
+      if (!cartDoc.userId && userId) {
+        // Check if user has another cart
+        const otherCart = await Cart.findOne({ userId, cartId: { $ne: cartDoc.cartId } });
+        if (!otherCart) {
+          cartDoc.userId = userId;
+          // save() happens later after adding item
+        }
       }
     }
 
@@ -707,6 +728,13 @@ const getSummary = async (req, res) => {
  * POST /api/v1/cart/merge
  * Merge guest cart into user cart on login
  */
+/**
+ * POST /api/v1/cart/merge
+ * Merge guest cart into user cart on login
+ * Logic:
+ * 1. If User has existing cart -> Merge Guest items into User Cart -> Delete Guest Cart
+ * 2. If User has NO existing cart -> Assign Guest Cart to User
+ */
 const mergeCart = async (req, res) => {
   try {
     const guestCart = req.cart;
@@ -719,72 +747,105 @@ const mergeCart = async (req, res) => {
       });
     }
 
-    if (!guestCart || guestCart.items.length === 0) {
+    if (!guestCart) {
       return res.status(200).json({
         success: true,
-        message: "No items to merge",
+        message: "No guest cart to merge",
         cart: null,
       });
     }
 
-    // Find or create user cart
-    let userCart = await Cart.findOne({
+    // Check if the cart is already assigned to a user
+    if (guestCart.userId) {
+      if (guestCart.userId.toString() === userId.toString()) {
+        const formatted = formatCartResponse(guestCart);
+        return res.status(200).json({
+          success: true,
+          cart: formatted,
+          message: "Cart already assigned to user",
+        });
+      } else {
+        return res.status(200).json({
+          success: true,
+          message: "Cart belongs to another user - cannot merge",
+          cart: null,
+        });
+      }
+    }
+
+    // Check if user already has an existing cart (excluding the current guest cart)
+    const userCart = await Cart.findOne({
       userId,
       cartId: { $ne: guestCart.cartId },
     });
 
-    if (!userCart) {
-      // Create new user cart
-      const newCartId = generateCartId();
-      userCart = await Cart.create({
-        cartId: newCartId,
-        userId,
+    if (userCart) {
+      // SCENARIO 1: User has an existing cart -> MERGE
+      console.log(`🔄 Merging guest cart ${guestCart.cartId} into user cart ${userCart.cartId}`);
+
+      // Merge items from guest cart
+      for (const guestItem of guestCart.items) {
+        await userCart.addItem({
+          productId: guestItem.productId,
+          variantId: guestItem.variantId,
+          quantity: guestItem.quantity,
+          priceSnapshot: guestItem.priceSnapshot,
+          discountPriceSnapshot: guestItem.discountPriceSnapshot,
+          titleSnapshot: guestItem.titleSnapshot,
+          imageSnapshot: guestItem.imageSnapshot,
+          skuSnapshot: guestItem.skuSnapshot,
+          attributesSnapshot: guestItem.attributesSnapshot,
+        });
+      }
+
+      // Recalculate totals for user cart
+      const totals = calculateTotals(userCart.items);
+      userCart.subtotal = totals.subtotal;
+      userCart.tax = totals.tax;
+      userCart.shippingEstimate = totals.shippingEstimate;
+      userCart.total = totals.total;
+      await userCart.save();
+
+      // Delete guest cart
+      await Cart.deleteOne({ cartId: guestCart.cartId });
+
+      // Update cookie to user cart
+      const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: "/",
+      };
+      res.cookie(CART_ID, userCart.cartId, cookieOptions);
+
+      const formatted = formatCartResponse(userCart);
+
+      return res.status(200).json({
+        success: true,
+        cart: formatted,
+        message: "Cart merged successfully",
+      });
+
+    } else {
+      // SCENARIO 2: User has NO existing cart -> ASSIGN
+      console.log(`👤 Assigning guest cart ${guestCart.cartId} to user ${userId}`);
+
+      guestCart.userId = userId;
+      // Totals remain the same, just saving the association
+      await guestCart.save();
+
+      // Cookie remains valid (points to the same cartId)
+
+      const formatted = formatCartResponse(guestCart);
+
+      return res.status(200).json({
+        success: true,
+        cart: formatted,
+        message: "Cart assigned to user successfully",
       });
     }
 
-    // Merge items from guest cart
-    for (const guestItem of guestCart.items) {
-      await userCart.addItem({
-        productId: guestItem.productId,
-        variantId: guestItem.variantId,
-        quantity: guestItem.quantity,
-        priceSnapshot: guestItem.priceSnapshot,
-        discountPriceSnapshot: guestItem.discountPriceSnapshot,
-        titleSnapshot: guestItem.titleSnapshot,
-        imageSnapshot: guestItem.imageSnapshot,
-        skuSnapshot: guestItem.skuSnapshot,
-        attributesSnapshot: guestItem.attributesSnapshot,
-      });
-    }
-
-    // Recalculate totals
-    const totals = calculateTotals(userCart.items);
-    userCart.subtotal = totals.subtotal;
-    userCart.tax = totals.tax;
-    userCart.shippingEstimate = totals.shippingEstimate;
-    userCart.total = totals.total;
-    await userCart.save();
-
-    // Delete guest cart
-    await Cart.deleteOne({ cartId: guestCart.cartId });
-
-    // Update cookie to user cart
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: "/",
-    };
-    res.cookie(CART_ID, userCart.cartId, cookieOptions);
-
-    const formatted = formatCartResponse(userCart);
-
-    res.status(200).json({
-      success: true,
-      cart: formatted,
-      message: "Cart merged successfully",
-    });
   } catch (error) {
     console.error("❌ Error merging cart:", error);
     res.status(500).json({

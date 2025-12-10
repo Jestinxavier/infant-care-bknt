@@ -9,33 +9,33 @@ const getOrderById = async (req, res) => {
     const userId = req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: "User ID is required. Please authenticate." 
+        message: "User ID is required. Please authenticate."
       });
     }
 
     if (!orderId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "Order ID is required" 
+        message: "Order ID is required"
       });
     }
 
     const order = await Order.findOne({ _id: orderId, userId })
       .populate({
         path: "items.variantId",
-        populate: { 
-          path: "productId", 
-          select: "name description images category" 
+        populate: {
+          path: "productId",
+          select: "name description images category"
         }
       })
       .populate("addressId");
 
     if (!order) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Order not found" 
+        message: "Order not found"
       });
     }
 
@@ -47,7 +47,7 @@ const getOrderById = async (req, res) => {
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod,
-      total: order.totalAmount,
+      totalAmount: order.totalAmount,
       subtotal: order.subtotal,
       shippingCost: order.shippingCost,
       discount: order.discount,

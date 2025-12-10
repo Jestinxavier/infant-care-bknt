@@ -14,8 +14,9 @@ const createOrder = async (req, res) => {
 
     // Step 1: Validate stock availability and build items with full data
     let subtotal = 0;
+    let totalAfterDiscount = 0;
     const orderItems = [];
-    const productsToUpdate = []; // We will update Product documents for both cases
+    const productsToUpdate = [];
 
     for (const item of items) {
       // Always find the Product first
@@ -24,55 +25,62 @@ const createOrder = async (req, res) => {
         return res.status(404).json({ message: `Product not found: ${item.productId}` });
       }
 
-      let price, stock, variantData;
+      let regularPrice, offerPrice, stock, variantData;
 
       if (item.variantId) {
-        // Find variant inside product.variants array
-        // Check both 'id' (custom) and '_id' (Mongoose)
+        // Find variant
         variantData = product.variants?.find(v => v.id === item.variantId || v._id?.toString() === item.variantId);
 
         if (!variantData) {
           return res.status(404).json({ message: `Variant ${item.variantId} not found in product ${product.name}` });
         }
 
-        // Use variant pricing/stock
-        price = variantData.pricing?.discountPrice || variantData.pricing?.price || variantData.price || 0;
+        // Use variant pricing
+        regularPrice = variantData.pricing?.price || variantData.price || 0;
+        offerPrice = variantData.pricing?.discountPrice || regularPrice;
         stock = variantData.stockObj?.available ?? variantData.stock ?? 0;
 
       } else {
-        // Use Product pricing/stock
-        price = product.pricing?.discountPrice || product.pricing?.price || product.price || 0;
+        // Use Product pricing
+        regularPrice = product.pricing?.price || product.price || 0;
+        offerPrice = product.pricing?.discountPrice || regularPrice;
         stock = product.stockObj?.available ?? product.stock ?? 0;
       }
 
       // Check stock availability
       if (stock < item.quantity) {
         return res.status(400).json({
-          message: `Insufficient stock for ${product.name || product.title || 'product'}. Available: ${stock}, Requested: ${item.quantity}`
+          message: `Insufficient stock for ${product.title || product.name || 'product'}. Available: ${stock}, Requested: ${item.quantity}`
         });
       }
 
-      subtotal += price * item.quantity;
+      const itemQuantity = Number(item.quantity);
+
+      // Accumulate totals
+      subtotal += regularPrice * itemQuantity;
+      totalAfterDiscount += offerPrice * itemQuantity;
 
       orderItems.push({
         productId: product._id,
         variantId: item.variantId || null,
-        quantity: item.quantity,
-        price
+        quantity: itemQuantity,
+        price: offerPrice // Store the effective price (offer price)
       });
 
       // Prepare stock update
       productsToUpdate.push({
         productId: product._id,
         variantId: item.variantId || null,
-        quantity: item.quantity
+        quantity: itemQuantity
       });
     }
 
-    // Calculate total amount: subtotal + shipping - discount
-    const finalDiscount = discount || 0;
-    const finalShippingCost = shippingCost || 0;
-    const totalAmount = subtotal + finalShippingCost - finalDiscount;
+    // Calculate financials server-side (ignore client inputs)
+    const discountAmount = subtotal - totalAfterDiscount;
+    const shippingAmount = totalAfterDiscount >= 1000 ? 0 : 60; // Free shipping threshold
+    const totalAmount = totalAfterDiscount + shippingAmount;
+
+    console.log(`💰 Order Calc: Subtotal=${subtotal}, Discount=${discountAmount}, Shipping=${shippingAmount}, Total=${totalAmount}`);
 
     // Step 2: Handle Address
     let finalAddressId = addressId;
@@ -101,8 +109,8 @@ const createOrder = async (req, res) => {
       userId,
       items: orderItems,
       subtotal,
-      shippingCost: finalShippingCost,
-      discount: finalDiscount,
+      shippingCost: shippingAmount,
+      discount: discountAmount,
       totalAmount,
       addressId: finalAddressId,
       shippingAddress: shippingAddressData,
