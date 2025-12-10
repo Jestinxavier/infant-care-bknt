@@ -8,9 +8,8 @@ const orderItemSchema = new mongoose.Schema({
     required: true
   },
   variantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Variant",
-    required: true
+    type: String,
+    default: null
   },
   quantity: {
     type: Number,
@@ -49,7 +48,23 @@ const orderSchema = new mongoose.Schema({
   addressId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Address",
-    required: true
+    required: false
+  },
+  shippingAddress: {
+    name: String,
+    fullName: String,
+    phone: String,
+    houseName: String,
+    street: String,
+    landmark: String,
+    addressLine1: String,
+    addressLine2: String,
+    city: String,
+    state: String,
+    district: String,
+    postalCode: String,
+    pincode: String,
+    country: String
   },
   paymentStatus: {
     type: String,

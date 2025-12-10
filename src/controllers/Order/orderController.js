@@ -2,7 +2,8 @@ const Order = require("../../models/Order");
 const Variant = require("../../models/Variant");
 const Address = require("../../models/Address");
 const Payment = require("../../models/Payment");
- 
+const Product = require("../../models/Product");
+
 const createOrder = async (req, res) => {
   try {
     const { userId, items, addressId, newAddress, paymentMethod, shippingCost = 0, discount = 0 } = req.body;
@@ -14,36 +15,57 @@ const createOrder = async (req, res) => {
     // Step 1: Validate stock availability and build items with full data
     let subtotal = 0;
     const orderItems = [];
-    const variantsToUpdate = [];
+    const productsToUpdate = []; // We will update Product documents for both cases
 
     for (const item of items) {
-      const variant = await Variant.findById(item.variantId).populate("productId");
-      if (!variant) {
-        return res.status(404).json({ message: `Variant not found: ${item.variantId}` });
+      // Always find the Product first
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        return res.status(404).json({ message: `Product not found: ${item.productId}` });
+      }
+
+      let price, stock, variantData;
+
+      if (item.variantId) {
+        // Find variant inside product.variants array
+        // Check both 'id' (custom) and '_id' (Mongoose)
+        variantData = product.variants?.find(v => v.id === item.variantId || v._id?.toString() === item.variantId);
+
+        if (!variantData) {
+          return res.status(404).json({ message: `Variant ${item.variantId} not found in product ${product.name}` });
+        }
+
+        // Use variant pricing/stock
+        price = variantData.pricing?.discountPrice || variantData.pricing?.price || variantData.price || 0;
+        stock = variantData.stockObj?.available ?? variantData.stock ?? 0;
+
+      } else {
+        // Use Product pricing/stock
+        price = product.pricing?.discountPrice || product.pricing?.price || product.price || 0;
+        stock = product.stockObj?.available ?? product.stock ?? 0;
       }
 
       // Check stock availability
-      if (variant.stock < item.quantity) {
-        return res.status(400).json({ 
-          message: `Insufficient stock for ${variant.productId?.name || 'product'}. Available: ${variant.stock}, Requested: ${item.quantity}` 
+      if (stock < item.quantity) {
+        return res.status(400).json({
+          message: `Insufficient stock for ${product.name || product.title || 'product'}. Available: ${stock}, Requested: ${item.quantity}`
         });
       }
 
-      const price = variant.price;
       subtotal += price * item.quantity;
 
       orderItems.push({
-        productId: variant.productId._id,
-        variantId: variant._id,
+        productId: product._id,
+        variantId: item.variantId || null,
         quantity: item.quantity,
         price
       });
 
-      // Store variant and quantity for stock update
-      variantsToUpdate.push({
-        variantId: variant._id,
-        quantity: item.quantity,
-        currentStock: variant.stock
+      // Prepare stock update
+      productsToUpdate.push({
+        productId: product._id,
+        variantId: item.variantId || null,
+        quantity: item.quantity
       });
     }
 
@@ -54,13 +76,23 @@ const createOrder = async (req, res) => {
 
     // Step 2: Handle Address
     let finalAddressId = addressId;
+    let shippingAddressData = null;
+
     if (!addressId && newAddress) {
       const address = new Address({ userId, ...newAddress });
       const savedAddress = await address.save();
       finalAddressId = savedAddress._id;
+      shippingAddressData = savedAddress.toObject();
+    } else if (addressId) {
+      const existingAddress = await Address.findById(addressId);
+      if (!existingAddress) {
+        return res.status(404).json({ message: "Address not found" });
+      }
+      finalAddressId = existingAddress._id;
+      shippingAddressData = existingAddress.toObject();
     }
 
-    if (!finalAddressId) {
+    if (!finalAddressId || !shippingAddressData) {
       return res.status(400).json({ message: "Address ID or new address is required" });
     }
 
@@ -73,24 +105,36 @@ const createOrder = async (req, res) => {
       discount: finalDiscount,
       totalAmount,
       addressId: finalAddressId,
+      shippingAddress: shippingAddressData,
       paymentMethod: paymentMethod || "COD"
     });
 
     await order.save();
 
-    // Step 4: Reduce stock for all variants
-    // Note: Stock is validated before order creation, but we use $inc for atomic decrement
-    for (const item of variantsToUpdate) {
-      const updatedVariant = await Variant.findByIdAndUpdate(
-        item.variantId,
-        { $inc: { stock: -item.quantity } }, // Decrement stock by ordered quantity
-        { new: true }
-      );
-      
-      // Safety check: Ensure stock doesn't go negative (shouldn't happen due to validation)
-      if (updatedVariant && updatedVariant.stock < 0) {
-        console.error(`⚠️ Warning: Stock went negative for variant ${item.variantId}. Stock: ${updatedVariant.stock}`);
-        // In production, you might want to rollback the order here
+    // Step 4: Reduce stock
+    for (const update of productsToUpdate) {
+      if (update.variantId) {
+        // Update specific variant stock inside Product
+        await Product.findOneAndUpdate(
+          { _id: update.productId, "variants.id": update.variantId },
+          {
+            $inc: {
+              "variants.$.stock": -update.quantity,
+              "variants.$.stockObj.available": -update.quantity
+            }
+          }
+        );
+      } else {
+        // Update main product stock
+        await Product.findByIdAndUpdate(
+          update.productId,
+          {
+            $inc: {
+              stock: -update.quantity,
+              "stockObj.available": -update.quantity
+            }
+          }
+        );
       }
     }
 
@@ -100,12 +144,12 @@ const createOrder = async (req, res) => {
       userId,
       amount: totalAmount,
       method: paymentMethod,
-      status: paymentMethod === "COD" ? "pending" : "pending" // All online payments start as pending
+      status: paymentMethod === "COD" ? "pending" : "pending"
     });
 
     await payment.save();
 
-    // Step 6: If PhonePe or Razorpay, return order details for payment initialization
+    // Step 6: Return response based on payment method
     if (paymentMethod === "PhonePe") {
       return res.status(201).json({
         success: true,
@@ -145,7 +189,5 @@ const createOrder = async (req, res) => {
     });
   }
 };
-
-
 
 module.exports = createOrder;

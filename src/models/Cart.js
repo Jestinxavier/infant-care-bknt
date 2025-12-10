@@ -103,15 +103,22 @@ const cartSchema = new mongoose.Schema(
 );
 
 // Pre-save middleware to calculate totals
+// Pre-save middleware to calculate totals
 cartSchema.pre("save", function (next) {
-  // Calculate subtotal from items
+  // Calculate subtotal from REGULAR prices (priceSnapshot)
   this.subtotal = this.items.reduce((sum, item) => {
+    return sum + item.priceSnapshot * item.quantity;
+  }, 0);
+
+  // Calculate totalAfterDiscount using OFFER prices
+  const totalAfterDiscount = this.items.reduce((sum, item) => {
     const price = item.discountPriceSnapshot || item.priceSnapshot;
     return sum + price * item.quantity;
   }, 0);
 
-  // Calculate total (subtotal + tax + shipping)
-  this.total = this.subtotal + (this.tax || 0) + (this.shippingEstimate || 0);
+  // Calculate total (totalAfterDiscount + tax + shipping)
+  // Note: shippingEstimate is set by controller, but we ensure total logic is consistent here
+  this.total = totalAfterDiscount + (this.tax || 0) + (this.shippingEstimate || 0);
 
   next();
 });

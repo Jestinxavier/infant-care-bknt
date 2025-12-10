@@ -10,28 +10,44 @@ const { formatCartResponse } = require("../../utils/formatCartResponse");
 
 /**
  * Calculate shipping estimate
- * Free shipping if cart total >= 1500, otherwise 50
+ * Free shipping if cart total >= 1000, otherwise 60
  */
 const calculateShipping = (subtotal) => {
-  return subtotal >= 1500 ? 0 : 50;
+  return subtotal >= 1000 ? 0 : 60;
 };
 
 /**
  * Calculate cart totals (subtotal, tax, shipping, total)
  */
 const calculateTotals = (items) => {
+  console.log('🔍 calculateTotals called with items:', JSON.stringify(items, null, 2));
+
+  // Calculate subtotal from REGULAR prices (before discount)
   const subtotal = items.reduce((sum, item) => {
+    console.log(`  Item: ${item.titleSnapshot}, priceSnapshot: ${item.priceSnapshot}, quantity: ${item.quantity}`);
+    return sum + item.priceSnapshot * item.quantity;
+  }, 0);
+
+  console.log('✅ Subtotal (from regular prices):', subtotal);
+
+  // Calculate total using OFFER prices (after discount)
+  const totalAfterDiscount = items.reduce((sum, item) => {
     const price = item.discountPriceSnapshot || item.priceSnapshot;
+    console.log(`  Item: ${item.titleSnapshot}, offer price: ${price}, quantity: ${item.quantity}`);
     return sum + price * item.quantity;
   }, 0);
 
-  const tax = Math.round(subtotal * 0.18); // 18% GST
-  const shippingEstimate = calculateShipping(subtotal);
-  const total = subtotal + tax + shippingEstimate;
+  console.log('✅ Total after discount:', totalAfterDiscount);
+
+  const shippingEstimate = calculateShipping(totalAfterDiscount);
+  const total = totalAfterDiscount + shippingEstimate;
+
+  console.log('✅ Shipping:', shippingEstimate);
+  console.log('✅ Final total:', total);
 
   return {
     subtotal: Math.round(subtotal * 100) / 100,
-    tax: Math.round(tax * 100) / 100,
+    tax: 0, // No tax for now
     shippingEstimate: Math.round(shippingEstimate * 100) / 100,
     total: Math.round(total * 100) / 100,
   };
@@ -211,7 +227,17 @@ const getCart = async (req, res) => {
       });
     }
 
+    // Recalculate totals to ensure they're up-to-date
+    const totals = calculateTotals(cart.items);
+    cart.subtotal = totals.subtotal;
+    cart.tax = totals.tax;
+    cart.shippingEstimate = totals.shippingEstimate;
+    cart.total = totals.total;
+    await cart.save();
+
     const formatted = formatCartResponse(cart);
+
+    console.log('📤 Returning cart with subtotal:', formatted.subtotal, 'total:', formatted.total);
 
     res.status(200).json({
       success: true,
@@ -447,6 +473,9 @@ const clearCart = async (req, res) => {
     await cart.save();
 
     const formatted = formatCartResponse(cart);
+
+    // Clear cookie also
+    res.clearCookie(CART_ID);
 
     res.status(200).json({
       success: true,
