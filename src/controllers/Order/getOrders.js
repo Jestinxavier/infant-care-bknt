@@ -6,20 +6,20 @@ const Order = require("../../models/Order");
 const getOrders = async (req, res) => {
   try {
     const userId = req.user?.id;
-    
+
     if (!userId) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: "User ID is required. Please authenticate." 
+        message: "User ID is required. Please authenticate."
       });
     }
 
     const orders = await Order.find({ userId })
       .populate({
         path: "items.variantId",
-        populate: { 
-          path: "productId", 
-          select: "name images" 
+        populate: {
+          path: "productId",
+          select: "name images"
         }
       })
       .populate("addressId", "fullName phone houseName street landmark city state pincode country nickname")
@@ -33,7 +33,8 @@ const getOrders = async (req, res) => {
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod,
-      total: order.totalAmount,
+      paymentMethod: order.paymentMethod,
+      totalAmount: order.totalAmount || order.total,
       subtotal: order.subtotal,
       shippingCost: order.shippingCost,
       discount: order.discount,
