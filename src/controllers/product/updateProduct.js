@@ -23,6 +23,14 @@ const updateProduct = async (req, res) => {
       pricing, // Parent-level pricing
       stockObj, // Parent-level stock
       refreshSlug = false,
+      // Additional fields
+      sku,
+      url_key,
+      subtitle,
+      shortDescription,
+      tags,
+      metaTitle,
+      metaDescription,
       // Legacy fields
       name,
       variants: legacyVariants,
@@ -99,6 +107,15 @@ const updateProduct = async (req, res) => {
       product.variantOptions = variantOptions;
     }
 
+    // Update additional fields
+    if (sku !== undefined) product.sku = sku;
+    if (url_key !== undefined) product.url_key = url_key;
+    if (subtitle !== undefined) product.subtitle = subtitle;
+    if (shortDescription !== undefined) product.shortDescription = shortDescription;
+    if (tags !== undefined) product.tags = tags;
+    if (metaTitle !== undefined) product.metaTitle = metaTitle;
+    if (metaDescription !== undefined) product.metaDescription = metaDescription;
+
     // Update variants (new structure)
     if (variantsArray !== undefined && Array.isArray(variantsArray)) {
       const { generateSlug } = require("../../utils/slugGenerator");
@@ -108,8 +125,8 @@ const updateProduct = async (req, res) => {
         const images =
           req.files && req.files.length > 0
             ? req.files
-                .filter((f) => f.fieldname.includes(v.sku || v.id || index))
-                .map((f) => f.path)
+              .filter((f) => f.fieldname.includes(v.sku || v.id || index))
+              .map((f) => f.path)
             : v.images || [];
 
         // Convert attributes/options object to Map if needed
@@ -241,8 +258,8 @@ const updateProduct = async (req, res) => {
           const images =
             req.files && req.files.length > 0
               ? req.files
-                  .filter((f) => f.fieldname.includes(v.sku || v.age))
-                  .map((f) => f.path)
+                .filter((f) => f.fieldname.includes(v.sku || v.age))
+                .map((f) => f.path)
               : [];
 
           await Variant.create({

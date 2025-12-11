@@ -103,6 +103,15 @@ const productSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+
+    // SKU (Stock Keeping Unit) - optional for simple products, required for variant-based products
+    sku: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow null/undefined values and only enforce uniqueness when present
+      index: true,
+    },
+
     status: {
       type: String,
       enum: ["draft", "proposed", "published", "rejected"],

@@ -6,16 +6,32 @@ const Category = require("../../models/Category");
 const getAllCategories = async (req, res) => {
   try {
     const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
-    const { includeInactive = true } = requestData;
+    const {
+      includeInactive = true,
+      page = 1,
+      limit = 50,
+      search,
+    } = requestData;
     
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const skip = (pageNum - 1) * limitNum;
+
     const filter = {};
     if (includeInactive !== true && includeInactive !== "true") {
       filter.isActive = true;
     }
+    if (search) {
+      filter.name = { $regex: search, $options: "i" };
+    }
+
+    const total = await Category.countDocuments(filter);
 
     const categories = await Category.find(filter)
       .populate("parentCategory", "name slug")
       .sort({ displayOrder: 1, name: 1 })
+      .skip(skip)
+      .limit(limitNum)
       .lean();
 
     // Format categories
@@ -28,6 +44,12 @@ const getAllCategories = async (req, res) => {
       success: true,
       totalCategories: formattedCategories.length,
       categories: formattedCategories,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.max(Math.ceil(total / limitNum), 1),
+      },
     });
   } catch (error) {
     console.error("❌ Admin Error fetching categories:", error);

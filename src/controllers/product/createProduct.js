@@ -178,14 +178,31 @@ const createProduct = async (req, res) => {
     let productImages = [];
 
     // First, check if images metadata was sent as JSON
-    if (parsedBody.images && typeof parsedBody.images === "string") {
-      try {
-        const imageMetadata = JSON.parse(parsedBody.images);
-        if (Array.isArray(imageMetadata)) {
-          productImages = imageMetadata;
+    if (parsedBody.images) {
+      if (typeof parsedBody.images === "string") {
+        try {
+          // Try to parse as JSON string
+          const imageMetadata = JSON.parse(parsedBody.images);
+          if (Array.isArray(imageMetadata)) {
+            productImages = imageMetadata;
+          } else if (imageMetadata && typeof imageMetadata === "object") {
+            // Single object, wrap in array
+            productImages = [imageMetadata];
+          }
+        } catch (e) {
+          console.error("Error parsing images JSON:", e);
+          console.error("Images string value:", parsedBody.images.substring(0, 200));
+          // If parsing fails, try to extract URL if it's a simple string
+          if (parsedBody.images.startsWith("http")) {
+            productImages = [{ url: parsedBody.images }];
+          }
         }
-      } catch (e) {
-        console.error("Error parsing images JSON:", e);
+      } else if (Array.isArray(parsedBody.images)) {
+        // Already an array
+        productImages = parsedBody.images;
+      } else if (typeof parsedBody.images === "object") {
+        // Single object, wrap in array
+        productImages = [parsedBody.images];
       }
     }
 
@@ -336,6 +353,14 @@ const createProduct = async (req, res) => {
       }
     }
 
+    // Extract URLs from image objects (Product model expects array of strings)
+    const productImageUrls = productImages.map((img) => {
+      // If it's already a string, use it directly
+      if (typeof img === "string") return img;
+      // If it's an object, extract the URL
+      return img.url || img.path || img.secure_url;
+    }).filter(Boolean); // Remove any null/undefined values
+
     // Create product with new structure
     const productData = {
       title: productTitle,
@@ -354,8 +379,8 @@ const createProduct = async (req, res) => {
       pricing: pricing || null, // Parent-level pricing
       stockObj: stockObj || null, // Parent-level stock
       tags: parsedTags,
-      images: productImages.length > 0 ? productImages : undefined,
-      thumbnail: productImages.length > 0 ? productImages[0]?.url : undefined,
+      images: productImageUrls.length > 0 ? productImageUrls : undefined,
+      thumbnail: productImageUrls.length > 0 ? productImageUrls[0] : undefined,
       metaTitle: metaTitle || null,
       metaDescription: metaDescription || null,
       // DO NOT allow rating fields to be set manually
@@ -371,8 +396,8 @@ const createProduct = async (req, res) => {
         const images =
           req.files && req.files.length > 0
             ? req.files
-                .filter((f) => f.fieldname.includes(v.sku || v.age))
-                .map((f) => f.path)
+              .filter((f) => f.fieldname.includes(v.sku || v.age))
+              .map((f) => f.path)
             : [];
 
         return {

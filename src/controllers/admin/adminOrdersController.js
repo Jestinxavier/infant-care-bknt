@@ -1,4 +1,5 @@
 const Order = require("../../models/Order");
+const mongoose = require("mongoose");
 
 /**
  * Admin: Get all orders (not filtered by user)
@@ -18,8 +19,8 @@ const getAllOrders = async (req, res) => {
       search,
     } = requestData;
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
     const skip = (pageNum - 1) * limitNum;
 
     // Build filter
@@ -33,12 +34,17 @@ const getAllOrders = async (req, res) => {
       filter.paymentStatus = paymentStatus;
     }
 
-    // Search by order ID or user email
+    // Search by order ID or user email - guard against invalid ObjectId
     if (search) {
-      filter.$or = [
-        { _id: search },
+      const searchFilters = [
         { orderId: { $regex: search, $options: "i" } },
       ];
+
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        searchFilters.push({ _id: new mongoose.Types.ObjectId(search) });
+      }
+
+      filter.$or = searchFilters;
     }
 
     // Build sort
@@ -74,6 +80,9 @@ const getAllOrders = async (req, res) => {
         email: order.userId.email,
         phone: order.userId.phone,
       } : null,
+      customerName: order.userId?.username || order.userId?.email || "Guest",
+      customerEmail: order.userId?.email,
+      customerPhone: order.userId?.phone,
       date: order.placedAt || order.createdAt,
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -101,7 +110,7 @@ const getAllOrders = async (req, res) => {
         page: pageNum,
         limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limitNum),
+        totalPages: Math.max(Math.ceil(total / limitNum), 1),
       },
     });
   } catch (err) {

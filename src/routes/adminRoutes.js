@@ -10,6 +10,7 @@ const {
   updateOrderStatus,
   getAllCategories,
   getCategoryById,
+  getAllCustomers,
 } = require("../controllers/admin");
 
 // Import existing product controllers for create/update/delete
@@ -19,6 +20,7 @@ const {
   deleteProduct,
 } = require("../controllers/product");
 const { parser } = require("../config/cloudinary");
+const parseMultipartBody = require("../middlewares/parseMultipartBody");
 
 // Import existing category controllers for create/update/delete
 const {
@@ -146,63 +148,6 @@ router.post("/products", verifyToken, requireAdmin, getAllProducts);
 
 /**
  * @swagger
- * /api/v1/admin/products/{productId}:
- *   get:
- *     summary: "[Admin] Get single product by ID with full details"
- *     description: Retrieve complete product information including all variants, pricing, inventory, and metadata. Includes draft and inactive products.
- *     tags: [Admin]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: productId
- *         required: true
- *         schema:
- *           type: string
- *         description: Product ID
- *         example: 64abc123def456789
- *     responses:
- *       200:
- *         description: Product retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 product:
- *                   $ref: '#/components/schemas/Product'
- *       404:
- *         description: Product not found
- *       401:
- *         description: Unauthorized
- *   post:
- *     summary: "[Admin] Get single product by ID (POST method)"
- *     description: Same as GET but accepts productId in request body.
- *     tags: [Admin]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - productId
- *             properties:
- *               productId:
- *                 type: string
- *     responses:
- *       200:
- *         description: Product retrieved successfully
- */
-router.get("/products/:productId", verifyToken, requireAdmin, getProductById);
-router.post("/products/:productId", verifyToken, requireAdmin, getProductById);
-
-/**
- * @swagger
  * /api/v1/admin/products/create:
  *   post:
  *     summary: "[Admin] Create a new product with variants"
@@ -292,6 +237,63 @@ router.post(
 /**
  * @swagger
  * /api/v1/admin/products/{productId}:
+ *   get:
+ *     summary: "[Admin] Get single product by ID with full details"
+ *     description: Retrieve complete product information including all variants, pricing, inventory, and metadata. Includes draft and inactive products.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product ID
+ *         example: 64abc123def456789
+ *     responses:
+ *       200:
+ *         description: Product retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 product:
+ *                   $ref: '#/components/schemas/Product'
+ *       404:
+ *         description: Product not found
+ *       401:
+ *         description: Unauthorized
+ *   post:
+ *     summary: "[Admin] Get single product by ID (POST method)"
+ *     description: Same as GET but accepts productId in request body.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - productId
+ *             properties:
+ *               productId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Product retrieved successfully
+ */
+router.get("/products/:productId", verifyToken, requireAdmin, getProductById);
+router.post("/products/:productId", verifyToken, requireAdmin, getProductById);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/{productId}:
  *   patch:
  *     summary: "[Admin] Update an existing product"
  *     description: Update product details, variants, images, and metadata. Supports partial updates.
@@ -366,6 +368,7 @@ router.patch(
   verifyToken,
   requireAdmin,
   (req, res, next) => parser.any()(req, res, next),
+  parseMultipartBody,
   updateProduct
 );
 
@@ -640,6 +643,61 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *         description: Unauthorized
  */
 router.patch("/orders/:orderId/status", verifyToken, requireAdmin, updateOrderStatus);
+
+// ==================== CUSTOMERS ====================
+
+/**
+ * @swagger
+ * /api/v1/admin/customers:
+ *   get:
+ *     summary: "[Admin] Get all customers"
+ *     description: Retrieve customers with pagination and order stats
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           description: Search by name, email, phone, or ID
+ *     responses:
+ *       200:
+ *         description: Customers retrieved successfully
+ *   post:
+ *     summary: "[Admin] Get all customers (POST)"
+ *     description: Same as GET but accepts filters in the request body.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               page:
+ *                 type: integer
+ *               limit:
+ *                 type: integer
+ *               search:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Customers retrieved successfully
+ */
+router.get("/customers", verifyToken, requireAdmin, getAllCustomers);
+router.post("/customers", verifyToken, requireAdmin, getAllCustomers);
 
 // ==================== CATEGORIES ====================
 

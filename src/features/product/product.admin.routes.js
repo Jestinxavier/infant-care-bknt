@@ -6,6 +6,9 @@ const { validate } = require("../../core/middleware/validator");
 const verifyToken = require("../../middlewares/authMiddleware");
 const requireAdmin = require("../../middlewares/adminMiddleware");
 
+const { parser } = require("../../config/cloudinary");
+const parseMultipartBody = require("../../middlewares/parseMultipartBody");
+
 /**
  * @swagger
  * tags:
@@ -43,6 +46,8 @@ router.get(
  */
 router.post(
   "/",
+  parser.any(),
+  parseMultipartBody,
   validate(productValidation.create),
   productAdminController.createProduct,
 );
@@ -73,6 +78,8 @@ router.get(
  */
 router.put(
   "/:id",
+  parser.any(),
+  parseMultipartBody,
   validate([...productValidation.getById, ...productValidation.update]),
   productAdminController.updateProduct,
 );
