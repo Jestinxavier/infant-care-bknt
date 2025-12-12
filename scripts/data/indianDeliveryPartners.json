@@ -1,0 +1,56 @@
+[
+    {
+        "name": "Blue Dart",
+        "trackingUrlTemplate": "https://www.bluedart.com/web/guest/trackdartresult?trackFor=0&trackNo={trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "Delhivery",
+        "trackingUrlTemplate": "https://www.delhivery.com/track/package/{trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "DTDC",
+        "trackingUrlTemplate": "https://www.dtdc.in/tracking/shipment-tracking.asp?params={trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "India Post",
+        "trackingUrlTemplate": "https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx?AssignedNo={trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "Ecom Express",
+        "trackingUrlTemplate": "https://ecomexpress.in/tracking/?awb_field={trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "Xpressbees",
+        "trackingUrlTemplate": "https://www.xpressbees.com/track?awb={trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "Shadowfax",
+        "trackingUrlTemplate": "https://tracker.shadowfax.in/track/{trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "Ekart Logistics",
+        "trackingUrlTemplate": "https://ekartlogistics.com/shipmenttrack/{trackingId}",
+        "requiresTrackingUrl": true,
+        "isActive": true
+    },
+    {
+        "name": "Other / Manual",
+        "trackingUrlTemplate": "",
+        "requiresTrackingUrl": false,
+        "isActive": true
+    }
+]

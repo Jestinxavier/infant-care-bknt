@@ -42,7 +42,7 @@ const getOrderById = async (req, res) => {
     // Format order for frontend
     const formattedOrder = {
       _id: order._id,
-      orderId: order._id.toString(),
+      orderId: order.orderId || order._id.toString(),
       date: order.placedAt || order.createdAt,
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -65,7 +65,7 @@ const getOrderById = async (req, res) => {
         total: item.price * item.quantity,
       })),
       itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-      address: order.addressId,
+      address: order.shippingAddress || order.addressId,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     };

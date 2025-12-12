@@ -163,7 +163,7 @@ const startServer = async () => {
         console.log(
           `🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`
         );
-        console.log("\n✨ Server is ready to accept requests!\n");
+        console.log("\n✨ Server is ready to accept requests! (Search API Enabled)\n");
       });
     }
   } catch (error) {
