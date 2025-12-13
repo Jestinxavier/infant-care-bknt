@@ -18,6 +18,7 @@ const {
   createProduct,
   updateProduct,
   deleteProduct,
+  bulkDeleteProducts,
 } = require("../controllers/product");
 const { parser } = require("../config/cloudinary");
 const parseMultipartBody = require("../middlewares/parseMultipartBody");
@@ -145,6 +146,17 @@ const {
  */
 router.get("/products", verifyToken, requireAdmin, getAllProducts);
 router.post("/products", verifyToken, requireAdmin, getAllProducts);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/bulk-delete:
+ *   post:
+ *     summary: "[Admin] Bulk delete products"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/products/bulk-delete", verifyToken, requireAdmin, bulkDeleteProducts);
 
 /**
  * @swagger

@@ -96,20 +96,28 @@ const createProduct = async (req, res) => {
       });
     }
 
-    // Normalize status to lowercase - Product model expects: draft, proposed, published, rejected
+    // Validate variant option codes are unique
+    if (variantOptions && Array.isArray(variantOptions)) {
+      const codes = variantOptions.map((opt) => opt.code).filter(Boolean);
+      const uniqueCodes = new Set(codes);
+
+      if (codes.length !== uniqueCodes.size) {
+        return res.status(400).json({
+          success: false,
+          message: "Variant option code must be unique per product.",
+          error: "Duplicate variant option codes detected",
+        });
+      }
+    }
+
+    // Normalize status to lowercase - Product model expects: draft, published, archived
     let normalizedStatus = status || "draft";
     if (typeof normalizedStatus === "string") {
       normalizedStatus = normalizedStatus.toLowerCase();
-      // Map "archived" to "draft" since Product model doesn't support "archived"
-      // Valid statuses: draft, proposed, published, rejected
-      const validStatuses = ["draft", "proposed", "published", "rejected"];
+      // Valid statuses: draft, published, archived
+      const validStatuses = ["draft", "published", "archived"];
       if (!validStatuses.includes(normalizedStatus)) {
-        // Map common variations
-        if (normalizedStatus === "archived") {
-          normalizedStatus = "draft"; // Archive not supported, use draft
-        } else {
-          normalizedStatus = "draft";
-        }
+        normalizedStatus = "draft"; // Default to draft for invalid statuses
       }
     }
 
@@ -360,6 +368,48 @@ const createProduct = async (req, res) => {
       // If it's an object, extract the URL
       return img.url || img.path || img.secure_url;
     }).filter(Boolean); // Remove any null/undefined values
+
+    // ========================================================================
+    // AUTO-DRAFT VALIDATION: If trying to publish, verify required fields
+    // ========================================================================
+    if (normalizedStatus === "published") {
+      const missingFields = [];
+
+      // Check required fields for publishing
+      if (!productTitle || !productTitle.trim()) {
+        missingFields.push("title");
+      }
+      if (!sku || !sku.trim()) {
+        missingFields.push("sku");
+      }
+      if (!categoryId) {
+        missingFields.push("category");
+      }
+      if (!productImageUrls || productImageUrls.length === 0) {
+        missingFields.push("images (at least 1 required)");
+      }
+
+      // Check price - support both structures
+      const hasPrice = (pricing?.price && pricing.price > 0) ||
+        (parsedBody.price && parseFloat(parsedBody.price) > 0);
+      if (!hasPrice) {
+        missingFields.push("price (must be greater than 0)");
+      }
+
+      // Check stock - support both structures (allow 0)
+      const hasStock = (stockObj?.available !== undefined) ||
+        (parsedBody.stock !== undefined);
+      if (!hasStock) {
+        missingFields.push("stock");
+      }
+
+      // If any required fields are missing, force to draft
+      if (missingFields.length > 0) {
+        console.log(`⚠️ Product cannot be published - missing required fields: ${missingFields.join(", ")}`);
+        console.log("   → Auto-saving as 'draft' instead");
+        normalizedStatus = "draft";
+      }
+    }
 
     // Create product with new structure
     const productData = {

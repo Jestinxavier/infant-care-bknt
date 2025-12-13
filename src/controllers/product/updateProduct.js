@@ -102,8 +102,42 @@ const updateProduct = async (req, res) => {
       }
     }
 
-    // Update variantOptions
+    // Update variantOptions with validation
     if (variantOptions !== undefined) {
+      // Validate variant option codes are unique
+      if (Array.isArray(variantOptions)) {
+        const codes = variantOptions.map((opt) => opt.code).filter(Boolean);
+        const uniqueCodes = new Set(codes);
+
+        if (codes.length !== uniqueCodes.size) {
+          return res.status(400).json({
+            success: false,
+            message: "Variant option code must be unique per product.",
+            error: "Duplicate variant option codes detected",
+          });
+        }
+
+        // Prevent code changes if variants exist
+        if (product.variants && product.variants.length > 0) {
+          const existingCodes =
+            product.variantOptions?.map((opt) => opt.code) || [];
+          const newCodes = variantOptions.map((opt) => opt.code);
+
+          // Check if any codes changed (by comparing at same index)
+          const codesChanged = existingCodes.some(
+            (code, index) => code && newCodes[index] && code !== newCodes[index]
+          );
+
+          if (codesChanged) {
+            return res.status(400).json({
+              success: false,
+              message: "Cannot change variant option codes when variants exist.",
+              error: "Variant option codes are locked",
+            });
+          }
+        }
+      }
+
       product.variantOptions = variantOptions;
     }
 
@@ -205,6 +239,48 @@ const updateProduct = async (req, res) => {
 
     // DO NOT allow rating fields to be updated manually
     // They are calculated from reviews
+
+    // ========================================================================
+    // AUTO-DRAFT VALIDATION: If trying to publish, verify required fields
+    // ========================================================================
+    if (status === "published") {
+      const missingFields = [];
+
+      // Check required fields for publishing
+      if (!product.title || !product.title.trim()) {
+        missingFields.push("title");
+      }
+      if (!product.sku || !product.sku.trim()) {
+        missingFields.push("sku");
+      }
+      if (!product.category) {
+        missingFields.push("category");
+      }
+      if (!product.images || product.images.length === 0) {
+        missingFields.push("images (at least 1 required)");
+      }
+
+      // Check price - support both structures
+      const hasPrice = (product.pricing?.price && product.pricing.price > 0) ||
+        (pricing?.price && pricing.price > 0);
+      if (!hasPrice) {
+        missingFields.push("price (must be greater than 0)");
+      }
+
+      // Check stock - support both structures (allow 0)
+      const hasStock = (product.stockObj?.available !== undefined) ||
+        (stockObj?.available !== undefined);
+      if (!hasStock) {
+        missingFields.push("stock");
+      }
+
+      // If any required fields are missing, force to draft
+      if (missingFields.length > 0) {
+        console.log(`⚠️ Product cannot be published - missing required fields: ${missingFields.join(", ")}`);
+        console.log("   → Auto-saving as 'draft' instead");
+        product.status = "draft";
+      }
+    }
 
     await product.save();
 

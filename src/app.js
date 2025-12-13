@@ -43,6 +43,7 @@ app.use(
       "Authorization",
       "X-Requested-With",
       "x-cart-id",
+      "X-Client-Type",
       "Access-Control-Allow-Origin",
     ],
   })

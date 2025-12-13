@@ -1,6 +1,9 @@
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Review = require("../../models/Review");
+const { cloudinary } = require("../../config/cloudinary");
+const { extractImagePublicIds } = require("../../utils/mediaFinalizer");
+const Media = require("../../models/Media");
 
 /**
  * Delete a product and all its variants, reviews, and related data
@@ -51,7 +54,34 @@ const deleteProduct = async (req, res) => {
     const deletedVariantsCount = deleteVariantsResult.deletedCount;
     console.log(`Deleted ${deletedVariantsCount} variants for product ${productId}`);
 
-    // Step 4: Delete the product
+    // Step 4: Extract and delete all images from Cloudinary
+    let deletedImagesCount = 0;
+    try {
+      const publicIds = extractImagePublicIds(product);
+
+      if (publicIds.length > 0) {
+        console.log(`Deleting ${publicIds.length} images from Cloudinary...`);
+
+        for (const publicId of publicIds) {
+          try {
+            await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+            deletedImagesCount++;
+
+            // Remove from Media collection
+            await Media.deleteOne({ public_id: publicId });
+          } catch (imgError) {
+            console.warn(`⚠️ Could not delete image ${publicId}:`, imgError.message);
+          }
+        }
+
+        console.log(`Deleted ${deletedImagesCount} images from Cloudinary`);
+      }
+    } catch (imageError) {
+      console.error("❌ Error deleting images:", imageError);
+      // Continue with product deletion even if images fail
+    }
+
+    // Step 5: Delete the product
     await Product.findByIdAndDelete(productId);
     console.log(`Deleted product ${productId}: ${product.name}`);
 
@@ -63,7 +93,8 @@ const deleteProduct = async (req, res) => {
         name: product.name
       },
       deletedVariantsCount,
-      deletedReviewsCount
+      deletedReviewsCount,
+      deletedImagesCount
     });
   } catch (err) {
     console.error("❌ Error deleting product:", err);

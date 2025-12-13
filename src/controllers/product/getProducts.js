@@ -10,7 +10,7 @@ const getAllProducts = async (req, res) => {
   try {
     // Support both GET (query params) and POST (body) requests
     const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
-    
+
     // Parse query filters (handles new URL structure)
     const { parseQueryFilters } = require("../../utils/parseQueryFilters");
     const filters = parseQueryFilters(requestData);
@@ -34,7 +34,7 @@ const getAllProducts = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Build filter
-    let filter = {};
+    let filter = { status: "published" }; // Only show published products on frontend
     let categoryTitle = "All Products"; // Initialize categoryTitle
 
     if (category && category !== "all") {
@@ -149,8 +149,8 @@ const getAllProducts = async (req, res) => {
                 ? Object.fromEntries(variant.attributes)
                 : variant.attributes
               : variant.options instanceof Map
-              ? Object.fromEntries(variant.options)
-              : variant.options || {};
+                ? Object.fromEntries(variant.options)
+                : variant.options || {};
 
             // Color filter (supports array of colors)
             if (color) {
@@ -274,7 +274,7 @@ const getAllProducts = async (req, res) => {
             );
           }, 0);
           const parentIsInStock = totalStock > 0;
-          
+
           // Apply stock filter to parent products
           if (inStock === "true" && !parentIsInStock) {
             continue; // Skip parent products without stock when filtering for inStock
@@ -338,12 +338,12 @@ const getAllProducts = async (req, res) => {
           const filterMinPrice = filters?.minPrice;
           const filterMaxPrice = filters?.maxPrice;
           let includeParent = true;
-          
+
           if (filterMinPrice || filterMaxPrice) {
             const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0
               ? parentDiscountPrice
               : parentPrice || 0;
-            
+
             if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
               includeParent = false;
             }
@@ -351,7 +351,7 @@ const getAllProducts = async (req, res) => {
               includeParent = false;
             }
           }
-          
+
           if (!includeParent) {
             continue;
           }
@@ -387,7 +387,7 @@ const getAllProducts = async (req, res) => {
           0;
         const parentDiscountPrice =
           productObj.pricing?.discountPrice || productObj.discountPrice || null;
-        
+
         // Apply stock filter to products without variants
         // Check actual stock value first, then fallback to isInStock flag
         const productStock = productObj.stockObj?.available !== undefined
@@ -395,7 +395,7 @@ const getAllProducts = async (req, res) => {
           : (productObj.stock !== undefined ? productObj.stock : 0);
         // Product is in stock if stock > 0, regardless of isInStock flag
         const productIsInStock = productStock > 0;
-        
+
         // Apply stock filter - inStock can be "true", "false", true, false, or undefined
         // Normalize inStock to string for comparison
         const inStockFilter = String(inStock).toLowerCase();
@@ -404,17 +404,17 @@ const getAllProducts = async (req, res) => {
         } else if (inStockFilter === "false" && productIsInStock) {
           continue; // Skip products with stock when filtering for out-of-stock
         }
-        
+
         // Apply price filter to products without variants
         const filterMinPrice = filters?.minPrice;
         const filterMaxPrice = filters?.maxPrice;
         let includeProduct = true;
-        
+
         if (filterMinPrice || filterMaxPrice) {
           const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0
             ? parentDiscountPrice
             : parentPrice || 0;
-          
+
           if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
             includeProduct = false;
           }
@@ -422,7 +422,7 @@ const getAllProducts = async (req, res) => {
             includeProduct = false;
           }
         }
-        
+
         if (!includeProduct) {
           continue;
         }
@@ -571,6 +571,14 @@ const getProductByUrlKey = async (req, res) => {
     }
 
     if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    // Only return published products on frontend
+    if (product.status !== "published") {
       return res.status(404).json({
         success: false,
         message: "Product not found",

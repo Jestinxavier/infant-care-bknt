@@ -4,6 +4,7 @@ const {
   createProduct,
   updateProduct,
   deleteProduct,
+  bulkDeleteProducts,
   getAllProducts,
   getProductById,
   getProductByUrlKey,
@@ -535,6 +536,101 @@ router.get("/variant/:variantId", getVariantById);
 
 /**
  * @swagger
+ * /api/v1/product/bulk-delete:
+ *   post:
+ *     summary: Bulk delete multiple products
+ *     description: Delete multiple products and all associated data (variants, reviews, images) in a single request
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - productIds
+ *             properties:
+ *               productIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["64abc123def456789", "64abc123def456790"]
+ *                 description: Array of product IDs to delete
+ *     responses:
+ *       200:
+ *         description: Products deleted successfully (all or partial)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 partialSuccess:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Successfully deleted 5 product(s)
+ *                 results:
+ *                   type: object
+ *                   properties:
+ *                     totalRequested:
+ *                       type: number
+ *                       example: 5
+ *                     successCount:
+ *                       type: number
+ *                       example: 5
+ *                     failureCount:
+ *                       type: number
+ *                       example: 0
+ *                     deletedVariantsCount:
+ *                       type: number
+ *                       example: 25
+ *                     deletedReviewsCount:
+ *                       type: number
+ *                       example: 42
+ *                     deletedImagesCount:
+ *                       type: number
+ *                       example: 30
+ *                     successful:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           productId:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           deletedVariants:
+ *                             type: number
+ *                           deletedReviews:
+ *                             type: number
+ *                           deletedImages:
+ *                             type: number
+ *                     failed:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           productId:
+ *                             type: string
+ *                           reason:
+ *                             type: string
+ *       400:
+ *         description: Invalid request or all products failed to delete
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       500:
+ *         description: Server error
+ */
+router.post("/bulk-delete", verifyToken, bulkDeleteProducts);
+
+/**
+ * @swagger
  * /api/v1/product/{productId}:
  *   delete:
  *     summary: Delete a product and all its variants
@@ -563,7 +659,7 @@ router.get("/variant/:variantId", getVariantById);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Product and all associated variants deleted successfully
+ *                   example: Product and all associated data deleted successfully
  *                 deletedProduct:
  *                   type: object
  *                   properties:
