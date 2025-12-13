@@ -28,7 +28,7 @@ const getOrders = async (req, res) => {
     // Format orders for frontend
     const formattedOrders = orders.map(order => ({
       _id: order._id,
-      orderId: order._id.toString(),
+      orderId: order.orderId || order._id.toString(),
       date: order.placedAt || order.createdAt,
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,

@@ -28,6 +28,10 @@ const orderSchema = new mongoose.Schema({
     ref: "User",
     required: true
   },
+  orderId: {
+    type: String,
+    unique: true
+  },
   items: [orderItemSchema],
   totalAmount: {
     type: Number,
@@ -76,6 +80,14 @@ const orderSchema = new mongoose.Schema({
     enum: ["processing", "shipped", "delivered", "cancelled"],
     default: "processing"
   },
+  trackingId: {
+    type: String,
+    default: ""
+  },
+  deliveryNote: {
+    type: String,
+    default: ""
+  },
   paymentMethod: {
     type: String,
     enum: ["COD", "Razorpay", "Stripe", "PhonePe"],
@@ -84,7 +96,26 @@ const orderSchema = new mongoose.Schema({
   placedAt: {
     type: Date,
     default: Date.now
-  }
+  },
+  deliveryPartner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "DeliveryPartner",
+    default: null
+  },
+  fulfillmentAdditionalInfo: [{
+    key: { type: String, required: true },
+    value: { type: String, required: true }
+  }],
+  statusHistory: [{
+    status: {
+      type: String,
+      enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
+      required: true
+    },
+    timestamp: { type: Date, default: Date.now },
+    note: { type: String },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" } // Optional: track who updated it
+  }]
 }, { timestamps: true });
 
 module.exports = mongoose.model("Order", orderSchema);

@@ -7,7 +7,8 @@
     "dev": "cross-env NODE_ENV=development nodemon src/server.js",
     "start": "cross-env NODE_ENV=production node src/server.js",
     "create-admin": "node scripts/createAdmin.js",
-    "seed-categories": "node scripts/seedCategories.js"
+    "seed-categories": "node scripts/seedCategories.js",
+    "seed:partners": "node scripts/seedDeliveryPartners.js"
   },
   "keywords": [
     "nodejs",

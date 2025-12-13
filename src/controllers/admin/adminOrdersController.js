@@ -1,4 +1,5 @@
 const Order = require("../../models/Order");
+const User = require("../../models/user");
 const mongoose = require("mongoose");
 
 /**
@@ -8,7 +9,7 @@ const mongoose = require("mongoose");
 const getAllOrders = async (req, res) => {
   try {
     const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
-    
+
     const {
       page = 1,
       limit = 20,
@@ -34,14 +35,35 @@ const getAllOrders = async (req, res) => {
       filter.paymentStatus = paymentStatus;
     }
 
-    // Search by order ID or user email - guard against invalid ObjectId
+    // Advanced Search
     if (search) {
+      const searchRegex = new RegExp(search, "i");
+      // Remove leading '#' for ID searching
+      const sanitizedSearch = search.replace(/^#/, "");
+      const sanitizedRegex = new RegExp(sanitizedSearch, "i");
+
+      // 1. Find users matching the search term
+      const matchingUsers = await User.find({
+        $or: [
+          { username: searchRegex },
+          { email: searchRegex },
+          { phone: searchRegex }
+        ]
+      }).select("_id");
+
+      const matchingUserIds = matchingUsers.map(u => u._id);
+
+      // 2. Build Order Search Queries
       const searchFilters = [
-        { orderId: { $regex: search, $options: "i" } },
+        { orderId: sanitizedRegex }, // Search by Order ID (matches "123" or "#123")
+        { userId: { $in: matchingUserIds } }, // Search by Customer (User ID)
+        { "shippingAddress.phone": searchRegex }, // Search by Phone in Shipping Address
+        { "shippingAddress.fullName": searchRegex } // Search by Name in Shipping Address
       ];
 
-      if (mongoose.Types.ObjectId.isValid(search)) {
-        searchFilters.push({ _id: new mongoose.Types.ObjectId(search) });
+      // Check if valid ObjectId (using sanitized search in case user pasted #ID)
+      if (mongoose.Types.ObjectId.isValid(sanitizedSearch)) {
+        searchFilters.push({ _id: new mongoose.Types.ObjectId(sanitizedSearch) });
       }
 
       filter.$or = searchFilters;
@@ -58,9 +80,9 @@ const getAllOrders = async (req, res) => {
     const orders = await Order.find(filter)
       .populate({
         path: "items.variantId",
-        populate: { 
-          path: "productId", 
-          select: "name title images" 
+        populate: {
+          path: "productId",
+          select: "name title images"
         }
       })
       .populate("addressId", "fullName phone houseName street landmark city state pincode country")
@@ -137,16 +159,30 @@ const getOrderById = async (req, res) => {
       });
     }
 
-    const order = await Order.findById(orderId)
+    // Check if orderId is a valid ObjectId (MongoDB ID)
+    let query = { orderId: orderId };
+
+    if (mongoose.Types.ObjectId.isValid(orderId)) {
+      // It could be either, so we search both
+      query = { $or: [{ _id: orderId }, { orderId: orderId }] };
+    }
+
+    const order = await Order.findOne(query)
       .populate({
         path: "items.variantId",
-        populate: { 
-          path: "productId", 
-          select: "name title images description" 
+        populate: {
+          path: "productId",
+          select: "name title images description"
         }
       })
+      .populate({
+        path: "items.productId",
+        select: "name title images description"
+      })
+      .populate("addressId")
       .populate("addressId")
       .populate("userId", "username email phone")
+      .populate("deliveryPartner")
       .lean();
 
     if (!order) {
@@ -179,7 +215,7 @@ const getOrderById = async (req, res) => {
 const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { status } = req.body;
+    const { status, trackingId, deliveryNote } = req.body;
 
     if (!orderId) {
       return res.status(400).json({
@@ -188,27 +224,104 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
-    if (!status) {
-      return res.status(400).json({
+    // 1. Find the order first using generic lookup (handles _id or custom orderId)
+    let query = { orderId: orderId };
+    if (mongoose.Types.ObjectId.isValid(orderId)) {
+      query = { $or: [{ _id: orderId }, { orderId: orderId }] };
+    }
+
+    const currentOrder = await Order.findOne(query);
+
+    if (!currentOrder) {
+      return res.status(404).json({
         success: false,
-        message: "Status is required",
+        message: "Order not found",
       });
     }
 
-    const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
-    if (!validStatuses.includes(status)) {
+    // 2. Prepare Update Fields
+    const updateFields = {};
+
+    // Status Update Logic
+    if (status) {
+      const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        });
+      }
+
+      // Validation: If status is changing to 'shipped' or 'delivered', require Partner and Tracking
+      if ((status === 'shipped' || status === 'delivered') && status !== currentOrder.orderStatus) {
+        // Check incoming update OR existing value on order
+        // Handle 'manual' case if frontend sends it, though we prefer ID. 
+        // If value is null, it's invalid.
+        const partner = req.body.deliveryPartner !== undefined ? req.body.deliveryPartner : currentOrder.deliveryPartner;
+        const tracking = trackingId !== undefined ? trackingId : currentOrder.trackingId;
+
+        if (!partner || !tracking) {
+          return res.status(400).json({
+            success: false,
+            message: "Delivery Partner and Tracking ID are required when marking order as Shipped or Delivered."
+          });
+        }
+      }
+
+      updateFields.orderStatus = status;
+    }
+
+    // Tracking & Note & Partner Update Logic
+    if (trackingId !== undefined) updateFields.trackingId = trackingId;
+    if (deliveryNote !== undefined) updateFields.deliveryNote = deliveryNote;
+
+    if (req.body.deliveryPartner !== undefined) {
+      // If "manual" string is sent, look for the 'Other / Manual' partner or set null?
+      // Ideally frontend sends ID. If it sends "manual" and that's not a valid ID, mongoose will throw CastError later.
+      // We'll assume for now frontend logic will be fixed to send valid ObjectId or null.
+      // If it's a valid ObjectId or null, assign it.
+      if (req.body.deliveryPartner === "manual") {
+        // Try to find the seeded "Other / Manual" partner
+        const manualPartner = await mongoose.model("DeliveryPartner").findOne({ name: { $regex: /manual/i } });
+        if (manualPartner) {
+          updateFields.deliveryPartner = manualPartner._id;
+        } else {
+          return res.status(400).json({ success: false, message: "Manual delivery partner not found in database." });
+        }
+      } else {
+        updateFields.deliveryPartner = req.body.deliveryPartner || null;
+      }
+    }
+
+    if (req.body.fulfillmentAdditionalInfo !== undefined) updateFields.fulfillmentAdditionalInfo = req.body.fulfillmentAdditionalInfo;
+
+    // Status History Logic
+    if (status && status !== currentOrder.orderStatus) {
+      const history = currentOrder.statusHistory || [];
+      history.push({
+        status: status,
+        timestamp: new Date(),
+        note: `Status updated to ${status}`,
+        updatedBy: req.user?._id
+      });
+      updateFields.statusHistory = history;
+    }
+
+    if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({
         success: false,
-        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        message: "No fields to update provided",
       });
     }
 
+    // 3. Perform Update using the resolved _id
     const order = await Order.findByIdAndUpdate(
-      orderId,
-      { orderStatus: status },
+      currentOrder._id,
+      { $set: updateFields },
       { new: true }
     )
       .populate("userId", "username email")
+      .populate("deliveryPartner")
       .lean();
 
     if (!order) {

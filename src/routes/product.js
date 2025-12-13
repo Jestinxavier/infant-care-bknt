@@ -9,9 +9,13 @@ const {
   getProductById,
   getProductByUrlKey,
   getVariantById,
+  getSearchIndex,
 } = require("../controllers/product");
 const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
+
+// Search index route (must be before other routes)
+router.get("/search-index", getSearchIndex);
 
 /**
  * @swagger
@@ -361,6 +365,7 @@ router.put(
  *                       type: integer
  *                       example: 5
  */
+
 router.get("/all", getAllProducts);
 // POST endpoint for fetching products (for dashboard)
 router.post("/all", getAllProducts);

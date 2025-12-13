@@ -78,6 +78,7 @@ const cmsPublicRoutes = require("./features/cms/cms.routes");
 
 // Admin routes - using environment variable for prefix
 const adminRoutes = require("./routes/adminRoutes");
+const deliveryPartnerRoutes = require("./routes/deliveryPartnerRoutes");
 const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
 
 // Storefront routes (unchanged)
@@ -99,6 +100,7 @@ app.use("/api/v1/cms", cmsPublicRoutes);
 
 // Admin routes - mounted with configurable prefix
 app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
+app.use(`/api/v1${ADMIN_PREFIX}/delivery-partners`, deliveryPartnerRoutes);
 // CMS routes under admin (using new feature-based routes)
 app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsAdminRoutes);
 // Media routes under admin

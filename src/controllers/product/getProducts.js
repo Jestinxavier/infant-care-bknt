@@ -66,6 +66,19 @@ const getAllProducts = async (req, res) => {
       filter.averageRating = { $gte: parseFloat(minRating) };
     }
 
+    // Search filter (smart regex)
+    if (requestData.search || requestData.q) {
+      const searchQuery = requestData.search || requestData.q;
+      // Escape special characters for regex
+      const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { title: { $regex: escapedQuery, $options: "i" } },
+        { name: { $regex: escapedQuery, $options: "i" } },
+        { description: { $regex: escapedQuery, $options: "i" } },
+        { "categoryName": { $regex: escapedQuery, $options: "i" } } // assuming categoryName exists on product
+      ];
+    }
+
     // Build sort (support both 'sort' and 'sortBy' from parsed filters)
     const sortParam = sortBy || filters.sortBy;
     let sort = {};
@@ -761,9 +774,61 @@ const getVariantById = async (req, res) => {
   }
 };
 
+const getSearchIndex = async (req, res) => {
+  console.log("🔍 Search Index API called");
+  try {
+    // Fetch all published products with minimal fields
+    const products = await Product.find({ status: { $ne: "rejected" } })
+      .select("title name url_key images pricing price category status variants")
+      .populate("category", "name slug")
+      .lean();
+
+    console.log(`✅ Found ${products.length} products for index`);
+
+    const searchIndex = products.map((product) => {
+      // Get effective price
+      const parentPrice = product.pricing?.price || product.price || 0;
+
+      // Calculate min price from variants if any
+      let minPrice = parentPrice;
+      if (product.variants && product.variants.length > 0) {
+        const variantPrices = product.variants.map(v => v.pricing?.price || v.price || 0).filter(p => p > 0);
+        if (variantPrices.length > 0) minPrice = Math.min(...variantPrices);
+      } else if (parentPrice === 0 && product.price) {
+        minPrice = product.price;
+      }
+
+      // Image
+      const image = (product.images && product.images[0]) || "";
+
+      return {
+        id: product._id,
+        title: product.title || product.name,
+        url_key: product.url_key,
+        price: minPrice,
+        image: image,
+        category: product.category?.name || "Uncategorized",
+        status: product.status
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      products: searchIndex,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching search index:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   getAllProducts,
   getProductById,
   getProductByUrlKey,
   getVariantById,
+  getSearchIndex,
 };

@@ -105,8 +105,14 @@ const createOrder = async (req, res) => {
     }
 
     // Step 3: Create Order
+    const crypto = require("crypto");
+    const generateOrderId = () => {
+      return crypto.randomBytes(4).toString("hex").toUpperCase();
+    };
+
     const order = new Order({
       userId,
+      orderId: generateOrderId(),
       items: orderItems,
       subtotal,
       shippingCost: shippingAmount,
