@@ -3,6 +3,79 @@
  * Handles product and variant SKU generation with uniqueness checks
  */
 
+const crypto = require("crypto");
+
+/**
+ * Generate short code for attribute values with collision safety
+ * @param {string} value - Attribute value
+ * @returns {string} Short code (3-4 characters, uppercase)
+ */
+const generateShortCode = (value) => {
+  if (!value || typeof value !== "string") return "UNK";
+
+  const normalized = value.toUpperCase().trim();
+
+  const patterns = {
+    RED: "RD",
+    BLUE: "BL",
+    GREEN: "GR",
+    BLACK: "BLK",
+    WHITE: "WHT",
+    YELLOW: "YL",
+    ORANGE: "OR",
+    PURPLE: "PR",
+    PINK: "PK",
+    BROWN: "BR",
+    GRAY: "GRY",
+    GREY: "GRY",
+    SMALL: "S",
+    MEDIUM: "M",
+    LARGE: "L",
+    "EXTRA LARGE": "XL",
+    "EXTRA SMALL": "XS",
+    XXL: "XXL",
+    XXXL: "XXXL",
+    "0-3 MONTHS": "03M",
+    "3-6 MONTHS": "36M",
+    "6-9 MONTHS": "69M",
+    "9-12 MONTHS": "912M",
+    "12-18 MONTHS": "1218M",
+    "18-24 MONTHS": "1824M",
+    "0-3M": "03M",
+    "3-6M": "36M",
+    "6-9M": "69M",
+    "0-3": "03M",
+    "3-6": "36M",
+    "6-9": "69M",
+    COTTON: "COT",
+    POLYESTER: "PLY",
+    WOOL: "WOL",
+    SILK: "SLK",
+    LINEN: "LIN",
+    DENIM: "DNM",
+  };
+
+  // Known cases
+  if (patterns[normalized]) return patterns[normalized];
+
+  // Normalize multilingual characters
+  const ascii = normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // Fallback: take first 3 consonants
+  const consonants = ascii.replace(/[AEIOU\s\-]/g, "");
+  let code = consonants.substring(0, 3);
+
+  if (code.length < 2) {
+    // Add first letters to reach min length
+    code = ascii.substring(0, 3);
+  }
+
+  // Add a 1-byte hash suffix for collision safety
+  const hash = crypto.createHash("md5").update(normalized).digest("hex")[0];
+
+  return (code + hash).toUpperCase();
+};
+
 /**
  * Generate a base SKU from product name
  * @param {string} productName - The product name
@@ -13,11 +86,11 @@
  * @returns {string} - Generated base SKU
  */
 const generateBaseSku = (productName, options = {}) => {
-  if (!productName || typeof productName !== 'string') {
-    throw new Error('Product name is required to generate SKU');
+  if (!productName || typeof productName !== "string") {
+    throw new Error("Product name is required to generate SKU");
   }
 
-  const { maxLength = 20, prefix = '', suffix = '' } = options;
+  const { maxLength = 20, prefix = "", suffix = "" } = options;
 
   // Clean and transform the product name
   let baseSku = productName
@@ -25,28 +98,33 @@ const generateBaseSku = (productName, options = {}) => {
     .toUpperCase()
     .trim()
     // Remove common words that don't add value
-    .replace(/\b(THE|AND|OR|FOR|WITH|IN|ON|AT|TO|A|AN)\b/g, '')
+    .replace(/\b(THE|AND|OR|FOR|WITH|IN|ON|AT|TO|A|AN)\b/g, "")
     // Replace spaces and special chars with hyphens
-    .replace(/[\s\-_]+/g, '-')
+    .replace(/[\s\-_]+/g, "-")
     // Remove all non-alphanumeric chars except hyphens
-    .replace(/[^A-Z0-9\-]/g, '')
+    .replace(/[^A-Z0-9\-]/g, "")
     // Replace multiple hyphens with single hyphen
-    .replace(/\-+/g, '-')
+    .replace(/\-+/g, "-")
     // Remove leading/trailing hyphens
-    .replace(/^-+|-+$/g, '');
+    .replace(/^-+|-+$/g, "");
 
   // If the result is too long, take first words and abbreviate
   if (baseSku.length > maxLength - prefix.length - suffix.length) {
-    const words = baseSku.split('-');
-    let abbreviated = '';
+    const words = baseSku.split("-");
+    let abbreviated = "";
 
-    for (let i = 0; i < words.length && abbreviated.length < maxLength - prefix.length - suffix.length - 3; i++) {
+    for (
+      let i = 0;
+      i < words.length &&
+      abbreviated.length < maxLength - prefix.length - suffix.length - 3;
+      i++
+    ) {
       if (i === 0) {
         // First word: take up to 8 characters
         abbreviated += words[i].substring(0, 8);
       } else if (words[i].length >= 3) {
         // Other words: take first 3 characters if word is 3+ chars
-        abbreviated += '-' + words[i].substring(0, 3);
+        abbreviated += "-" + words[i].substring(0, 3);
       }
     }
     baseSku = abbreviated;
@@ -64,9 +142,9 @@ const generateBaseSku = (productName, options = {}) => {
 const suggestProductSku = (productName, options = {}) => {
   return generateBaseSku(productName, {
     maxLength: 15,
-    prefix: options.prefix || 'P-',
-    suffix: options.suffix || '',
-    ...options
+    prefix: options.prefix || "P-",
+    suffix: options.suffix || "",
+    ...options,
   });
 };
 
@@ -80,45 +158,80 @@ const suggestProductSku = (productName, options = {}) => {
  * @returns {string} - Generated variant SKU
  */
 const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
-  if (!baseSku || typeof baseSku !== 'string') {
-    throw new Error('Base SKU is required to generate variant SKU');
+  if (!baseSku || typeof baseSku !== "string") {
+    throw new Error("Base SKU is required to generate variant SKU");
   }
 
-  const { separator = '-', maxLength = 30 } = config;
+  const { separator = "-", maxLength = 30 } = config;
   let variantSku = baseSku;
 
   // Predefined abbreviations for common variant values
   const abbreviations = {
     // Colors
-    red: 'RED', blue: 'BLU', green: 'GRN', yellow: 'YEL', orange: 'ORG',
-    purple: 'PUR', pink: 'PNK', black: 'BLK', white: 'WHT', gray: 'GRY',
-    brown: 'BRN', navy: 'NVY', maroon: 'MAR', beige: 'BGE', cream: 'CRM',
+    red: "RED",
+    blue: "BLU",
+    green: "GRN",
+    yellow: "YEL",
+    orange: "ORG",
+    purple: "PUR",
+    pink: "PNK",
+    black: "BLK",
+    white: "WHT",
+    gray: "GRY",
+    brown: "BRN",
+    navy: "NVY",
+    maroon: "MAR",
+    beige: "BGE",
+    cream: "CRM",
 
     // Sizes
-    'extra-small': 'XS', 'x-small': 'XS', 'xsmall': 'XS',
-    small: 'S', medium: 'M', large: 'L',
-    'extra-large': 'XL', 'x-large': 'XL', 'xlarge': 'XL',
-    'xx-large': 'XXL', 'xxl': 'XXL', '2xl': 'XXL',
-    'xxx-large': 'XXXL', 'xxxl': 'XXXL', '3xl': 'XXXL',
+    "extra-small": "XS",
+    "x-small": "XS",
+    xsmall: "XS",
+    small: "S",
+    medium: "M",
+    large: "L",
+    "extra-large": "XL",
+    "x-large": "XL",
+    xlarge: "XL",
+    "xx-large": "XXL",
+    xxl: "XXL",
+    "2xl": "XXL",
+    "xxx-large": "XXXL",
+    xxxl: "XXXL",
+    "3xl": "XXXL",
 
     // Ages/Months
-    '0-3': '03M', '3-6': '36M', '6-9': '69M', '9-12': '912M',
-    '12-18': '1218M', '18-24': '1824M', '0-3-months': '03M',
-    '3-6-months': '36M', '6-9-months': '69M', '9-12-months': '912M',
+    "0-3": "03M",
+    "3-6": "36M",
+    "6-9": "69M",
+    "9-12": "912M",
+    "12-18": "1218M",
+    "18-24": "1824M",
+    "0-3-months": "03M",
+    "3-6-months": "36M",
+    "6-9-months": "69M",
+    "9-12-months": "912M",
 
     // Materials
-    cotton: 'COT', organic: 'ORG', wool: 'WOL', linen: 'LIN',
-    polyester: 'POL', silk: 'SLK', denim: 'DEN', leather: 'LTH'
+    cotton: "COT",
+    organic: "ORG",
+    wool: "WOL",
+    linen: "LIN",
+    polyester: "POL",
+    silk: "SLK",
+    denim: "DEN",
+    leather: "LTH",
   };
 
   // Process variant options in a consistent order
-  const orderedKeys = ['color', 'size', 'age', 'material', 'style'].filter(key =>
-    variantOptions[key]
+  const orderedKeys = ["color", "size", "age", "material", "style"].filter(
+    (key) => variantOptions[key]
   );
 
   // Add any remaining keys not in the ordered list
-  const remainingKeys = Object.keys(variantOptions).filter(key =>
-    !orderedKeys.includes(key) && variantOptions[key]
+  const remainingKeys = Object.keys(variantOptions).filter(
+    (key) => !orderedKeys.includes(key) && variantOptions[key]
   );
 
   const allKeys = [...orderedKeys, ...remainingKeys];
@@ -128,8 +241,9 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
     if (!value) continue;
 
     const normalizedValue = value.toString().toLowerCase().trim();
-    const abbreviation = abbreviations[normalizedValue] ||
-                        normalizedValue.toUpperCase().substring(0, 3);
+    const abbreviation =
+      abbreviations[normalizedValue] ||
+      normalizedValue.toUpperCase().substring(0, 3);
 
     const newPart = separator + abbreviation;
 
@@ -159,12 +273,12 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
  * @returns {Promise<string>} - Unique SKU
  */
 const generateUniqueSku = async (baseSku, checkExists, excludeId = null) => {
-  if (!baseSku || typeof baseSku !== 'string') {
-    throw new Error('Base SKU is required to generate unique SKU');
+  if (!baseSku || typeof baseSku !== "string") {
+    throw new Error("Base SKU is required to generate unique SKU");
   }
 
-  if (typeof checkExists !== 'function') {
-    throw new Error('checkExists function is required');
+  if (typeof checkExists !== "function") {
+    throw new Error("checkExists function is required");
   }
 
   let uniqueSku = baseSku;
@@ -179,7 +293,7 @@ const generateUniqueSku = async (baseSku, checkExists, excludeId = null) => {
 
   // If exists, append counter until unique
   while (counter <= 999) {
-    uniqueSku = `${baseSku}-${counter.toString().padStart(2, '0')}`;
+    uniqueSku = `${baseSku}-${counter.toString().padStart(2, "0")}`;
     const keyExists = await checkExists(uniqueSku, excludeId);
 
     if (!keyExists) {
@@ -190,7 +304,9 @@ const generateUniqueSku = async (baseSku, checkExists, excludeId = null) => {
   }
 
   // If we've tried 999 variations, throw an error
-  throw new Error(`Unable to generate unique SKU after 999 attempts for base: ${baseSku}`);
+  throw new Error(
+    `Unable to generate unique SKU after 999 attempts for base: ${baseSku}`
+  );
 };
 
 /**
@@ -204,24 +320,27 @@ const validateSku = (sku, rules = {}) => {
     minLength = 2,
     maxLength = 30,
     allowedChars = /^[A-Z0-9\-_]+$/,
-    required = true
+    required = true,
   } = rules;
 
   if (!sku) {
     return {
       valid: !required,
-      error: required ? 'SKU is required' : null
+      error: required ? "SKU is required" : null,
     };
   }
 
-  if (typeof sku !== 'string') {
-    return { valid: false, error: 'SKU must be a string' };
+  if (typeof sku !== "string") {
+    return { valid: false, error: "SKU must be a string" };
   }
 
   const trimmedSku = sku.trim();
 
   if (trimmedSku.length < minLength) {
-    return { valid: false, error: `SKU must be at least ${minLength} characters long` };
+    return {
+      valid: false,
+      error: `SKU must be at least ${minLength} characters long`,
+    };
   }
 
   if (trimmedSku.length > maxLength) {
@@ -229,7 +348,11 @@ const validateSku = (sku, rules = {}) => {
   }
 
   if (!allowedChars.test(trimmedSku)) {
-    return { valid: false, error: 'SKU contains invalid characters. Only A-Z, 0-9, hyphens and underscores are allowed' };
+    return {
+      valid: false,
+      error:
+        "SKU contains invalid characters. Only A-Z, 0-9, hyphens and underscores are allowed",
+    };
   }
 
   return { valid: true };
@@ -240,5 +363,5 @@ module.exports = {
   suggestProductSku,
   generateVariantSku,
   generateUniqueSku,
-  validateSku
+  validateSku,
 };

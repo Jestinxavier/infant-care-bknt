@@ -28,7 +28,9 @@ const {
   createCategory,
   updateCategory,
   deleteCategory,
+  bulkDeleteCategories,
 } = require("../controllers/category");
+const { categoryImageUploader } = require("../config/categoryImageUpload");
 
 // ==================== PRODUCTS ====================
 
@@ -156,7 +158,77 @@ router.post("/products", verifyToken, requireAdmin, getAllProducts);
  *     security:
  *       - bearerAuth: []
  */
-router.post("/products/bulk-delete", verifyToken, requireAdmin, bulkDeleteProducts);
+router.post(
+  "/products/bulk-delete",
+  verifyToken,
+  requireAdmin,
+  bulkDeleteProducts
+);
+
+// Import bulk import controller
+const bulkImportController = require("../controllers/product/bulkImport");
+
+/**
+ * @swagger
+ * /api/v1/admin/products/validate-import:
+ *   post:
+ *     summary: "[Admin] Phase 1: Validate CSV import data"
+ *     description: Validates all products without writing to database. Returns errors if any validation fails.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               products:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Validation result
+ */
+router.post(
+  "/products/validate-import",
+  verifyToken,
+  requireAdmin,
+  bulkImportController.validateImport
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/commit-import:
+ *   post:
+ *     summary: "[Admin] Phase 2: Commit CSV import (atomic)"
+ *     description: Commits all products atomically. Rolls back on any failure.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               products:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       200:
+ *         description: Import completed
+ *       500:
+ *         description: Import failed and rolled back
+ */
+router.post(
+  "/products/commit-import",
+  verifyToken,
+  requireAdmin,
+  bulkImportController.commitImport
+);
 
 /**
  * @swagger
@@ -654,7 +726,12 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *       401:
  *         description: Unauthorized
  */
-router.patch("/orders/:orderId/status", verifyToken, requireAdmin, updateOrderStatus);
+router.patch(
+  "/orders/:orderId/status",
+  verifyToken,
+  requireAdmin,
+  updateOrderStatus
+);
 
 // ==================== CUSTOMERS ====================
 
@@ -787,6 +864,44 @@ router.post("/categories", verifyToken, requireAdmin, getAllCategories);
 
 /**
  * @swagger
+ * /api/v1/admin/categories/bulk-delete:
+ *   post:
+ *     summary: "[Admin] Bulk delete categories"
+ *     description: Delete multiple categories at once. Categories with products or sub-categories will not be deleted.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - categoryIds
+ *             properties:
+ *               categoryIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of category IDs to delete
+ *     responses:
+ *       200:
+ *         description: Categories deleted (fully or partially)
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/categories/bulk-delete",
+  verifyToken,
+  requireAdmin,
+  bulkDeleteCategories
+);
+
+/**
+ * @swagger
  * /api/v1/admin/categories/{categoryId}:
  *   get:
  *     summary: "[Admin] Get single category by ID"
@@ -854,8 +969,18 @@ router.post("/categories", verifyToken, requireAdmin, getAllCategories);
  *       200:
  *         description: Category retrieved successfully
  */
-router.get("/categories/:categoryId", verifyToken, requireAdmin, getCategoryById);
-router.post("/categories/:categoryId", verifyToken, requireAdmin, getCategoryById);
+router.get(
+  "/categories/:categoryId",
+  verifyToken,
+  requireAdmin,
+  getCategoryById
+);
+router.post(
+  "/categories/:categoryId",
+  verifyToken,
+  requireAdmin,
+  getCategoryById
+);
 
 /**
  * @swagger
@@ -978,7 +1103,23 @@ router.post("/categories", verifyToken, requireAdmin, createCategory);
  *       401:
  *         description: Unauthorized
  */
-router.patch("/categories/:categoryId", verifyToken, requireAdmin, updateCategory);
+router.patch(
+  "/categories/:categoryId",
+  verifyToken,
+  requireAdmin,
+  (req, res, next) => {
+    categoryImageUploader.single("image")(req, res, function (err) {
+      if (err) {
+        console.error("❌ Category image upload error:", err);
+        return res
+          .status(400)
+          .json({ success: false, message: err.message, error: err });
+      }
+      next();
+    });
+  },
+  updateCategory
+);
 
 /**
  * @swagger
@@ -1018,7 +1159,11 @@ router.patch("/categories/:categoryId", verifyToken, requireAdmin, updateCategor
  *       401:
  *         description: Unauthorized
  */
-router.delete("/categories/:categoryId", verifyToken, requireAdmin, deleteCategory);
+router.delete(
+  "/categories/:categoryId",
+  verifyToken,
+  requireAdmin,
+  deleteCategory
+);
 
 module.exports = router;
-

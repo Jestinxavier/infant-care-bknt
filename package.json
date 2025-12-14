@@ -29,9 +29,11 @@
     "cloudinary": "^1.41.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-validator": "^7.2.1",
+    "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.20.0",
     "mongoose": "^8.18.3",
@@ -40,10 +42,10 @@
     "nanoid": "^5.1.6",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.9",
+    "openapi-types": "^7.0.0",
     "razorpay": "^2.9.6",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1",
-    "openapi-types": "^7.0.0"
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

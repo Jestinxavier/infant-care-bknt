@@ -145,6 +145,19 @@ const startServer = async () => {
         );
         console.warn("💡 Install node-cron: npm install node-cron");
       }
+
+      // Start CSV temp image cleanup cron job
+      try {
+        const {
+          startCsvImageCleanupCron,
+        } = require("./services/csvImageCleanupService");
+        startCsvImageCleanupCron();
+      } catch (cronError) {
+        console.warn(
+          "⚠️ Failed to start CSV image cleanup cron:",
+          cronError.message
+        );
+      }
     } else {
       console.log("ℹ️ Skipping cron job setup (serverless environment)");
       console.log("💡 Use Vercel Cron Jobs or external scheduler for cleanup");
@@ -163,7 +176,9 @@ const startServer = async () => {
         console.log(
           `🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`
         );
-        console.log("\n✨ Server is ready to accept requests! (Search API Enabled)\n");
+        console.log(
+          "\n✨ Server is ready to accept requests! (Search API Enabled)\n"
+        );
       });
     }
   } catch (error) {

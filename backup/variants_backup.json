@@ -1,0 +1,638 @@
+{
+  "timestamp": "2025-12-13T09:14:28.772Z",
+  "products": [
+    {
+      "_id": "69231bc117fc772d26f701a7",
+      "title": "Premium Organic Cotton Infant Jumpsuit",
+      "variants": [
+        {
+          "id": "cotton_jumpsuit_red_0_3",
+          "url_key": "premium-organic-cotton-infant-jumpsuit-red-0-3",
+          "sku": "CJ-RED-0-3",
+          "stock": -1,
+          "pricing": {
+            "price": 1199,
+            "discountPrice": 999
+          },
+          "stockObj": {
+            "available": 24,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/red03/600"
+          ],
+          "attributes": {
+            "color": "red",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "cotton_jumpsuit_red_3_6",
+          "url_key": "premium-organic-cotton-infant-jumpsuit-red-3-6",
+          "sku": "CJ-RED-3-6",
+          "stock": 0,
+          "pricing": {
+            "price": 1199
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [
+            "https://picsum.photos/seed/red36/600"
+          ],
+          "attributes": {
+            "color": "red",
+            "size": "3-6"
+          }
+        },
+        {
+          "id": "cotton_jumpsuit_blue_0_3",
+          "url_key": "premium-organic-cotton-infant-jumpsuit-blue-0-3",
+          "sku": "CJ-BLU-0-3",
+          "stock": 0,
+          "pricing": {
+            "price": 1199,
+            "discountPrice": 899
+          },
+          "stockObj": {
+            "available": 34,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/blue03/600"
+          ],
+          "attributes": {
+            "color": "blue",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "cotton_jumpsuit_blue_3_6",
+          "url_key": "premium-organic-cotton-infant-jumpsuit-blue-3-6",
+          "sku": "CJ-BLU-3-6",
+          "stock": 0,
+          "pricing": {
+            "price": 1199
+          },
+          "stockObj": {
+            "available": 61,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/blue36/600"
+          ],
+          "attributes": {
+            "color": "blue",
+            "size": "3-6"
+          }
+        }
+      ],
+      "variantOptions": [
+        {
+          "id": "color",
+          "name": "Color",
+          "code": "color",
+          "values": [
+            {
+              "id": "red",
+              "value": "red",
+              "label": "Red",
+              "hex": "#f44336"
+            },
+            {
+              "id": "blue",
+              "value": "blue",
+              "label": "Blue",
+              "hex": "#2196f3"
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "name": "Size",
+          "code": "size",
+          "values": [
+            {
+              "id": "0-3",
+              "value": "0-3",
+              "label": "0-3 Months"
+            },
+            {
+              "id": "3-6",
+              "value": "3-6",
+              "label": "3-6 Months"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "_id": "69231bc117fc772d26f701ae",
+      "title": "Soft Fleece Winter Baby Romper",
+      "variants": [
+        {
+          "id": "winter_romper_pink_0_3",
+          "url_key": "soft-fleece-winter-baby-romper-pink-0-3",
+          "sku": "WR-PNK-0-3",
+          "stock": -1,
+          "pricing": {
+            "price": 1499,
+            "discountPrice": 1299
+          },
+          "stockObj": {
+            "available": 13,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/pink03/600"
+          ],
+          "attributes": {
+            "color": "pink",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "winter_romper_pink_3_6",
+          "url_key": "soft-fleece-winter-baby-romper-pink-3-6",
+          "sku": "WR-PNK-3-6",
+          "stock": 0,
+          "pricing": {
+            "price": 1499,
+            "discountPrice": 1299
+          },
+          "stockObj": {
+            "available": 22,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/pink36/600"
+          ],
+          "attributes": {
+            "color": "pink",
+            "size": "3-6"
+          }
+        },
+        {
+          "id": "winter_romper_pink_6_9",
+          "url_key": "soft-fleece-winter-baby-romper-pink-6-9",
+          "sku": "WR-PNK-6-9",
+          "stock": 0,
+          "pricing": {
+            "price": 1499
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [
+            "https://picsum.photos/seed/pink69/600"
+          ],
+          "attributes": {
+            "color": "pink",
+            "size": "6-9"
+          }
+        },
+        {
+          "id": "winter_romper_grey_0_3",
+          "url_key": "soft-fleece-winter-baby-romper-grey-0-3",
+          "sku": "WR-GRY-0-3",
+          "stock": -1,
+          "pricing": {
+            "price": 1499
+          },
+          "stockObj": {
+            "available": 29,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/grey03/600"
+          ],
+          "attributes": {
+            "color": "grey",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "winter_romper_grey_3_6",
+          "url_key": "soft-fleece-winter-baby-romper-grey-3-6",
+          "sku": "WR-GRY-3-6",
+          "stock": 0,
+          "pricing": {
+            "price": 1499
+          },
+          "stockObj": {
+            "available": 19,
+            "isInStock": true
+          },
+          "images": [
+            "https://picsum.photos/seed/grey36/600"
+          ],
+          "attributes": {
+            "color": "grey",
+            "size": "3-6"
+          }
+        },
+        {
+          "id": "winter_romper_grey_6_9",
+          "url_key": "soft-fleece-winter-baby-romper-grey-6-9",
+          "sku": "WR-GRY-6-9",
+          "stock": 0,
+          "pricing": {
+            "price": 1499,
+            "discountPrice": 1399
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [
+            "https://picsum.photos/seed/grey69/600"
+          ],
+          "attributes": {
+            "color": "grey",
+            "size": "6-9"
+          }
+        }
+      ],
+      "variantOptions": [
+        {
+          "id": "color",
+          "name": "Color",
+          "code": "color",
+          "values": [
+            {
+              "id": "pink",
+              "value": "pink",
+              "label": "Pink",
+              "hex": "#e91e63"
+            },
+            {
+              "id": "grey",
+              "value": "grey",
+              "label": "Grey",
+              "hex": "#9e9e9e"
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "name": "Size",
+          "code": "size",
+          "values": [
+            {
+              "id": "0-3",
+              "value": "0-3",
+              "label": "0-3 Months"
+            },
+            {
+              "id": "3-6",
+              "value": "3-6",
+              "label": "3-6 Months"
+            },
+            {
+              "id": "6-9",
+              "value": "6-9",
+              "label": "6-9 Months"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "_id": "69231bc217fc772d26f701b2",
+      "title": "Infant Product 3",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc217fc772d26f701b6",
+      "title": "Infant Product 4",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc217fc772d26f701ba",
+      "title": "Infant Product 5",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc317fc772d26f701be",
+      "title": "Infant Product 6",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc317fc772d26f701c2",
+      "title": "Infant Product 7",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc417fc772d26f701c6",
+      "title": "Infant Product 8",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc417fc772d26f701ca",
+      "title": "Infant Product 9",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc417fc772d26f701ce",
+      "title": "Infant Product 10",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc417fc772d26f701d2",
+      "title": "Infant Product 11",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc517fc772d26f701d6",
+      "title": "Infant Product 12",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc617fc772d26f701da",
+      "title": "Infant Product 13",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc617fc772d26f701de",
+      "title": "Infant Product 14",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc717fc772d26f701e2",
+      "title": "Infant Product 15",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bc917fc772d26f701e6",
+      "title": "Infant Product 16",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "69231bca17fc772d26f701ea",
+      "title": "Infant Product 17",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "693adb6f6b723f350fbb6b91",
+      "title": "Interlock Knit Half Sleeves Frock",
+      "variants": [
+        {
+          "id": "p02095qsj",
+          "url_key": "interlock-knit-half-sleeves-frock-black-0-3",
+          "sku": "P-INTERLOC-KNI-BLK-03M",
+          "price": 699,
+          "discountPrice": 599,
+          "stock": 0,
+          "pricing": {
+            "price": 699,
+            "discountPrice": 599
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [],
+          "options": {
+            "color": "black",
+            "size": "0-3"
+          },
+          "attributes": {
+            "color": "black",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "1fbttusdu",
+          "url_key": "interlock-knit-half-sleeves-frock-black-3-6",
+          "sku": "P-INTERLOC-KNI-BLK-36M",
+          "price": 699,
+          "discountPrice": 599,
+          "stock": 0,
+          "pricing": {
+            "price": 699,
+            "discountPrice": 599
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [],
+          "options": {
+            "color": "black",
+            "size": "3-6"
+          },
+          "attributes": {
+            "color": "black",
+            "size": "3-6"
+          }
+        },
+        {
+          "id": "lvxnddszo",
+          "url_key": "interlock-knit-half-sleeves-frock-red-0-3",
+          "sku": "P-INTERLOC-KNI-RED-03M",
+          "price": 699,
+          "discountPrice": 599,
+          "stock": 0,
+          "pricing": {
+            "price": 699,
+            "discountPrice": 599
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [],
+          "options": {
+            "color": "red",
+            "size": "0-3"
+          },
+          "attributes": {
+            "color": "red",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "cidt3g6fv",
+          "url_key": "interlock-knit-half-sleeves-frock-red-3-6",
+          "sku": "P-INTERLOC-KNI-RED-36M",
+          "price": 699,
+          "discountPrice": 599,
+          "stock": 0,
+          "pricing": {
+            "price": 699,
+            "discountPrice": 599
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [],
+          "options": {
+            "color": "red",
+            "size": "3-6"
+          },
+          "attributes": {
+            "color": "red",
+            "size": "3-6"
+          }
+        },
+        {
+          "id": "804vz0w5c",
+          "url_key": "interlock-knit-half-sleeves-frock-green-0-3",
+          "sku": "P-INTERLOC-KNI-GRN-03M",
+          "price": 699,
+          "discountPrice": 599,
+          "stock": 0,
+          "pricing": {
+            "price": 699,
+            "discountPrice": 599
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [],
+          "options": {
+            "color": "green",
+            "size": "0-3"
+          },
+          "attributes": {
+            "color": "green",
+            "size": "0-3"
+          }
+        },
+        {
+          "id": "0s8qd1ij0",
+          "url_key": "interlock-knit-half-sleeves-frock-green-3-6",
+          "sku": "P-INTERLOC-KNI-GRN-36M",
+          "price": 699,
+          "discountPrice": 599,
+          "stock": 0,
+          "pricing": {
+            "price": 699,
+            "discountPrice": 599
+          },
+          "stockObj": {
+            "available": 0,
+            "isInStock": false
+          },
+          "images": [],
+          "options": {
+            "color": "green",
+            "size": "3-6"
+          },
+          "attributes": {
+            "color": "green",
+            "size": "3-6"
+          }
+        }
+      ],
+      "variantOptions": []
+    },
+    {
+      "_id": "693addcdac628a76e3ebf3e1",
+      "title": "test product one",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "693adebcf65e94b6057e75dc",
+      "title": "test product two",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "693ae31ce74e84f8d0407790",
+      "title": "test product three",
+      "variants": [],
+      "variantOptions": []
+    },
+    {
+      "_id": "693ae50f57d45232429b9df3",
+      "title": "test product four",
+      "variants": [],
+      "variantOptions": []
+    }
+  ],
+  "legacyVariants": [
+    {
+      "_id": "68e4143ac9336634139e8b09",
+      "productId": "68e4143ac9336634139e8b07",
+      "color": "Red",
+      "price": 500,
+      "stock": 10,
+      "sku": "FLD-RED-S",
+      "images": [
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759777844/products/s4xkaw5dvpqr8wdwtde4.jpg",
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759777843/products/rbf6tgkbtl1ttedg6ild.png",
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759777839/products/mcjafa5cy4935955pkwb.jpg"
+      ],
+      "__v": 0,
+      "createdAt": "2025-10-06T19:10:50.330Z",
+      "updatedAt": "2025-10-06T19:10:50.330Z",
+      "age": "3–6_months"
+    },
+    {
+      "_id": "68e4143ac9336634139e8b0a",
+      "productId": "68e4143ac9336634139e8b07",
+      "color": "Red",
+      "price": 500,
+      "stock": 0,
+      "sku": "FLD-RED-M",
+      "images": [
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759777846/products/mteuz5pjnc4yuzwum4cm.jpg",
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759777840/products/xzppycxrgbdxukfnpauy.jpg",
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759777840/products/mnwnpguoqd4kk2cm8dz6.png"
+      ],
+      "__v": 0,
+      "createdAt": "2025-10-06T19:10:50.331Z",
+      "updatedAt": "2025-11-12T18:26:55.055Z",
+      "age": "3–6"
+    },
+    {
+      "_id": "68e415e7f6d71e23c6f3d229",
+      "productId": "68e4143ac9336634139e8b07",
+      "color": "blue",
+      "price": 300,
+      "stock": 502,
+      "sku": "FLD-RED-L",
+      "images": [
+        "https://res.cloudinary.com/dtwj3t1s2/image/upload/v1759862798/products/sy0srcwwwqgo2qgmgsye.png"
+      ],
+      "createdAt": "2025-10-06T19:17:59.186Z",
+      "updatedAt": "2025-11-19T20:47:58.805Z",
+      "__v": 2,
+      "age": "18–24_months"
+    },
+    {
+      "_id": "68e415e7f6d71e23c6f3d22c",
+      "productId": "68e4143ac9336634139e8b07",
+      "color": "Red",
+      "size": "3–6",
+      "price": 500,
+      "stock": 5,
+      "sku": "FLD-RED-MX",
+      "images": [],
+      "createdAt": "2025-10-06T19:17:59.312Z",
+      "updatedAt": "2025-10-06T19:17:59.312Z",
+      "__v": 0
+    }
+  ]
+}

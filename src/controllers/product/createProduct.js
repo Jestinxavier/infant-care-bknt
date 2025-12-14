@@ -7,6 +7,10 @@ const {
   extractImagePublicIds,
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
+const {
+  createOptionsHash,
+  validateVariantData,
+} = require("../../utils/variantValidator");
 
 const createProduct = async (req, res) => {
   try {
@@ -199,7 +203,10 @@ const createProduct = async (req, res) => {
           }
         } catch (e) {
           console.error("Error parsing images JSON:", e);
-          console.error("Images string value:", parsedBody.images.substring(0, 200));
+          console.error(
+            "Images string value:",
+            parsedBody.images.substring(0, 200)
+          );
           // If parsing fails, try to extract URL if it's a simple string
           if (parsedBody.images.startsWith("http")) {
             productImages = [{ url: parsedBody.images }];
@@ -309,6 +316,9 @@ const createProduct = async (req, res) => {
             ? v.stockObj.isInStock
             : stock > 0;
 
+        // ✅ Generate options hash for duplicate detection
+        const optionsHash = createOptionsHash(attributesMap);
+
         return {
           id: v.id || `variant-${Date.now()}-${index}`,
           sku: v.sku,
@@ -325,6 +335,7 @@ const createProduct = async (req, res) => {
             available: stock,
             isInStock: isInStock,
           },
+          _optionsHash: optionsHash,
           images: variantImages,
           attributes: attributesMap, // New format
           options: attributesMap, // Keep for backward compatibility
@@ -362,12 +373,14 @@ const createProduct = async (req, res) => {
     }
 
     // Extract URLs from image objects (Product model expects array of strings)
-    const productImageUrls = productImages.map((img) => {
-      // If it's already a string, use it directly
-      if (typeof img === "string") return img;
-      // If it's an object, extract the URL
-      return img.url || img.path || img.secure_url;
-    }).filter(Boolean); // Remove any null/undefined values
+    const productImageUrls = productImages
+      .map((img) => {
+        // If it's already a string, use it directly
+        if (typeof img === "string") return img;
+        // If it's an object, extract the URL
+        return img.url || img.path || img.secure_url;
+      })
+      .filter(Boolean); // Remove any null/undefined values
 
     // ========================================================================
     // AUTO-DRAFT VALIDATION: If trying to publish, verify required fields
@@ -390,26 +403,34 @@ const createProduct = async (req, res) => {
       }
 
       // Check price - support both structures
-      const hasPrice = (pricing?.price && pricing.price > 0) ||
+      const hasPrice =
+        (pricing?.price && pricing.price > 0) ||
         (parsedBody.price && parseFloat(parsedBody.price) > 0);
       if (!hasPrice) {
         missingFields.push("price (must be greater than 0)");
       }
 
       // Check stock - support both structures (allow 0)
-      const hasStock = (stockObj?.available !== undefined) ||
-        (parsedBody.stock !== undefined);
+      const hasStock =
+        stockObj?.available !== undefined || parsedBody.stock !== undefined;
       if (!hasStock) {
         missingFields.push("stock");
       }
 
       // If any required fields are missing, force to draft
       if (missingFields.length > 0) {
-        console.log(`⚠️ Product cannot be published - missing required fields: ${missingFields.join(", ")}`);
+        console.log(
+          `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
+            ", "
+          )}`
+        );
         console.log("   → Auto-saving as 'draft' instead");
         normalizedStatus = "draft";
       }
     }
+
+    // ✅ Lock options if variants exist
+    const optionsLocked = processedVariants.length > 0;
 
     // Create product with new structure
     const productData = {
@@ -425,6 +446,7 @@ const createProduct = async (req, res) => {
       sku: sku || null,
       variantOptions: variantOptions || [],
       variants: processedVariants,
+      optionsLocked: optionsLocked, // ✅ NEW: Lock if variants exist
       details: details || [],
       pricing: pricing || null, // Parent-level pricing
       stockObj: stockObj || null, // Parent-level stock
@@ -446,8 +468,8 @@ const createProduct = async (req, res) => {
         const images =
           req.files && req.files.length > 0
             ? req.files
-              .filter((f) => f.fieldname.includes(v.sku || v.age))
-              .map((f) => f.path)
+                .filter((f) => f.fieldname.includes(v.sku || v.age))
+                .map((f) => f.path)
             : [];
 
         return {

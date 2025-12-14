@@ -1,12 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const { 
+const {
   getPurchasedProductsForReview,
-  addReview, 
+  addReview,
   getMyReviews,
   updateMyReview,
   deleteMyReview,
-  getVariantReviews 
+  getVariantReviews,
+  getTopReviews,
 } = require("../controllers/review/review");
 const verifyToken = require("../middlewares/authMiddleware");
 
@@ -337,5 +338,59 @@ router.delete("/my-review/:reviewId", verifyToken, deleteMyReview);
  *         description: Server error
  */
 router.get("/variant/:variantId", getVariantReviews);
+
+/**
+ * @swagger
+ * /api/v1/review/top:
+ *   get:
+ *     summary: Get top reviews for homepage (Public)
+ *     description: Returns highest-rated reviews for display on the homepage
+ *     tags: [Reviews]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Maximum number of reviews to return
+ *       - in: query
+ *         name: minRating
+ *         schema:
+ *           type: integer
+ *           default: 4
+ *         description: Minimum rating filter (1-5)
+ *     responses:
+ *       200:
+ *         description: Top reviews retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 totalReviews:
+ *                   type: number
+ *                   example: 10
+ *                 reviews:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       rating:
+ *                         type: number
+ *                       date:
+ *                         type: string
+ *                       review:
+ *                         type: string
+ *       500:
+ *         description: Server error
+ */
+router.get("/top", getTopReviews);
 
 module.exports = router;

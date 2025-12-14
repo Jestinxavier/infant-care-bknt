@@ -392,6 +392,152 @@ class CmsService {
   }
 
   /**
+   * Update a single block within a page's content
+   * Only updates the block matching blockType, leaves others unchanged
+   * @param {string} page - The page identifier
+   * @param {string} blockType - The block_type to update
+   * @param {object} blockData - The new data for this block
+  /**
+   * Update a single block within a page's content (PATCH operation)
+   * Uses FLAT structure: block_type, enabled, order at document root
+   * Content array contains direct items with cleaned image data
+   */
+  async updateSingleBlock(page, blockType, blockData) {
+    const pageConfig = this.modelMap[page];
+    if (!pageConfig) {
+      throw ApiError.badRequest(
+        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
+      );
+    }
+
+    // Only block-based pages support single block updates
+    if (page !== "home" && page !== "about") {
+      throw ApiError.badRequest(
+        `Single block updates are only supported for 'home' and 'about' pages`
+      );
+    }
+
+    console.log(
+      `[CMS Service] Updating block '${blockType}' for page '${page}'`
+    );
+    console.log(
+      `[CMS Service] Incoming blockData:`,
+      JSON.stringify(blockData, null, 2)
+    );
+
+    // Helper function to clean image metadata - keep url and alt (from Cloudinary original filename)
+    const cleanImageData = (img) => {
+      if (!img || !img.url) return null;
+      return {
+        url: img.url,
+        alt: img.alt || "", // alt comes from Cloudinary's original filename
+      };
+    };
+
+    // Helper function to transform banners array to flat content items
+    const transformBannersToContent = (banners) => {
+      if (!banners || !Array.isArray(banners)) return [];
+
+      return banners
+        .map((banner, index) => {
+          // Skip completely empty banners (no images and no link)
+          if (!banner.image_small && !banner.image_large && !banner.link) {
+            return null;
+          }
+
+          const contentItem = {
+            order: index,
+          };
+
+          // Add cleaned image data (includes alt from Cloudinary)
+          if (banner.image_small) {
+            contentItem.image_small = cleanImageData(banner.image_small);
+          }
+          if (banner.image_large) {
+            contentItem.image_large = cleanImageData(banner.image_large);
+          }
+
+          // Add only link (no banner-level alt - alt is inside image objects)
+          if (banner.link !== undefined) contentItem.link = banner.link;
+
+          return contentItem;
+        })
+        .filter(Boolean); // Remove null entries
+    };
+
+    // Transform incoming data based on block type
+    let transformedContent = [];
+
+    if (blockData.banners) {
+      // For banner-based blocks (heroBanner, promoBanner, banner_grid)
+      transformedContent = transformBannersToContent(blockData.banners);
+    } else if (blockData.categories) {
+      // For categories block - store category data directly
+      transformedContent = blockData.categories.map((cat, index) => ({
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        image: cat.image || null,
+        order: index,
+      }));
+    } else if (blockData.items) {
+      // For product listing blocks (newArrivals, topSellers)
+      transformedContent = blockData.items;
+    } else if (blockData.reviews) {
+      // For reviews block
+      transformedContent = blockData.reviews;
+    }
+
+    // Find existing document for this block type
+    let existing = await pageConfig.model.findOne({ block_type: blockType });
+
+    // Build the flat document structure
+    const flatDocument = {
+      block_type: blockType,
+      enabled: blockData.enabled !== undefined ? blockData.enabled : true,
+      order: blockData.order !== undefined ? blockData.order : 0,
+      content: transformedContent,
+    };
+
+    console.log(
+      `[CMS Service] Transformed flat document:`,
+      JSON.stringify(flatDocument, null, 2)
+    );
+
+    let result;
+    if (!existing) {
+      // Create new document with flat structure
+      console.log(
+        `[CMS Service] Creating new document for block '${blockType}'`
+      );
+      result = await pageConfig.model.create(flatDocument);
+    } else {
+      // Update existing document with flat structure
+      console.log(
+        `[CMS Service] Updating existing document for block '${blockType}'`
+      );
+      result = await pageConfig.model.findOneAndUpdate(
+        { block_type: blockType },
+        { $set: flatDocument },
+        { new: true }
+      );
+    }
+
+    const resultObj = result.toObject ? result.toObject() : result;
+
+    console.log(
+      `✅ [CMS Service] Successfully saved block '${blockType}' with flat structure`
+    );
+
+    return {
+      page,
+      title: pageConfig.title,
+      block: resultObj,
+      blockType,
+    };
+  }
+
+  /**
    * Delete CMS content
    */
   async deleteContent(page) {

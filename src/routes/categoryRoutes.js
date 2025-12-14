@@ -5,7 +5,9 @@ const {
   getAllCategories,
   getCategoryById,
   updateCategory,
-  deleteCategory
+
+  deleteCategory,
+  bulkDeleteCategories,
 } = require("../controllers/category");
 const verifyToken = require("../middlewares/authMiddleware");
 const { categoryImageUploader } = require("../config/categoryImageUpload");
@@ -80,6 +82,37 @@ router.get("/", getAllCategories);
 
 /**
  * @swagger
+ * /api/v1/category/bulk-delete:
+ *   post:
+ *     summary: Bulk delete categories
+ *     tags: [Categories]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - categoryIds
+ *             properties:
+ *               categoryIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Categories deleted successfully or partially
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
+router.post("/bulk-delete", verifyToken, bulkDeleteCategories);
+
+/**
+ * @swagger
  * /api/v1/category/{categoryId}:
  *   get:
  *     summary: Get category by ID
@@ -139,15 +172,22 @@ router.get("/:categoryId", getCategoryById);
  *       401:
  *         description: Unauthorized
  */
-router.post("/", verifyToken, (req, res, next) => {
-  categoryImageUploader.single('image')(req, res, function (err) {
-    if (err) {
-      console.error("❌ Category image upload error:", err);
-      return res.status(400).json({ success: false, message: err.message, error: err });
-    }
-    next();
-  });
-}, createCategory);
+router.post(
+  "/",
+  verifyToken,
+  (req, res, next) => {
+    categoryImageUploader.single("image")(req, res, function (err) {
+      if (err) {
+        console.error("❌ Category image upload error:", err);
+        return res
+          .status(400)
+          .json({ success: false, message: err.message, error: err });
+      }
+      next();
+    });
+  },
+  createCategory
+);
 
 /**
  * @swagger
@@ -198,15 +238,22 @@ router.post("/", verifyToken, (req, res, next) => {
  *       404:
  *         description: Category not found
  */
-router.put("/:categoryId", verifyToken, (req, res, next) => {
-  categoryImageUploader.single('image')(req, res, function (err) {
-    if (err) {
-      console.error("❌ Category image upload error:", err);
-      return res.status(400).json({ success: false, message: err.message, error: err });
-    }
-    next();
-  });
-}, updateCategory);
+router.put(
+  "/:categoryId",
+  verifyToken,
+  (req, res, next) => {
+    categoryImageUploader.single("image")(req, res, function (err) {
+      if (err) {
+        console.error("❌ Category image upload error:", err);
+        return res
+          .status(400)
+          .json({ success: false, message: err.message, error: err });
+      }
+      next();
+    });
+  },
+  updateCategory
+);
 
 /**
  * @swagger
@@ -235,4 +282,3 @@ router.put("/:categoryId", verifyToken, (req, res, next) => {
 router.delete("/:categoryId", verifyToken, deleteCategory);
 
 module.exports = router;
-
