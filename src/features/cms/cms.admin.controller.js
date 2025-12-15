@@ -92,7 +92,9 @@ class CmsAdminController {
           content.content = content.content
             .map((block) => {
               if (block && block.html) {
-                return `<section id="${block.slug || "policy"}">\n<h1>${block.title || "Policy"}</h1>\n${block.html}\n</section>`;
+                return `<section id="${block.slug || "policy"}">\n<h1>${
+                  block.title || "Policy"
+                }</h1>\n${block.html}\n</section>`;
               }
               return "";
             })
@@ -219,6 +221,50 @@ class CmsAdminController {
       .json(
         ApiResponse.success(
           "CMS content updated successfully",
+          updated
+        ).toJSON()
+      );
+  });
+
+  /**
+   * Update a single block within a page (PATCH /admin/cms/:page/block/:blockType)
+   */
+  updateSingleBlock = asyncHandler(async (req, res) => {
+    const { page, blockType } = req.params;
+    const blockData = req.body;
+
+    console.log(
+      `📥 [CMS] PATCH /admin/cms/${page}/block/${blockType} - updateSingleBlock called`
+    );
+    console.log("📥 [CMS] Request body:", {
+      page,
+      blockType,
+      hasData: !!blockData,
+      dataKeys: blockData ? Object.keys(blockData).slice(0, 5) : [],
+    });
+
+    // Validation
+    if (!blockData || Object.keys(blockData).length === 0) {
+      return res
+        .status(400)
+        .json(ApiResponse.error("Block data is required", 400).toJSON());
+    }
+
+    const updated = await cmsService.updateSingleBlock(
+      page,
+      blockType,
+      blockData
+    );
+
+    console.log(
+      `📤 [CMS] Single block update successful for block '${blockType}' in page '${page}'`
+    );
+
+    res
+      .status(200)
+      .json(
+        ApiResponse.success(
+          `Block '${blockType}' updated successfully`,
           updated
         ).toJSON()
       );

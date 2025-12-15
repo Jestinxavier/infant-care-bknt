@@ -1,8 +1,15 @@
-const { cloudinary, mediaParser } = require("../config/cloudinary");
+const { cloudinary, getValidFolder } = require("../config/cloudinary");
 const ApiResponse = require("../core/ApiResponse");
 const ApiError = require("../core/ApiError");
 const asyncHandler = require("../core/middleware/asyncHandler");
 const Media = require("../models/Media");
+const multer = require("multer");
+
+// Use memory storage so we can access the buffer for direct upload
+const memoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+});
 
 /**
  * Media Controller
@@ -10,12 +17,13 @@ const Media = require("../models/Media");
  */
 class MediaController {
   /**
-   * Upload a single media file to Cloudinary
+   * Upload a single media file to Cloudinary with dynamic folder
    * POST /api/v1/admin/media/upload
+   * Body: file (multipart), folder (optional: cms-home, cms-about, products, csv-temp)
    */
   uploadMedia = [
-    // Use multer middleware for file upload
-    mediaParser.single("file"),
+    // Use memory storage to get buffer
+    memoryUpload.single("file"),
     asyncHandler(async (req, res) => {
       if (!req.file) {
         return res
@@ -24,17 +32,52 @@ class MediaController {
       }
 
       try {
-        // req.file contains Cloudinary metadata
-        // Note: multer-storage-cloudinary v4 populates 'path' (secure_url) and 'filename' (public_id)
-        const fileData = req.file;
-        const publicId = fileData.filename || fileData.public_id;
+        // Get folder from request body (sent as form data)
+        const folder = req.body?.folder || "uploads";
+        const validFolder = getValidFolder(folder);
+
+        console.log(`📁 [Media] Uploading to folder: ${validFolder}`);
+
+        // Create content-based hash for deduplication
+        // This ensures same image content gets same public_id
+        const crypto = require("crypto");
+        const fileHash = crypto
+          .createHash("md5")
+          .update(req.file.buffer)
+          .digest("hex")
+          .substring(0, 16); // Use first 16 chars for reasonable length
+
+        const publicIdBase = `${validFolder}/${fileHash}`;
+
+        console.log(`🔑 [Media] Content hash: ${fileHash}`);
+
+        // Upload directly to Cloudinary with specified folder
+        // Use overwrite: true to replace if same content already exists
+        const uploadResult = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: validFolder,
+              public_id: fileHash, // Use hash as public_id for deduplication
+              overwrite: true, // Replace existing if same hash
+              allowed_formats: ["jpg", "jpeg", "png", "webp"],
+              resource_type: "image",
+            },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          uploadStream.end(req.file.buffer);
+        });
+
+        const publicId = uploadResult.public_id;
 
         console.log("✅ [Media] File uploaded successfully:", {
-          originalname: fileData.originalname,
-          mimetype: fileData.mimetype,
-          size: fileData.size,
-          filename: fileData.filename,
-          path: fileData.path,
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          folder: validFolder,
+          public_id: publicId,
         });
 
         // Add temp-upload tag to Cloudinary asset
@@ -48,54 +91,26 @@ class MediaController {
             "⚠️ [Media] Failed to add temp tag (non-critical):",
             tagError
           );
-          // Continue even if tagging fails - the upload was successful
-        }
-
-        // Get full image details from Cloudinary (including dimensions)
-        let cloudinaryDetails = {};
-        try {
-          const details = await cloudinary.api.resource(publicId, {
-            resource_type: "image",
-          });
-          cloudinaryDetails = {
-            width: details.width || 0,
-            height: details.height || 0,
-            format: details.format || fileData.mimetype?.split("/")[1] || "jpg",
-            bytes: details.bytes || fileData.size || 0,
-          };
-        } catch (detailsError) {
-          console.warn(
-            "⚠️ [Media] Could not fetch Cloudinary details:",
-            detailsError
-          );
-          // Fallback to file data
-          cloudinaryDetails = {
-            width: fileData.width || 0,
-            height: fileData.height || 0,
-            format:
-              fileData.format || fileData.mimetype?.split("/")[1] || "jpg",
-            bytes: fileData.size || fileData.bytes || 0,
-          };
         }
 
         // Return Cloudinary metadata in the expected format
         const metadata = {
-          url: fileData.path || fileData.url || fileData.secure_url,
+          url: uploadResult.secure_url,
           public_id: publicId,
-          width: cloudinaryDetails.width,
-          height: cloudinaryDetails.height,
-          format: cloudinaryDetails.format,
-          resource_type: fileData.resource_type || "image",
-          size: cloudinaryDetails.bytes,
-          bytes: cloudinaryDetails.bytes,
-          created_at: fileData.created_at || new Date().toISOString(),
-          alt: fileData.originalname, // Use original filename as alt text
+          width: uploadResult.width || 0,
+          height: uploadResult.height || 0,
+          format: uploadResult.format || "jpg",
+          resource_type: uploadResult.resource_type || "image",
+          size: uploadResult.bytes || req.file.size,
+          bytes: uploadResult.bytes || req.file.size,
+          created_at: uploadResult.created_at || new Date().toISOString(),
+          alt: req.file.originalname, // Use original filename as alt text
+          folder: validFolder,
         };
 
         // Save to Media collection for tracking
-        // Get user ID from request if available (from auth middleware)
         const userId = req.user?.id || req.user?._id || null;
-        const context = req.body?.context || "other"; // Optional context from request
+        const context = req.body?.context || validFolder;
 
         try {
           await Media.findOneAndUpdate(
@@ -108,11 +123,12 @@ class MediaController {
               format: metadata.format,
               size: metadata.bytes,
               resource_type: metadata.resource_type,
-              isTemp: true, // Mark as temporary until form submission
+              isTemp: true,
               uploadedAt: new Date(),
               finalizedAt: null,
               uploadedBy: userId,
               context: context,
+              folder: validFolder,
               alt: metadata.alt,
             },
             { upsert: true, new: true }
@@ -123,7 +139,6 @@ class MediaController {
             "⚠️ [Media] Failed to save metadata to DB (non-critical):",
             dbError
           );
-          // Continue - the upload was successful even if DB tracking fails
         }
 
         res

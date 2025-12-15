@@ -1,7 +1,11 @@
 const express = require("express");
 const { parser } = require("../config/cloudinary");
 const verifyToken = require("../middlewares/authMiddleware");
-const {updateVariant, getAllVariants, getVariantsByCategory} = require("../controllers/Variant");
+const {
+  updateVariant,
+  getAllVariants,
+  getVariantsByCategory,
+} = require("../controllers/Variant");
 
 const router = express.Router();
 
@@ -280,5 +284,44 @@ router.put(
   (req, res, next) => parser.any()(req, res, next),
   updateVariant
 );
+
+// \u2705 NEW: CSV Import/Export Routes
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
+const {
+  exportVariants,
+  importVariants,
+  bulkUpdateStock,
+  bulkUpdatePrice,
+} = require("../controllers/csvVariantController");
+
+/**
+ * Export product variants to CSV
+ * GET /api/v1/variants/:productId/export
+ */
+router.get("/:productId/export", verifyToken, exportVariants);
+
+/**
+ * Import product variants from CSV
+ * POST /api/v1/variants/:productId/import
+ */
+router.post(
+  "/:productId/import",
+  verifyToken,
+  upload.single("file"),
+  importVariants
+);
+
+/**
+ * Bulk update variant stock
+ * PATCH /api/v1/variants/:productId/bulk-stock
+ */
+router.patch("/:productId/bulk-stock", verifyToken, bulkUpdateStock);
+
+/**
+ * Bulk update variant prices
+ * PATCH /api/v1/variants/:productId/bulk-price
+ */
+router.patch("/:productId/bulk-price", verifyToken, bulkUpdatePrice);
 
 module.exports = router;

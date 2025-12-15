@@ -29,7 +29,42 @@ console.log("🌩️ Cloudinary Config Check:", {
     : "❌ Missing",
 });
 
-// Storage for product images
+// Valid folder names for security (prevent arbitrary folder creation)
+const VALID_FOLDERS = [
+  "products",
+  "cms-home",
+  "cms-about",
+  "csv-temp",
+  "cms", // legacy fallback
+];
+
+/**
+ * Get a valid folder name or fallback to default
+ * @param {string} folder - Requested folder name
+ * @returns {string} - Valid folder name
+ */
+const getValidFolder = (folder) => {
+  if (folder && VALID_FOLDERS.includes(folder)) {
+    return folder;
+  }
+  return "uploads"; // Default fallback folder
+};
+
+/**
+ * Create a dynamic CloudinaryStorage for a specific folder
+ * @param {string} folder - Target folder in Cloudinary
+ */
+const createDynamicStorage = (folder) => {
+  return new CloudinaryStorage({
+    cloudinary,
+    params: {
+      folder: getValidFolder(folder),
+      allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    },
+  });
+};
+
+// Storage for product images (legacy - still used for product form)
 const productStorage = new CloudinaryStorage({
   cloudinary,
   params: {
@@ -39,17 +74,23 @@ const productStorage = new CloudinaryStorage({
   },
 });
 
-// Storage for CMS/media uploads (supports more formats including webp)
+// Storage for CMS/media uploads (legacy - used when no folder specified)
 const mediaStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "cms",
     allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    // No transformation - preserve original dimensions for CMS
   },
 });
 
 const parser = multer({ storage: productStorage });
 const mediaParser = multer({ storage: mediaStorage });
 
-module.exports = { cloudinary, parser, mediaParser };
+module.exports = {
+  cloudinary,
+  parser,
+  mediaParser,
+  createDynamicStorage,
+  getValidFolder,
+  VALID_FOLDERS,
+};

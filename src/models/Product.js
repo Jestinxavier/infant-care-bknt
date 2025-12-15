@@ -7,7 +7,9 @@ const variantOptionValueSchema = new mongoose.Schema(
     id: { type: String, required: true },
     value: { type: String, required: true },
     label: { type: String },
+    code: { type: String, uppercase: true }, // ✅ NEW: Short code for SKU generation (e.g., 'RD', 'M', '03M')
     hex: { type: String }, // For color variants
+    metadata: { type: Map, of: String }, // ✅ NEW: Additional metadata (image_url, etc.)
   },
   { _id: false }
 );
@@ -18,6 +20,7 @@ const variantOptionSchema = new mongoose.Schema(
     name: { type: String, required: true },
     code: { type: String, required: true },
     values: [variantOptionValueSchema],
+    position: { type: Number, default: 0 }, // ✅ NEW: Display order
   },
   { _id: false }
 );
@@ -50,6 +53,7 @@ const variantSchema = new mongoose.Schema(
     length: { type: Number },
     height: { type: Number },
     width: { type: Number },
+    _optionsHash: { type: String }, // ✅ NEW: Hash of options for duplicate detection
   },
   { _id: false }
 );
@@ -136,6 +140,9 @@ const productSchema = new mongoose.Schema(
     // Variant structure
     variantOptions: [variantOptionSchema],
     variants: [variantSchema],
+
+    // ✅ NEW: Lock configurable options when variants exist
+    optionsLocked: { type: Boolean, default: false },
 
     // Details array
     details: [detailSchema],

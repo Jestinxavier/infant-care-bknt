@@ -13,19 +13,19 @@ const getPurchasedProductsForReview = async (req, res) => {
     const userId = req.user.userId; // From auth middleware
 
     // Find all delivered orders for this user
-    const orders = await Order.find({ 
-      userId, 
-      orderStatus: "delivered" 
+    const orders = await Order.find({
+      userId,
+      orderStatus: "delivered",
     }).populate({
       path: "items.variantId",
-      populate: { path: "productId", select: "name images category" }
+      populate: { path: "productId", select: "name images category" },
     });
 
     if (!orders || orders.length === 0) {
-      return res.status(200).json({ 
-        success: true, 
+      return res.status(200).json({
+        success: true,
         message: "No purchased products found",
-        purchasedProducts: [] 
+        purchasedProducts: [],
       });
     }
 
@@ -37,7 +37,7 @@ const getPurchasedProductsForReview = async (req, res) => {
         const existingReview = await Review.findOne({
           userId,
           variantId: item.variantId._id,
-          orderId: order._id
+          orderId: order._id,
         });
 
         purchasedItems.push({
@@ -50,23 +50,29 @@ const getPurchasedProductsForReview = async (req, res) => {
           variantDetails: {
             size: item.variantId.size,
             color: item.variantId.color,
-            price: item.price
+            price: item.price,
           },
           quantity: item.quantity,
           isReviewed: !!existingReview,
-          review: existingReview || null
+          review: existingReview || null,
         });
       }
     }
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       totalPurchased: purchasedItems.length,
-      purchasedProducts: purchasedItems 
+      purchasedProducts: purchasedItems,
     });
   } catch (err) {
     console.error("❌ Error fetching purchased products:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
@@ -80,49 +86,61 @@ const addReview = async (req, res) => {
 
     // Validate required fields
     if (!variantId || !orderId || !rating) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "variantId, orderId, and rating are required" 
+      return res.status(400).json({
+        success: false,
+        message: "variantId, orderId, and rating are required",
       });
     }
 
     // Validate rating
     if (rating < 1 || rating > 5) {
-      return res.status(400).json({ success: false, message: "Rating must be between 1 and 5" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Rating must be between 1 and 5" });
     }
 
     // Check if order exists, belongs to the user, and is delivered
     const order = await Order.findOne({ _id: orderId, userId });
     if (!order) {
-      return res.status(403).json({ success: false, message: "Order not found or unauthorized" });
+      return res
+        .status(403)
+        .json({ success: false, message: "Order not found or unauthorized" });
     }
 
     if (order.orderStatus !== "delivered") {
-      return res.status(403).json({ 
-        success: false, 
-        message: "You can only review delivered products" 
+      return res.status(403).json({
+        success: false,
+        message: "You can only review delivered products",
       });
     }
 
     // Check if variant is part of this order
-    const variantInOrder = order.items.find(item => item.variantId.toString() === variantId);
+    const variantInOrder = order.items.find(
+      (item) => item.variantId.toString() === variantId
+    );
     if (!variantInOrder) {
-      return res.status(403).json({ 
-        success: false, 
-        message: "This variant is not part of your order" 
+      return res.status(403).json({
+        success: false,
+        message: "This variant is not part of your order",
       });
     }
 
     // Check if user already reviewed this variant in this order
     const existingReview = await Review.findOne({ userId, variantId, orderId });
     if (existingReview) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "You have already reviewed this product" 
+      return res.status(400).json({
+        success: false,
+        message: "You have already reviewed this product",
       });
     }
 
-    const newReview = new Review({ userId, variantId, orderId, rating, review });
+    const newReview = new Review({
+      userId,
+      variantId,
+      orderId,
+      rating,
+      review,
+    });
     await newReview.save();
 
     // ⭐ Update variant and product ratings
@@ -131,17 +149,29 @@ const addReview = async (req, res) => {
     // Populate for response
     await newReview.populate([
       { path: "userId", select: "username email" },
-      { path: "variantId", populate: { path: "productId", select: "name images averageRating totalReviews" } }
+      {
+        path: "variantId",
+        populate: {
+          path: "productId",
+          select: "name images averageRating totalReviews",
+        },
+      },
     ]);
 
-    res.status(201).json({ 
-      success: true, 
-      message: "✅ Review added successfully", 
-      review: newReview 
+    res.status(201).json({
+      success: true,
+      message: "✅ Review added successfully",
+      review: newReview,
     });
   } catch (err) {
     console.error("❌ Error adding review:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
@@ -155,19 +185,25 @@ const getMyReviews = async (req, res) => {
     const reviews = await Review.find({ userId })
       .populate({
         path: "variantId",
-        populate: { path: "productId", select: "name images category" }
+        populate: { path: "productId", select: "name images category" },
       })
       .populate("orderId", "placedAt orderStatus")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       totalReviews: reviews.length,
-      reviews 
+      reviews,
     });
   } catch (err) {
     console.error("❌ Error fetching user reviews:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
@@ -182,15 +218,17 @@ const updateMyReview = async (req, res) => {
 
     // Validate rating if provided
     if (rating && (rating < 1 || rating > 5)) {
-      return res.status(400).json({ success: false, message: "Rating must be between 1 and 5" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Rating must be between 1 and 5" });
     }
 
     // Find review and check ownership
     const existingReview = await Review.findOne({ _id: reviewId, userId });
     if (!existingReview) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Review not found or you don't have permission to update it" 
+      return res.status(404).json({
+        success: false,
+        message: "Review not found or you don't have permission to update it",
       });
     }
 
@@ -205,18 +243,30 @@ const updateMyReview = async (req, res) => {
 
     // Populate for response
     await existingReview.populate([
-      { path: "variantId", populate: { path: "productId", select: "name images averageRating totalReviews" } },
-      { path: "orderId", select: "placedAt" }
+      {
+        path: "variantId",
+        populate: {
+          path: "productId",
+          select: "name images averageRating totalReviews",
+        },
+      },
+      { path: "orderId", select: "placedAt" },
     ]);
 
-    res.status(200).json({ 
-      success: true, 
-      message: "✅ Review updated successfully", 
-      review: existingReview 
+    res.status(200).json({
+      success: true,
+      message: "✅ Review updated successfully",
+      review: existingReview,
     });
   } catch (err) {
     console.error("❌ Error updating review:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
@@ -229,24 +279,33 @@ const deleteMyReview = async (req, res) => {
     const { reviewId } = req.params;
 
     // Find and delete review (only if owned by user)
-    const deletedReview = await Review.findOneAndDelete({ _id: reviewId, userId });
+    const deletedReview = await Review.findOneAndDelete({
+      _id: reviewId,
+      userId,
+    });
     if (!deletedReview) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Review not found or you don't have permission to delete it" 
+      return res.status(404).json({
+        success: false,
+        message: "Review not found or you don't have permission to delete it",
       });
     }
 
     // ⭐ Update variant and product ratings after deletion
     await updateRatings(deletedReview.variantId);
 
-    res.status(200).json({ 
-      success: true, 
-      message: "✅ Review deleted successfully" 
+    res.status(200).json({
+      success: true,
+      message: "✅ Review deleted successfully",
     });
   } catch (err) {
     console.error("❌ Error deleting review:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
@@ -262,27 +321,84 @@ const getVariantReviews = async (req, res) => {
       .sort({ createdAt: -1 });
 
     // Calculate average rating
-    const avgRating = reviews.length > 0
-      ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
-      : 0;
+    const avgRating =
+      reviews.length > 0
+        ? (
+            reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+          ).toFixed(1)
+        : 0;
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       totalReviews: reviews.length,
       averageRating: parseFloat(avgRating),
-      reviews 
+      reviews,
     });
   } catch (err) {
     console.error("❌ Error fetching reviews:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
+  }
+};
+/**
+ * Get top reviews for homepage display (public)
+ * Returns highest-rated reviews with user info
+ */
+const getTopReviews = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const minRating = parseInt(req.query.minRating) || 4; // Default to 4+ star reviews
+
+    const reviews = await Review.find({ rating: { $gte: minRating } })
+      .populate("userId", "username firstName lastName")
+      .populate({
+        path: "variantId",
+        populate: { path: "productId", select: "name images" },
+      })
+      .sort({ rating: -1, createdAt: -1 })
+      .limit(limit);
+
+    // Format reviews for CMS widget
+    const formattedReviews = reviews.map((review) => ({
+      id: review._id,
+      name: review.userId?.firstName
+        ? `${review.userId.firstName} ${review.userId.lastName || ""}`.trim()
+        : review.userId?.username || "Anonymous",
+      rating: review.rating,
+      date: review.createdAt.toISOString().split("T")[0],
+      review: review.review || "",
+      productName: review.variantId?.productId?.name || null,
+      productImage: review.variantId?.productId?.images?.[0] || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      totalReviews: formattedReviews.length,
+      reviews: formattedReviews,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching top reviews:", err);
+    res
+      .status(500)
+      .json({
+        success: false,
+        message: "Internal Server Error",
+        error: err.message,
+      });
   }
 };
 
-module.exports = { 
+module.exports = {
   getPurchasedProductsForReview,
-  addReview, 
+  addReview,
   getMyReviews,
   updateMyReview,
   deleteMyReview,
-  getVariantReviews 
+  getVariantReviews,
+  getTopReviews,
 };

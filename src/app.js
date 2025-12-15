@@ -107,6 +107,10 @@ app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsAdminRoutes);
 const mediaRoutes = require("./routes/mediaRoutes");
 app.use(`/api/v1${ADMIN_PREFIX}/media`, mediaRoutes);
 
+// CSV temp image routes under admin
+const csvImageRoutes = require("./routes/csvImageRoutes");
+app.use(`/api/v1${ADMIN_PREFIX}/csv-images`, csvImageRoutes);
+
 // Swagger API Documentation
 app.use(
   "/api-docs",

@@ -30,17 +30,6 @@ router.get("/", cmsAdminController.getAllContent);
 
 /**
  * @swagger
- * /api/v1/admin/cms/{page}:
- *   get:
- *     summary: "[Admin] Get CMS content by page"
- *     tags: [Admin CMS]
- *     security:
- *       - bearerAuth: []
- */
-router.get("/:page", cmsAdminController.getContentByPage);
-
-/**
- * @swagger
  * /api/v1/admin/cms:
  *   post:
  *     summary: "[Admin] Update CMS content"
@@ -71,6 +60,56 @@ router.post(
   validate(cmsValidation.validateUpdateContent),
   cmsAdminController.updateContent
 );
+
+// ============================================
+// IMPORTANT: More specific routes MUST come before wildcard `:page` routes
+// ============================================
+
+/**
+ * @swagger
+ * /api/v1/admin/cms/{page}/block/{blockType}:
+ *   patch:
+ *     summary: "[Admin] Update a single block within a page"
+ *     tags: [Admin CMS]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: page
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [home, about]
+ *       - in: path
+ *         name: blockType
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The block_type identifier (e.g., heroBanner, categoryBanner)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             description: The block data to update (partial updates supported)
+ */
+router.patch("/:page/block/:blockType", cmsAdminController.updateSingleBlock);
+
+// ============================================
+// Wildcard `:page` routes come AFTER specific routes
+// ============================================
+
+/**
+ * @swagger
+ * /api/v1/admin/cms/{page}:
+ *   get:
+ *     summary: "[Admin] Get CMS content by page"
+ *     tags: [Admin CMS]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get("/:page", cmsAdminController.getContentByPage);
 
 /**
  * @swagger
