@@ -161,23 +161,24 @@ const getOrderById = async (req, res) => {
 
     // Check if orderId is a valid ObjectId (MongoDB ID)
     let query = { orderId: orderId };
+    const sanitizedId = orderId.replace(/^#/, "");
 
     if (mongoose.Types.ObjectId.isValid(orderId)) {
       // It could be either, so we search both
-      query = { $or: [{ _id: orderId }, { orderId: orderId }] };
+      query = {
+        $or: [
+          { _id: orderId },
+          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }
+        ]
+      };
+    } else {
+      query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
     }
 
     const order = await Order.findOne(query)
       .populate({
-        path: "items.variantId",
-        populate: {
-          path: "productId",
-          select: "name title images description"
-        }
-      })
-      .populate({
         path: "items.productId",
-        select: "name title images description"
+        select: "name title images description attributes options"
       })
       .populate("addressId")
       .populate("addressId")
@@ -224,10 +225,23 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // 1. Find the order first using generic lookup (handles _id or custom orderId)
+    // Check if orderId is a valid ObjectId (MongoDB ID)
     let query = { orderId: orderId };
+
+    const sanitizedId = orderId.replace(/^#/, "");
+
+    // Sanitize and allow case-insensitive search for custom IDs
     if (mongoose.Types.ObjectId.isValid(orderId)) {
-      query = { $or: [{ _id: orderId }, { orderId: orderId }] };
+      // It could be either, so we search both
+      query = {
+        $or: [
+          { _id: orderId },
+          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }
+        ]
+      };
+    } else {
+      // Just search by custom ID (case insensitive)
+      query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
     }
 
     const currentOrder = await Order.findOne(query);

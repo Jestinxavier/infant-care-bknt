@@ -30,7 +30,12 @@ const getOrderById = async (req, res) => {
           select: "name description images category"
         }
       })
-      .populate("addressId");
+      .populate({
+        path: "items.productId",
+        select: "name description images category"
+      })
+      .populate("addressId")
+      .populate("deliveryPartner");
 
     if (!order) {
       return res.status(404).json({
@@ -51,19 +56,38 @@ const getOrderById = async (req, res) => {
       subtotal: order.subtotal,
       shippingCost: order.shippingCost,
       discount: order.discount,
-      items: order.items.map(item => ({
-        variantId: item.variantId?._id,
-        productId: item.variantId?.productId?._id,
-        productName: item.variantId?.productId?.name,
-        productDescription: item.variantId?.productId?.description,
-        productImage: item.variantId?.productId?.images?.[0],
-        productCategory: item.variantId?.productId?.category,
-        variantColor: item.variantId?.color,
-        variantAge: item.variantId?.age,
-        quantity: item.quantity,
-        price: item.price,
-        total: item.price * item.quantity,
-      })),
+      trackingId: order.trackingId,
+      deliveryNote: order.deliveryNote,
+      deliveryPartner: order.deliveryPartner,
+      fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
+      statusHistory: order.statusHistory,
+      items: order.items.map(item => {
+        // robust product resolution
+        const product = (item.productId && item.productId._id) ? item.productId : (item.variantId?.productId);
+
+        return {
+          variantId: item.variantId?._id || item.variantId, // handle if string or object
+          productId: product?._id,
+          productName: product?.name || item.name || "Unknown Item",
+          productDescription: product?.description,
+          productImage: product?.images?.[0] || item.imageUrl,
+          productCategory: product?.category,
+          variantColor: item.variantId?.color, // assuming populated variant has color directly or in options? Model says variantId is String ref? No, Schema says String default null.
+          // Wait, the Schema says variantId is Type: String. But the populate above tries to populate it? 
+          // If variantId is a String pointing to a Variant SUBDOCUMENT in a Product, it cannot be populated by mongoose directly unless it's an ObjectId ref to a separate collection.
+          // In the Product model, variants are embedded. 
+          // The previous code tried to populate 'items.variantId'. If 'variantId' is just a string code, this fails.
+          // However, let's look at the admin controller fix. 
+          // The admin controller had: populating 'items.variantId' (REMOVED) and 'items.productId' (ADDED).
+          // So I should essentially do the same here: depend on items.productId.
+
+          variantColor: item.variantColor, // if saved on item
+          variantAge: item.variantAge, // if saved on item
+          quantity: item.quantity,
+          price: item.price,
+          total: item.price * item.quantity,
+        };
+      }),
       itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
       address: order.shippingAddress || order.addressId,
       createdAt: order.createdAt,

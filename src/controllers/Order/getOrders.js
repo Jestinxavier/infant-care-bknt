@@ -22,33 +22,44 @@ const getOrders = async (req, res) => {
           select: "name images"
         }
       })
+      .populate({
+        path: "items.productId",
+        select: "name images"
+      })
       .populate("addressId", "fullName phone houseName street landmark city state pincode country nickname")
       .sort({ createdAt: -1 }); // Most recent first
 
     // Format orders for frontend
-    const formattedOrders = orders.map(order => ({
-      _id: order._id,
-      orderId: order.orderId || order._id.toString(),
-      date: order.placedAt || order.createdAt,
-      status: order.orderStatus,
-      paymentStatus: order.paymentStatus,
-      paymentMethod: order.paymentMethod,
-      paymentMethod: order.paymentMethod,
-      totalAmount: order.totalAmount || order.total,
-      subtotal: order.subtotal,
-      shippingCost: order.shippingCost,
-      discount: order.discount,
-      items: order.items.map(item => ({
-        variantId: item.variantId?._id,
-        productId: item.variantId?.productId?._id,
-        productName: item.variantId?.productId?.name,
-        productImage: item.variantId?.productId?.images?.[0],
-        quantity: item.quantity,
-        price: item.price,
-      })),
-      itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-      address: order.addressId,
-    }));
+    const formattedOrders = orders.map(order => {
+      return {
+        _id: order._id,
+        orderId: order.orderId || order._id.toString(),
+        date: order.placedAt || order.createdAt,
+        status: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.paymentMethod,
+        totalAmount: order.totalAmount || order.total,
+        subtotal: order.subtotal,
+        shippingCost: order.shippingCost,
+        discount: order.discount,
+        fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
+        items: order.items.map(item => {
+          // Robust product resolution
+          const product = (item.productId && item.productId._id) ? item.productId : (item.variantId?.productId);
+
+          return {
+            variantId: item.variantId?._id || item.variantId,
+            productId: product?._id,
+            productName: product?.name || item.name || "Unknown Item",
+            productImage: product?.images?.[0] || item.imageUrl,
+            quantity: item.quantity,
+            price: item.price,
+          };
+        }),
+        itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
+        address: order.addressId,
+      };
+    });
 
     res.status(200).json({
       success: true,
