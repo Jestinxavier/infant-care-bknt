@@ -467,9 +467,28 @@ router.post("/all", getAllProducts);
 router.get("/url/:url_key", getProductByUrlKey);
 router.post("/url/:url_key", getProductByUrlKey);
 
-// Legacy endpoint: Get product by ID (backward compatibility)
-router.get("/:productId", getProductById);
-// POST endpoint for fetching product by ID (for dashboard)
+// Combined route for ID (legacy) or Category Slug (new)
+router.get("/:param", (req, res, next) => {
+  const { param } = req.params;
+
+  // Check if param is a valid ObjectId (12 bytes or 24 hex chars)
+  // Mongoose IDs are 24 hex characters
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(param);
+
+  if (isObjectId) {
+    // If it looks like an ID, treat it as productId
+    // We can manually call getProductById or rewrite params and call next() if we had separate handlers
+    // But since getProductById expects req.params.productId, let's just forward to it
+    req.params.productId = param;
+    return getProductById(req, res, next);
+  } else {
+    // If it's NOT an ID, assume it's a category slug
+    // Inject it into query.category so getAllProducts sees it
+    req.query.category = param;
+    return getAllProducts(req, res, next);
+  }
+});
+// POST endpoint for fetching product by ID (for dashboard) - keep strict ID check or use similar logic if needed
 router.post("/:productId", getProductById);
 
 /**

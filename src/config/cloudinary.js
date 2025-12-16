@@ -34,7 +34,9 @@ const VALID_FOLDERS = [
   "products",
   "cms-home",
   "cms-about",
-  "csv-temp",
+  "avatar",
+  "temp",
+  "category",
   "cms", // legacy fallback
 ];
 
@@ -64,13 +66,14 @@ const createDynamicStorage = (folder) => {
   });
 };
 
-// Storage for product images (legacy - still used for product form)
+// Storage for product images - no transformation (client-side compression handles sizing)
 const productStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "products",
-    allowed_formats: ["jpg", "jpeg", "png"],
-    transformation: [{ width: 800, height: 800, crop: "limit" }],
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    // Note: Removed transformation - dashboard compresses to 1200px before upload
+    // Cloudinary will serve optimized WebP on demand via URL transformations
   },
 });
 
@@ -83,13 +86,24 @@ const mediaStorage = new CloudinaryStorage({
   },
 });
 
+// Storage for temporary CSV uploads
+const tempStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "temp",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+  },
+});
+
 const parser = multer({ storage: productStorage });
 const mediaParser = multer({ storage: mediaStorage });
+const tempParser = multer({ storage: tempStorage });
 
 module.exports = {
   cloudinary,
   parser,
   mediaParser,
+  tempParser,
   createDynamicStorage,
   getValidFolder,
   VALID_FOLDERS,

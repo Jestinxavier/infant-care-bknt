@@ -468,7 +468,14 @@ class CmsService {
     // Transform incoming data based on block type
     let transformedContent = [];
 
-    if (blockData.banners) {
+    // Check if content is sent directly (new format from frontend)
+    if (blockData.content && Array.isArray(blockData.content)) {
+      // Frontend sends { content: [...] } - use it directly
+      transformedContent = blockData.content;
+      console.log(
+        `[CMS Service] Using direct content array with ${transformedContent.length} items`
+      );
+    } else if (blockData.banners) {
       // For banner-based blocks (heroBanner, promoBanner, banner_grid)
       transformedContent = transformBannersToContent(blockData.banners);
     } else if (blockData.categories) {

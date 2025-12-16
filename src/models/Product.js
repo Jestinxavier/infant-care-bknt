@@ -100,6 +100,7 @@ const productSchema = new mongoose.Schema(
       index: true,
     },
     categoryName: { type: String }, // Store category name for convenience
+    categoryCode: { type: String, index: true }, // Store category code (e.g., 'baby-clothes')
 
     // URL and status
     url_key: {
@@ -153,8 +154,15 @@ const productSchema = new mongoose.Schema(
 
     // Legacy fields (for backward compatibility)
     name: { type: String }, // Auto-synced from title
-    tags: [String],
+    tags: String,
     basePrice: Number,
+
+    // SEO fields
+    metaTitle: { type: String },
+    metaDescription: { type: String },
+
+    // ✅ NEW: UI Metadata for frontend (e.g. hex codes)
+    uiMeta: { type: Object }, // Flexible object structure for { color: { red: { hex: "#..." } } }
 
     createdAt: { type: Date, default: Date.now },
   },

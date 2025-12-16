@@ -860,7 +860,7 @@ router.post("/customers", verifyToken, requireAdmin, getAllCustomers);
  *         description: Categories retrieved successfully
  */
 router.get("/categories", verifyToken, requireAdmin, getAllCategories);
-router.post("/categories", verifyToken, requireAdmin, getAllCategories);
+// router.post("/categories", verifyToken, requireAdmin, getAllCategories); // Removed: Duplicate route conflicts with createCategory
 
 /**
  * @swagger
@@ -1040,7 +1040,23 @@ router.post(
  *       401:
  *         description: Unauthorized
  */
-router.post("/categories", verifyToken, requireAdmin, createCategory);
+router.post(
+  "/categories",
+  verifyToken,
+  requireAdmin,
+  (req, res, next) => {
+    categoryImageUploader.single("image")(req, res, function (err) {
+      if (err) {
+        console.error("❌ Category image upload error:", err);
+        return res
+          .status(400)
+          .json({ success: false, message: err.message, error: err });
+      }
+      next();
+    });
+  },
+  createCategory
+);
 
 /**
  * @swagger

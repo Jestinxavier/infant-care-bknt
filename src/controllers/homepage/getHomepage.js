@@ -8,8 +8,8 @@ const Homepage = require("../../models/Homepage");
  */
 const getHomepage = async (req, res) => {
   try {
-    // Fetch all documents from homepage collection
-    const homepageData = await Homepage.find({});
+    // Fetch all documents from homepage collection, sorted by order
+    const homepageData = await Homepage.find({}).sort({ order: 1 });
 
     if (!homepageData || homepageData.length === 0) {
       return res.status(404).json({

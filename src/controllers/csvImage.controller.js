@@ -1,11 +1,11 @@
 // controllers/csvImage.controller.js
-const { cloudinary, mediaParser } = require("../config/cloudinary");
+const { cloudinary, tempParser } = require("../config/cloudinary");
 const ApiResponse = require("../core/ApiResponse");
 const asyncHandler = require("../core/middleware/asyncHandler");
 const CsvTempImage = require("../models/CsvTempImage");
 
 // Cloudinary folder for CSV temp images
-const CSV_TEMP_FOLDER = "csv_temp_images";
+const CSV_TEMP_FOLDER = "temp";
 const CSV_PERMANENT_FOLDER = "products";
 
 /**
@@ -49,7 +49,7 @@ class CsvImageController {
    * POST /api/v1/admin/csv-images/upload
    */
   uploadTempImage = [
-    mediaParser.single("file"),
+    tempParser.single("file"),
     asyncHandler(async (req, res) => {
       if (!req.file) {
         return res

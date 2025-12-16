@@ -17,9 +17,20 @@ const categorySchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-    description: {
+    code: {
       type: String,
+      required: [true, "Category code is required"],
+      unique: true,
+      lowercase: true,
       trim: true,
+      index: true,
+      validate: {
+        validator: function (v) {
+          return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v);
+        },
+        message: (props) =>
+          `${props.value} is not a valid code! Code must be lowercase, alphanumeric, and separated by hyphens.`,
+      },
     },
     isActive: {
       type: Boolean,
@@ -46,14 +57,11 @@ const categorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Generate slug from name before saving
+// Generate slug from code before saving (code and slug should match)
 categorySchema.pre("save", function (next) {
-  if (this.isModified("name") && !this.slug) {
-    const baseSlug = this.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "");
-    this.slug = `/category/${baseSlug}`;
+  // Generate slug from code (code is already validated as lowercase-hyphenated)
+  if ((this.isModified("code") || this.isNew) && this.code && !this.slug) {
+    this.slug = `/category/${this.code}`;
   }
   next();
 });

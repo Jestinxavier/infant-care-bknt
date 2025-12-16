@@ -9,7 +9,7 @@ const { formatProductResponse } = require("../../utils/formatProductResponse");
 const getAllProducts = async (req, res) => {
   try {
     // Support both GET (query params) and POST (body) requests
-    const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
+    const requestData = req.method === "POST" ? req.body || {} : req.query;
 
     // Parse query filters (handles new URL structure)
     const { parseQueryFilters } = require("../../utils/parseQueryFilters");
@@ -38,10 +38,10 @@ const getAllProducts = async (req, res) => {
     let categoryTitle = "All Products"; // Initialize categoryTitle
 
     if (category && category !== "all") {
-      // Find category by slug
+      // Find category by code (frontend passes category code, not slug)
       const Category = require("../../models/Category");
       const categoryDoc = await Category.findOne({
-        slug: category,
+        code: category,
         isActive: true,
       });
       if (categoryDoc) {
@@ -70,12 +70,12 @@ const getAllProducts = async (req, res) => {
     if (requestData.search || requestData.q) {
       const searchQuery = requestData.search || requestData.q;
       // Escape special characters for regex
-      const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [
         { title: { $regex: escapedQuery, $options: "i" } },
         { name: { $regex: escapedQuery, $options: "i" } },
         { description: { $regex: escapedQuery, $options: "i" } },
-        { "categoryName": { $regex: escapedQuery, $options: "i" } } // assuming categoryName exists on product
+        { categoryName: { $regex: escapedQuery, $options: "i" } }, // assuming categoryName exists on product
       ];
     }
 
@@ -147,7 +147,8 @@ const getAllProducts = async (req, res) => {
           });
           // If inStock="true" is explicitly set, show all variants (including out of stock)
           // Otherwise, show only inStock variants by default
-          variantsToProcess = inStock === "true" ? productObj.variants : inStockVariants;
+          variantsToProcess =
+            inStock === "true" ? productObj.variants : inStockVariants;
         }
 
         // If there are variants to process, add them as separate items
@@ -162,8 +163,8 @@ const getAllProducts = async (req, res) => {
                 ? Object.fromEntries(variant.attributes)
                 : variant.attributes
               : variant.options instanceof Map
-                ? Object.fromEntries(variant.options)
-                : variant.options || {};
+              ? Object.fromEntries(variant.options)
+              : variant.options || {};
 
             // Color filter (supports array of colors)
             if (color) {
@@ -273,6 +274,7 @@ const getAllProducts = async (req, res) => {
                 averageRating: productObj.averageRating || 0,
                 totalReviews: productObj.totalReviews || 0,
                 attributes: variantAttrs,
+                tags: productObj.tags || "",
               });
             }
           }
@@ -353,14 +355,21 @@ const getAllProducts = async (req, res) => {
           let includeParent = true;
 
           if (filterMinPrice || filterMaxPrice) {
-            const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0
-              ? parentDiscountPrice
-              : parentPrice || 0;
+            const effectivePrice =
+              parentDiscountPrice && parentDiscountPrice > 0
+                ? parentDiscountPrice
+                : parentPrice || 0;
 
-            if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+            if (
+              filterMinPrice &&
+              effectivePrice < parseFloat(String(filterMinPrice))
+            ) {
               includeParent = false;
             }
-            if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+            if (
+              filterMaxPrice &&
+              effectivePrice > parseFloat(String(filterMaxPrice))
+            ) {
               includeParent = false;
             }
           }
@@ -388,6 +397,7 @@ const getAllProducts = async (req, res) => {
             averageRating: productObj.averageRating || 0,
             totalReviews: productObj.totalReviews || 0,
             attributes: {},
+            tags: productObj.tags || "",
           });
         }
       } else {
@@ -403,9 +413,12 @@ const getAllProducts = async (req, res) => {
 
         // Apply stock filter to products without variants
         // Check actual stock value first, then fallback to isInStock flag
-        const productStock = productObj.stockObj?.available !== undefined
-          ? productObj.stockObj.available
-          : (productObj.stock !== undefined ? productObj.stock : 0);
+        const productStock =
+          productObj.stockObj?.available !== undefined
+            ? productObj.stockObj.available
+            : productObj.stock !== undefined
+            ? productObj.stock
+            : 0;
         // Product is in stock if stock > 0, regardless of isInStock flag
         const productIsInStock = productStock > 0;
 
@@ -424,14 +437,21 @@ const getAllProducts = async (req, res) => {
         let includeProduct = true;
 
         if (filterMinPrice || filterMaxPrice) {
-          const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0
-            ? parentDiscountPrice
-            : parentPrice || 0;
+          const effectivePrice =
+            parentDiscountPrice && parentDiscountPrice > 0
+              ? parentDiscountPrice
+              : parentPrice || 0;
 
-          if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+          if (
+            filterMinPrice &&
+            effectivePrice < parseFloat(String(filterMinPrice))
+          ) {
             includeProduct = false;
           }
-          if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+          if (
+            filterMaxPrice &&
+            effectivePrice > parseFloat(String(filterMaxPrice))
+          ) {
             includeProduct = false;
           }
         }
@@ -460,6 +480,7 @@ const getAllProducts = async (req, res) => {
           averageRating: productObj.averageRating || 0,
           totalReviews: productObj.totalReviews || 0,
           attributes: {},
+          tags: productObj.tags || "",
         });
       }
     }
@@ -468,14 +489,26 @@ const getAllProducts = async (req, res) => {
     let sortedItems = [...allItems];
     if (sortBy === "price_low") {
       sortedItems.sort((a, b) => {
-        const aEffectivePrice = (a.discountPrice && a.discountPrice > 0) ? a.discountPrice : (a.price || 0);
-        const bEffectivePrice = (b.discountPrice && b.discountPrice > 0) ? b.discountPrice : (b.price || 0);
+        const aEffectivePrice =
+          a.discountPrice && a.discountPrice > 0
+            ? a.discountPrice
+            : a.price || 0;
+        const bEffectivePrice =
+          b.discountPrice && b.discountPrice > 0
+            ? b.discountPrice
+            : b.price || 0;
         return aEffectivePrice - bEffectivePrice;
       });
     } else if (sortBy === "price_high") {
       sortedItems.sort((a, b) => {
-        const aEffectivePrice = (a.discountPrice && a.discountPrice > 0) ? a.discountPrice : (a.price || 0);
-        const bEffectivePrice = (b.discountPrice && b.discountPrice > 0) ? b.discountPrice : (b.price || 0);
+        const aEffectivePrice =
+          a.discountPrice && a.discountPrice > 0
+            ? a.discountPrice
+            : a.price || 0;
+        const bEffectivePrice =
+          b.discountPrice && b.discountPrice > 0
+            ? b.discountPrice
+            : b.price || 0;
         return bEffectivePrice - aEffectivePrice;
       });
     } else if (sortBy === "rating") {
@@ -779,7 +812,9 @@ const getSearchIndex = async (req, res) => {
   try {
     // Fetch all published products with minimal fields
     const products = await Product.find({ status: { $ne: "rejected" } })
-      .select("title name url_key images pricing price category status variants")
+      .select(
+        "title name url_key images pricing price category status variants"
+      )
       .populate("category", "name slug")
       .lean();
 
@@ -792,7 +827,9 @@ const getSearchIndex = async (req, res) => {
       // Calculate min price from variants if any
       let minPrice = parentPrice;
       if (product.variants && product.variants.length > 0) {
-        const variantPrices = product.variants.map(v => v.pricing?.price || v.price || 0).filter(p => p > 0);
+        const variantPrices = product.variants
+          .map((v) => v.pricing?.price || v.price || 0)
+          .filter((p) => p > 0);
         if (variantPrices.length > 0) minPrice = Math.min(...variantPrices);
       } else if (parentPrice === 0 && product.price) {
         minPrice = product.price;
@@ -808,7 +845,7 @@ const getSearchIndex = async (req, res) => {
         price: minPrice,
         image: image,
         category: product.category?.name || "Uncategorized",
-        status: product.status
+        status: product.status,
       };
     });
 

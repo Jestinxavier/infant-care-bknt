@@ -2,6 +2,7 @@
 const mongoose = require("mongoose");
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
+const Category = require("../../models/Category");
 const CsvTempImage = require("../../models/CsvTempImage");
 const { cloudinary } = require("../../config/cloudinary");
 const ApiResponse = require("../../core/ApiResponse");
@@ -34,6 +35,18 @@ class BulkImportController {
     const tempImagesNeeded = new Set();
 
     console.log(`🔍 [Bulk Import] Validating ${products.length} products...`);
+
+    // Fetch all categories for validation
+    const categories = await Category.find({})
+      .select("name code slug _id")
+      .lean();
+    const categoryMap = new Map(); // key -> _id
+    categories.forEach((cat) => {
+      categoryMap.set(cat._id.toString(), cat._id);
+      if (cat.name) categoryMap.set(cat.name.toLowerCase().trim(), cat._id);
+      if (cat.code) categoryMap.set(cat.code.toLowerCase().trim(), cat._id);
+      if (cat.slug) categoryMap.set(cat.slug.toLowerCase().trim(), cat._id);
+    });
 
     // Collect all SKUs from input for duplicate detection
     const inputSkus = new Set();
@@ -68,15 +81,37 @@ class BulkImportController {
       }
 
       // Validate required fields
-      if (!product.name || product.name.trim() === "") {
+      if (!product.title || product.title.trim() === "") {
         errors.push({
           row: rowNum,
-          field: "name",
-          message: "Name is required",
+          field: "title",
+          message: "Title is required",
         });
       }
       if (!product.sku || product.sku.trim() === "") {
         errors.push({ row: rowNum, field: "sku", message: "SKU is required" });
+      }
+
+      // Validate category
+      if (product.category && product.category.trim() !== "") {
+        const catKey = product.category.toLowerCase().trim();
+        if (!categoryMap.has(catKey)) {
+          // Try to match partial MongoId
+          if (!mongoose.Types.ObjectId.isValid(product.category)) {
+            errors.push({
+              row: rowNum,
+              field: "category",
+              message: `Category not found: ${product.category}`,
+            });
+          }
+        }
+      } else {
+        // Category is required in Product model
+        errors.push({
+          row: rowNum,
+          field: "category",
+          message: "Category is required",
+        });
       }
 
       // Collect temp images from product
@@ -135,24 +170,73 @@ class BulkImportController {
     }
 
     // Check for existing SKUs in database
+    // Check for existing SKUs in database (Product and embedded variants)
     const allSkus = Array.from(inputSkus);
-    const existingProducts = await Product.find({
-      sku: { $in: allSkus },
-    }).lean();
-    const existingVariants = await Variant.find({
-      sku: { $in: allSkus },
-    }).lean();
 
-    const existingSkusInDb = new Set([
-      ...existingProducts.map((p) => p.sku),
-      ...existingVariants.map((v) => v.sku),
-    ]);
+    // Find products where either the main sku OR any variant sku matches our list
+    const existingProducts = await Product.find({
+      $or: [
+        { sku: { $in: allSkus } },
+        { "variants.sku": { $in: allSkus } }, // Access embedded variants
+      ],
+    })
+      .select("sku variants.sku")
+      .lean();
+
+    const existingSkusInDb = new Set();
+
+    // Add parent SKUs
+    existingProducts.forEach((p) => {
+      if (p.sku) existingSkusInDb.add(p.sku);
+      // Add variant SKUs
+      if (p.variants && Array.isArray(p.variants)) {
+        p.variants.forEach((v) => {
+          if (v.sku) existingSkusInDb.add(v.sku);
+        });
+      }
+    });
+
+    // Validate uniqueness against DB
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const rowNum = i + 1;
+
+      // If creating new product, SKU must not exist
+      if (p.isNewProduct && existingSkusInDb.has(p.sku)) {
+        errors.push({
+          row: rowNum,
+          field: "sku",
+          message: `SKU "${p.sku}" already exists in database.`,
+        });
+      }
+
+      // Check variants
+      if (p.variants) {
+        for (let j = 0; j < p.variants.length; j++) {
+          const v = p.variants[j];
+          const variantRow = `${rowNum}.${j + 1}`;
+
+          if (v.isNewVariant && existingSkusInDb.has(v.sku)) {
+            errors.push({
+              row: variantRow,
+              field: "sku",
+              message: `Variant SKU "${v.sku}" already exists in database.`,
+            });
+          }
+        }
+      }
+    }
 
     // Determine which are updates vs creates
     const updateCount = products.filter(
       (p) => p.csvId && !p.csvId.startsWith("TMP_")
     ).length;
     const createCount = products.length - updateCount;
+    // Calculate total variants
+    const totalVariants = products.reduce(
+      (sum, p) => sum + (p.variants ? p.variants.length : 0),
+      0
+    );
 
     // Validate all temp images exist
     const tempKeysArray = Array.from(tempImagesNeeded);
@@ -191,6 +275,7 @@ class BulkImportController {
           totalProducts: products.length,
           createCount,
           updateCount,
+          totalVariants, // ✅ Added variant count
           tempImagesCount: tempKeysArray.length,
           missingImagesCount: missingImages.length,
         },
@@ -226,6 +311,26 @@ class BulkImportController {
       console.log(
         `📦 [Bulk Import] Starting commit for ${products.length} products...`
       );
+
+      // Fetch categories for resolution
+      const categories = await Category.find({})
+        .select("name code slug _id")
+        .session(session); // Use session? No, read doesn't strictly need it unless we want snapshot isolation, but safe.
+      // Actually, just find normally. Session is for write transaction mainly.
+      // Let's use standard find.
+
+      const categoryMap = new Map();
+      const idToDataMap = new Map();
+
+      categories.forEach((cat) => {
+        const catId = cat._id.toString();
+        idToDataMap.set(catId, cat);
+
+        categoryMap.set(catId, cat._id);
+        if (cat.name) categoryMap.set(cat.name.toLowerCase().trim(), cat._id);
+        if (cat.code) categoryMap.set(cat.code.toLowerCase().trim(), cat._id);
+        if (cat.slug) categoryMap.set(cat.slug.toLowerCase().trim(), cat._id);
+      });
 
       // Step 1: Convert all temp images to permanent
       const tempImagesNeeded = new Set();
@@ -302,11 +407,27 @@ class BulkImportController {
 
       // Step 2: Create/Update products
       for (const productData of products) {
+        // Resolve category
+        let resolvedCategoryId = null;
+        if (productData.category) {
+          const catKey = productData.category.toLowerCase().trim();
+          if (categoryMap.has(catKey)) {
+            resolvedCategoryId = categoryMap.get(catKey);
+          } else if (mongoose.Types.ObjectId.isValid(productData.category)) {
+            resolvedCategoryId = productData.category; // Trust it if it's a valid ID but not in our lean cache (unlikely but safe fallback)
+          }
+        }
+
+        // If mandatory and missing, this will fail DB save.
+        // We rely on validated data or we fail fast.
+
         const isUpdate =
           productData.csvId && !productData.csvId.startsWith("TMP_");
 
         // Build images array
-        const images = [];
+        const images = []; // ✅ Restored missing variable
+
+        // 1. Process Temp Images
         if (productData.imageMetadata) {
           for (const key of productData.imageMetadata) {
             const mappedImage = imageMapping.get(key);
@@ -319,16 +440,99 @@ class BulkImportController {
           }
         }
 
+        // 2. Process Direct URLs (from CSV 'image_urls' or existing)
+        if (productData.images && Array.isArray(productData.images)) {
+          productData.images.forEach((url) => {
+            // Avoid duplicates if temp images already covered it (unlikely but safe)
+            if (!images.some((img) => img.url === url)) {
+              images.push({ url });
+            }
+          });
+        }
+
+        // Prepare embedded variants
+        const embeddedVariants = [];
+        if (productData.variants && productData.variants.length > 0) {
+          for (const variantData of productData.variants) {
+            // Build variant images
+            const variantImages = [];
+            if (variantData.imageMetadata) {
+              for (const key of variantData.imageMetadata) {
+                const mappedImage = imageMapping.get(key);
+                if (mappedImage) {
+                  variantImages.push(mappedImage.url); // Embedded stores URL strings usually, or check schema
+                  // Schema says: images: [{ type: String }] // URLs
+                }
+              }
+            }
+
+            embeddedVariants.push({
+              id: variantData.csvId,
+              url_key: `${productData.url_key}-${variantData.sku
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")}`, // Generate simplified url_key for variant
+              sku: variantData.sku,
+              price: variantData.price,
+              stock: variantData.stock,
+              images: variantImages,
+              attributes: variantData.attributes, // Map<String, String> in schema, object here is fine if mongoose casting works, else might need transform
+              // Mongoose 'Map' type usually needs key-value pairs or object.
+              // Let's ensure attributes is an object.
+
+              // Populate other fields required by schema defaults
+              stockObj: {
+                available: variantData.stock || 0,
+                isInStock: (variantData.stock || 0) > 0,
+              },
+              pricing: {
+                // Redundant but good for schema compatibility
+                price: variantData.price,
+                discountPrice: variantData.discountPrice || variantData.price,
+              },
+            });
+          }
+        }
+
         if (isUpdate) {
           // Update existing product
           await Product.findByIdAndUpdate(
             productData.csvId,
             {
-              name: productData.name,
+              title: productData.title,
+              name: productData.title, // Sync name with title
               sku: productData.sku,
               description: productData.description || "",
-              category: productData.category || "",
-              images: images.length > 0 ? images : undefined,
+              category: resolvedCategoryId || productData.category,
+              categoryCode:
+                idToDataMap.get(resolvedCategoryId?.toString())?.code ||
+                productData.categoryCode,
+              status: ["draft", "published", "archived"].includes(
+                (productData.status || "").toLowerCase()
+              )
+                ? productData.status.toLowerCase()
+                : "draft",
+              images: images.length > 0 ? images.map((i) => i.url) : undefined, // Product schema images is string[]
+              pricing: {
+                price: productData.price || 0,
+                discountPrice:
+                  productData.discountPrice || productData.price || 0,
+              },
+              stockObj: {
+                available: productData.stock || 0,
+                isInStock: (productData.stock || 0) > 0,
+              },
+              details: productData.details || [],
+              tags: productData.tags || productData.tag, // ✅ Store as single string
+              // New fields
+              url_key: productData.url_key,
+              metaTitle: productData.metaTitle,
+              metaDescription: productData.metaDescription,
+              uiMeta: productData.uiMeta, // ✅ NEW
+              variantOptions:
+                productData.variantOptions || productData.options || [],
+
+              // ✅ NEW: Embed variants directly
+              variants: embeddedVariants,
             },
             { session }
           );
@@ -336,70 +540,47 @@ class BulkImportController {
         } else {
           // Create new product
           const newProduct = new Product({
-            name: productData.name,
+            title: productData.title,
+            name: productData.title, // Sync name with title
             sku: productData.sku,
             description: productData.description || "",
-            category: productData.category || "",
-            images,
-            status: "draft",
+            category: resolvedCategoryId || productData.category,
+            categoryCode: productData.category, // ✅ Save code
+            images: images.map((i) => i.url),
+            status: ["draft", "published", "archived"].includes(
+              (productData.status || "").toLowerCase()
+            )
+              ? productData.status.toLowerCase()
+              : "draft",
+            pricing: {
+              price: productData.price || 0,
+              discountPrice:
+                productData.discountPrice || productData.price || 0,
+            },
+            stockObj: {
+              available: productData.stock || 0,
+              isInStock: (productData.stock || 0) > 0,
+            },
+            details: productData.details || [],
+            tags: productData.tags || productData.tag, // ✅ Store as single string
+            // New fields
+            url_key: productData.url_key,
+            metaTitle: productData.metaTitle,
+            metaDescription: productData.metaDescription,
+            uiMeta: productData.uiMeta, // ✅ NEW
+            variantOptions:
+              productData.variantOptions || productData.options || [],
+
+            // ✅ NEW: Embed variants directly
+            variants: embeddedVariants,
           });
 
           await newProduct.save({ session });
           createdProductIds.push(newProduct._id);
-          productData._mongoId = newProduct._id; // Store for variant reference
           console.log(`  ✨ Created product: ${productData.sku}`);
         }
 
-        // Step 3: Create/Update variants
-        if (productData.variants && productData.variants.length > 0) {
-          const productId = isUpdate ? productData.csvId : productData._mongoId;
-
-          for (const variantData of productData.variants) {
-            const isVariantUpdate =
-              variantData.csvId && !variantData.csvId.startsWith("TMP_");
-
-            // Build variant images
-            const variantImages = [];
-            if (variantData.imageMetadata) {
-              for (const key of variantData.imageMetadata) {
-                const mappedImage = imageMapping.get(key);
-                if (mappedImage) {
-                  variantImages.push({
-                    url: mappedImage.url,
-                    public_id: mappedImage.new_public_id,
-                  });
-                }
-              }
-            }
-
-            if (isVariantUpdate) {
-              await Variant.findByIdAndUpdate(
-                variantData.csvId,
-                {
-                  productId,
-                  sku: variantData.sku,
-                  price: variantData.price,
-                  stock: variantData.stock,
-                  images: variantImages.length > 0 ? variantImages : undefined,
-                  ...variantData.attributes,
-                },
-                { session }
-              );
-            } else {
-              const newVariant = new Variant({
-                productId,
-                sku: variantData.sku,
-                price: variantData.price,
-                stock: variantData.stock,
-                images: variantImages,
-                ...variantData.attributes,
-              });
-
-              await newVariant.save({ session });
-              createdVariantIds.push(newVariant._id);
-            }
-          }
-        }
+        // REMOVED: Separate Step 3 for creating variants in Variant collection
       }
 
       // Step 4: Delete used temp images from database
@@ -455,20 +636,6 @@ class BulkImportController {
         }
       }
 
-      if (createdVariantIds.length > 0) {
-        try {
-          await Variant.deleteMany({ _id: { $in: createdVariantIds } });
-          console.log(
-            `🔄 [Rollback] Deleted ${createdVariantIds.length} variants`
-          );
-        } catch (rollbackError) {
-          console.error(
-            "❌ [Rollback] Failed to delete variants:",
-            rollbackError.message
-          );
-        }
-      }
-
       // Manual rollback: Revert converted images (move back to temp folder)
       for (const img of convertedImages) {
         try {
@@ -490,9 +657,29 @@ class BulkImportController {
         }
       }
 
+      // Handle duplicate key errors specifically
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern)[0];
+        const value = error.keyValue[field];
+        const friendlyMessage = `Duplicate value detected: ${field.toUpperCase()} "${value}" already exists.`;
+
+        return res.status(409).json(
+          ApiResponse.error(friendlyMessage, {
+            code: "DUPLICATE_KEY",
+            field,
+            value,
+            rolledBack: {
+              products: createdProductIds.length,
+              variants: createdVariantIds.length,
+              images: convertedImages.length,
+            },
+          }).toJSON()
+        );
+      }
+
       res.status(500).json(
-        ApiResponse.error("Import failed and rolled back", 500, {
-          message: error.message,
+        ApiResponse.error(`Import failed: ${error.message}`, {
+          originalError: error.message,
           rolledBack: {
             products: createdProductIds.length,
             variants: createdVariantIds.length,

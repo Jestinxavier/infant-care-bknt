@@ -1,5 +1,4 @@
 const Product = require("../../models/Product");
-const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
@@ -33,7 +32,6 @@ const updateProduct = async (req, res) => {
       metaDescription,
       // Legacy fields
       name,
-      variants: legacyVariants,
     } = req.body;
 
     // Find product
@@ -131,24 +129,33 @@ const updateProduct = async (req, res) => {
           if (codesChanged) {
             return res.status(400).json({
               success: false,
-              message: "Cannot change variant option codes when variants exist.",
+              message:
+                "Cannot change variant option codes when variants exist.",
               error: "Variant option codes are locked",
             });
           }
         }
       }
 
-      product.variantOptions = variantOptions;
+      // Strip hex values from values - uiMeta handles hex separately
+      const cleanedVariantOptions = variantOptions.map((opt) => ({
+        ...opt,
+        values: (opt.values || []).map(({ hex, ...rest }) => rest),
+      }));
+
+      product.variantOptions = cleanedVariantOptions;
     }
 
     // Update additional fields
     if (sku !== undefined) product.sku = sku;
     if (url_key !== undefined) product.url_key = url_key;
     if (subtitle !== undefined) product.subtitle = subtitle;
-    if (shortDescription !== undefined) product.shortDescription = shortDescription;
+    if (shortDescription !== undefined)
+      product.shortDescription = shortDescription;
     if (tags !== undefined) product.tags = tags;
     if (metaTitle !== undefined) product.metaTitle = metaTitle;
-    if (metaDescription !== undefined) product.metaDescription = metaDescription;
+    if (metaDescription !== undefined)
+      product.metaDescription = metaDescription;
 
     // Update variants (new structure)
     if (variantsArray !== undefined && Array.isArray(variantsArray)) {
@@ -159,8 +166,8 @@ const updateProduct = async (req, res) => {
         const images =
           req.files && req.files.length > 0
             ? req.files
-              .filter((f) => f.fieldname.includes(v.sku || v.id || index))
-              .map((f) => f.path)
+                .filter((f) => f.fieldname.includes(v.sku || v.id || index))
+                .map((f) => f.path)
             : v.images || [];
 
         // Convert attributes/options object to Map if needed
@@ -261,22 +268,28 @@ const updateProduct = async (req, res) => {
       }
 
       // Check price - support both structures
-      const hasPrice = (product.pricing?.price && product.pricing.price > 0) ||
+      const hasPrice =
+        (product.pricing?.price && product.pricing.price > 0) ||
         (pricing?.price && pricing.price > 0);
       if (!hasPrice) {
         missingFields.push("price (must be greater than 0)");
       }
 
       // Check stock - support both structures (allow 0)
-      const hasStock = (product.stockObj?.available !== undefined) ||
-        (stockObj?.available !== undefined);
+      const hasStock =
+        product.stockObj?.available !== undefined ||
+        stockObj?.available !== undefined;
       if (!hasStock) {
         missingFields.push("stock");
       }
 
       // If any required fields are missing, force to draft
       if (missingFields.length > 0) {
-        console.log(`⚠️ Product cannot be published - missing required fields: ${missingFields.join(", ")}`);
+        console.log(
+          `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
+            ", "
+          )}`
+        );
         console.log("   → Auto-saving as 'draft' instead");
         product.status = "draft";
       }
@@ -307,49 +320,7 @@ const updateProduct = async (req, res) => {
       );
     }
 
-    // Update legacy variants if provided (for backward compatibility)
-    if (legacyVariants) {
-      const legacyVariantsArray =
-        typeof legacyVariants === "string"
-          ? JSON.parse(legacyVariants)
-          : legacyVariants;
-
-      for (const v of legacyVariantsArray) {
-        let variant = await Variant.findOne({ _id: v._id });
-        if (variant) {
-          variant.color = v.color || variant.color;
-          variant.age = v.age || variant.age;
-          variant.price = v.price || variant.price;
-          variant.stock = v.stock || variant.stock;
-
-          if (req.files && req.files.length > 0) {
-            const images = req.files
-              .filter((f) => f.fieldname.includes(v.sku || v.age))
-              .map((f) => f.path);
-            if (images.length > 0) variant.images = images;
-          }
-
-          await variant.save();
-        } else {
-          const images =
-            req.files && req.files.length > 0
-              ? req.files
-                .filter((f) => f.fieldname.includes(v.sku || v.age))
-                .map((f) => f.path)
-              : [];
-
-          await Variant.create({
-            productId,
-            color: v.color,
-            age: v.age,
-            price: v.price,
-            stock: v.stock,
-            sku: v.sku,
-            images,
-          });
-        }
-      }
-    }
+    // Legacy variants handling removed - variants are now embedded in Product document
 
     res.status(200).json({
       success: true,

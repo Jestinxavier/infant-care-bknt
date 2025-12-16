@@ -4,20 +4,32 @@ const { cloudinary } = require("../../config/cloudinary");
 const updateCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-    const { name, description, displayOrder, isActive, parentCategory, removeImage } = req.body;
+    const {
+      name,
+      description,
+      displayOrder,
+      isActive,
+      parentCategory,
+      removeImage,
+    } = req.body;
     const imageFile = req.file; // Uploaded image file
 
-    if (!categoryId || categoryId === 'undefined' || categoryId === 'null' || categoryId.trim() === '') {
+    if (
+      !categoryId ||
+      categoryId === "undefined" ||
+      categoryId === "null" ||
+      categoryId.trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Category ID is required"
+        message: "Category ID is required",
       });
     }
 
     if (!/^[0-9a-fA-F]{24}$/.test(categoryId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid category ID format"
+        message: "Invalid category ID format",
       });
     }
 
@@ -26,28 +38,24 @@ const updateCategory = async (req, res) => {
     if (!category) {
       return res.status(404).json({
         success: false,
-        message: "Category not found"
+        message: "Category not found",
       });
     }
 
     // Check if name is being changed and if it conflicts with existing category
     if (name && name.trim() !== category.name) {
-      const existingCategory = await Category.findOne({ 
+      const existingCategory = await Category.findOne({
         name: name.trim(),
-        _id: { $ne: categoryId }
+        _id: { $ne: categoryId },
       });
 
       if (existingCategory) {
         return res.status(400).json({
           success: false,
-          message: "Category with this name already exists"
+          message: "Category with this name already exists",
         });
       }
       category.name = name.trim();
-    }
-
-    if (description !== undefined) {
-      category.description = description?.trim() || "";
     }
 
     if (displayOrder !== undefined) {
@@ -62,19 +70,23 @@ const updateCategory = async (req, res) => {
     if (imageFile) {
       // Delete old image if exists
       if (category.image) {
-        const publicId = category.image.split('/').pop().split('.')[0];
-        await cloudinary.uploader.destroy(`categories/${publicId}`).catch(err => {
-          console.log("⚠️ Could not delete old category image:", err);
-        });
+        const publicId = category.image.split("/").pop().split(".")[0];
+        await cloudinary.uploader
+          .destroy(`categories/${publicId}`)
+          .catch((err) => {
+            console.log("⚠️ Could not delete old category image:", err);
+          });
       }
       category.image = imageFile.path; // Cloudinary URL
-    } else if (removeImage === 'true' || removeImage === true) {
+    } else if (removeImage === "true" || removeImage === true) {
       // Remove image from Cloudinary if it exists
       if (category.image) {
-        const publicId = category.image.split('/').pop().split('.')[0];
-        await cloudinary.uploader.destroy(`categories/${publicId}`).catch(err => {
-          console.log("⚠️ Could not delete category image:", err);
-        });
+        const publicId = category.image.split("/").pop().split(".")[0];
+        await cloudinary.uploader
+          .destroy(`categories/${publicId}`)
+          .catch((err) => {
+            console.log("⚠️ Could not delete category image:", err);
+          });
       }
       category.image = null; // Clear image field
     }
@@ -87,7 +99,7 @@ const updateCategory = async (req, res) => {
         if (parentCategory === categoryId) {
           return res.status(400).json({
             success: false,
-            message: "Category cannot be its own parent"
+            message: "Category cannot be its own parent",
           });
         }
 
@@ -95,7 +107,7 @@ const updateCategory = async (req, res) => {
         if (!parent) {
           return res.status(400).json({
             success: false,
-            message: "Parent category not found"
+            message: "Parent category not found",
           });
         }
         category.parentCategory = parentCategory;
@@ -104,23 +116,24 @@ const updateCategory = async (req, res) => {
 
     await category.save();
 
-    const updatedCategory = await Category.findById(categoryId)
-      .populate("parentCategory", "name slug");
+    const updatedCategory = await Category.findById(categoryId).populate(
+      "parentCategory",
+      "name slug"
+    );
 
     res.status(200).json({
       success: true,
       message: "Category updated successfully",
-      category: updatedCategory
+      category: updatedCategory,
     });
   } catch (error) {
     console.error("❌ Error updating category:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
 module.exports = updateCategory;
-

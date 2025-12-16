@@ -444,7 +444,13 @@ const createProduct = async (req, res) => {
       url_key: productUrlKey,
       status: normalizedStatus,
       sku: sku || null,
-      variantOptions: variantOptions || [],
+      // Strip hex values from variantOptions.values - uiMeta handles hex separately
+      variantOptions: variantOptions
+        ? variantOptions.map((opt) => ({
+            ...opt,
+            values: (opt.values || []).map(({ hex, ...rest }) => rest),
+          }))
+        : [],
       variants: processedVariants,
       optionsLocked: optionsLocked, // ✅ NEW: Lock if variants exist
       details: details || [],

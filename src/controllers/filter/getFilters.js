@@ -9,32 +9,67 @@ const { generateFilterConfig } = require("../../utils/generateFilterConfig");
  */
 const getFilters = async (req, res) => {
   try {
-    const { slug } = req.params; // Category slug, or 'all' for all products
+    // Support both URL path param (/filter/:slug) and query param (/filter/all?category=xxx)
+    const slug = req.params.slug;
+    const categoryFromQuery = req.query.category;
+
+    // Use query param if slug is 'all', otherwise use slug from path
+    const category = (slug === "all" ? categoryFromQuery : slug) || "all";
 
     // Build filter to get products for this category
-    let productFilter = {};
-    
-    if (slug && slug !== "all") {
-      // Find category by slug
+    let productFilter = { status: "published" }; // Only filter published products
+
+    console.log("🔍 Filter API called with:", {
+      slug,
+      categoryFromQuery,
+      category,
+    });
+
+    if (category && category !== "all") {
+      // Find category by code (slug format in DB is /category/{code}, but API receives just the code)
       const categoryDoc = await Category.findOne({
-        slug: slug,
+        code: category,
         isActive: true,
       });
-      
+
+      console.log(
+        "📁 Category lookup result:",
+        categoryDoc
+          ? {
+              id: categoryDoc._id,
+              name: categoryDoc.name,
+              code: categoryDoc.code,
+            }
+          : "NOT FOUND"
+      );
+
       if (!categoryDoc) {
         return res.status(404).json({
           success: false,
           message: "Category not found",
         });
       }
-      
+
       productFilter.category = categoryDoc._id;
     }
 
+    console.log("🛒 Product filter:", productFilter);
+
     // Get all products for this category (for filter generation)
     const products = await Product.find(productFilter)
-      .populate("category", "name slug")
+      .populate("category", "name slug code")
       .lean();
+
+    console.log(`📦 Found ${products.length} products for filter generation`);
+    if (products.length > 0) {
+      products.forEach((p, i) => {
+        console.log(
+          `  Product ${i + 1}: ${p.title || p.name}, Variants: ${
+            p.variants?.length || 0
+          }`
+        );
+      });
+    }
 
     // Extract filter data from products and variants
     const filterColors = new Set();
@@ -49,7 +84,8 @@ const getFilters = async (req, res) => {
       // Also check parent product price if no variants
       if (!product.variants || product.variants.length === 0) {
         const parentPrice = product.pricing?.price || product.price || 0;
-        const parentDiscountPrice = product.pricing?.discountPrice || product.discountPrice;
+        const parentDiscountPrice =
+          product.pricing?.discountPrice || product.discountPrice;
         const effectivePrice =
           parentDiscountPrice && parentDiscountPrice > 0
             ? parentDiscountPrice
@@ -58,7 +94,7 @@ const getFilters = async (req, res) => {
           prices.push(effectivePrice);
         }
       }
-      
+
       if (product.variants && product.variants.length > 0) {
         for (const variant of product.variants) {
           const variantAttrs = variant.attributes
@@ -99,11 +135,29 @@ const getFilters = async (req, res) => {
         if (brandDetail?.value) filterBrands.add(brandDetail.value);
       }
       if (product.tags) {
-        product.tags.forEach((tag) => {
-          if (tag && tag.length > 0) {
-            filterBrands.add(tag);
-          }
-        });
+        // Tags is now a string (single value or comma-separated)
+        const tagValue = product.tags;
+        if (typeof tagValue === "string" && tagValue.length > 0) {
+          // Split by comma if multiple tags, otherwise use as-is
+          const tagList = tagValue.includes(",")
+            ? tagValue
+                .split(",")
+                .map((t) => t.trim())
+                .filter(Boolean)
+            : [tagValue.trim()];
+          tagList.forEach((tag) => {
+            if (tag.length > 0) {
+              filterBrands.add(tag);
+            }
+          });
+        } else if (Array.isArray(tagValue)) {
+          // Legacy support for array format
+          tagValue.forEach((tag) => {
+            if (tag && tag.length > 0) {
+              filterBrands.add(tag);
+            }
+          });
+        }
       }
     }
 
@@ -112,7 +166,7 @@ const getFilters = async (req, res) => {
       const legacyVariants = await Variant.find({
         productId: { $in: productIds },
       }).lean();
-      
+
       for (const variant of legacyVariants) {
         if (variant.color) filterColors.add(variant.color);
         if (variant.age) filterSizes.add(variant.age);
@@ -158,4 +212,3 @@ const getFilters = async (req, res) => {
 };
 
 module.exports = getFilters;
-
