@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const createTransporter = () => {
   // For Gmail
   if (process.env.EMAIL_SERVICE === "gmail") {
-    console.log("Using Gmail SMTP",{mail:process.env.EMAIL_PASSWORD,pass:process.env.EMAIL_USER});
+    console.log("Using Gmail SMTP", { mail: process.env.EMAIL_PASSWORD, pass: process.env.EMAIL_USER });
     return nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -48,9 +48,8 @@ const sendOTPEmail = async (user, otp) => {
     const transporter = createTransporter();
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
-        process.env.EMAIL_USER
-      }>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${process.env.EMAIL_USER
+        }>`,
       to: user.email,
       subject: "🔐 Your Verification Code - Online Shopping",
       html: `
@@ -124,9 +123,8 @@ const sendWelcomeEmail = async (user) => {
     const transporter = createTransporter();
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
-        process.env.EMAIL_USER
-      }>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${process.env.EMAIL_USER
+        }>`,
       to: user.email,
       subject: "🎉 Welcome to Online Shopping!",
       html: `
@@ -197,14 +195,12 @@ const sendPasswordResetEmail = async (user, resetToken) => {
     const transporter = createTransporter();
 
     // Use dashboard URL for admin password reset, fallback to frontend URL
-    const resetUrl = `${
-      process.env.DASHBOARD_URL || process.env.FRONTEND_URL || "http://localhost:5173"
-    }/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.DASHBOARD_URL || process.env.FRONTEND_URL || "http://localhost:5173"
+      }/reset-password?token=${resetToken}`;
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
-        process.env.EMAIL_USER
-      }>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${process.env.EMAIL_USER
+        }>`,
       to: user.email,
       subject: "🔒 Password Reset Request",
       html: `
@@ -263,9 +259,8 @@ const sendAdminCredentialsEmail = async (user, password) => {
     const transporter = createTransporter();
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${
-        process.env.EMAIL_USER
-      }>`,
+      from: `"${process.env.EMAIL_FROM_NAME || "Online Shopping"}" <${process.env.EMAIL_USER
+        }>`,
       to: user.email,
       subject: "🔐 Admin Account Created - Dashboard Access Credentials",
       html: `
@@ -375,10 +370,107 @@ const sendAdminCredentialsEmail = async (user, password) => {
   }
 };
 
+/**
+ * Send shipment notification email
+ * @param {Object} user - User object
+ * @param {Object} order - Order object with tracking and delivery info
+ */
+const sendShipmentEmail = async (user, order) => {
+  try {
+    const transporter = createTransporter();
+
+    // Construct tracking URL if delivery partner and tracking ID are present
+    let trackingUrl = null;
+    if (order.trackingId && order.deliveryPartner?.trackingUrlTemplate) {
+      trackingUrl = order.deliveryPartner.trackingUrlTemplate.replace("{trackingId}", order.trackingId);
+    }
+
+    const mailOptions = {
+      from: `"${process.env.EMAIL_FROM_NAME || "Infant Care"}" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: `🚚 Your Order #${order.orderId.toUpperCase()} has been Shipped!`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #334155; margin: 0; padding: 0; background-color: #f8fafc; }
+            .container { max-width: 600px; margin: 30px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+            .header { background: #1e293b; color: white; padding: 40px 20px; text-align: center; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .content { padding: 30px; }
+            .tracking-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; text-align: center; margin: 25px 0; }
+            .tracking-id { font-family: monospace; font-size: 20px; font-weight: bold; color: #2563eb; display: block; margin: 10px 0; }
+            .button { display: inline-block; padding: 12px 24px; background: #1e293b; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; margin-top: 10px; }
+            .footer { border-top: 1px solid #e2e8f0; padding: 20px; text-align: center; font-size: 12px; color: #64748b; }
+            .item-list { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            .item-list th { text-align: left; font-size: 12px; text-transform: uppercase; color: #94a3b8; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+            .item-list td { padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Great news! Your order is on its way.</h1>
+            </div>
+            <div class="content">
+              <p>Hello ${user.username || "valuable customer"},</p>
+              <p>Your order <strong>#${order.orderId.toUpperCase()}</strong> has been shipped and is heading your way!</p>
+              
+              <div class="tracking-box">
+                <span style="font-size: 14px; color: #64748b;">Tracking Number</span>
+                <span class="tracking-id">${order.trackingId}</span>
+                ${order.deliveryPartner ? `<p style="margin: 5px 0;">Courier: <strong>${order.deliveryPartner.name}</strong></p>` : ""}
+                ${trackingUrl ? `<a href="${trackingUrl}" class="button">Track Package</a>` : ""}
+              </div>
+
+              <h3>Order Summary</h3>
+              <table class="item-list">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th style="text-align: center;">Qty</th>
+                    <th style="text-align: right;">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${order.items.map(item => `
+                    <tr>
+                      <td>${item.productId?.name || "Order Item"}</td>
+                      <td style="text-align: center;">${item.quantity}</td>
+                      <td style="text-align: right;">₹${item.price}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              
+              <p style="margin-top: 30px;">If you have any questions, feel free to contact our support team.</p>
+              <p>Thank you for shopping with us!</p>
+              <p>Best regards,<br><strong>Infant Care Team</strong></p>
+            </div>
+            <div class="footer">
+              <p>© 2025 Infant Care. All rights reserved.</p>
+              <p>This is an automated shipment notification.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Shipment email sent to ${user.email} for order ${order.orderId}`);
+  } catch (error) {
+    console.error("❌ Error sending shipment email:", error);
+    // Silent fail for non-critical emails
+  }
+};
+
 module.exports = {
   generateOTP,
   sendOTPEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
   sendAdminCredentialsEmail,
+  sendShipmentEmail,
 };

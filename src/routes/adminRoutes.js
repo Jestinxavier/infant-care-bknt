@@ -13,6 +13,8 @@ const {
   getAllCustomers,
 } = require("../controllers/admin");
 
+const { getDashboardStats } = require("../controllers/admin/dashboardController");
+
 // Import existing product controllers for create/update/delete
 const {
   createProduct,
@@ -148,6 +150,21 @@ const { categoryImageUploader } = require("../config/categoryImageUpload");
  */
 router.get("/products", verifyToken, requireAdmin, getAllProducts);
 router.post("/products", verifyToken, requireAdmin, getAllProducts);
+
+/**
+ * @swagger
+ * /api/v1/admin/dashboard:
+ *   get:
+ *     summary: "[Admin] Get dashboard statistics"
+ *     description: Retrieve aggregated stats for dashboard (Revenue, Orders, Customers, Stock).
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Stats retrieved successfully
+ */
+router.get("/dashboard", verifyToken, requireAdmin, getDashboardStats);
 
 /**
  * @swagger

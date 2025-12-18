@@ -1,6 +1,7 @@
 const Order = require("../../models/Order");
 const User = require("../../models/user");
 const mongoose = require("mongoose");
+const emailService = require("../../services/emailService");
 
 /**
  * Admin: Get all orders (not filtered by user)
@@ -353,6 +354,11 @@ const updateOrderStatus = async (req, res) => {
         _id: order._id?.toString(),
       },
     });
+
+    // Send shipment email if status changed to shipped
+    if (status === "shipped" && currentOrder.orderStatus !== "shipped" && order.userId) {
+      emailService.sendShipmentEmail(order.userId, order);
+    }
   } catch (err) {
     console.error("❌ Admin Error updating order status:", err);
     res.status(500).json({

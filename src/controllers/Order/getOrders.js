@@ -27,6 +27,7 @@ const getOrders = async (req, res) => {
         select: "name images"
       })
       .populate("addressId", "fullName phone houseName street landmark city state pincode country nickname")
+      .populate("deliveryPartner")
       .sort({ createdAt: -1 }); // Most recent first
 
     // Format orders for frontend
@@ -42,6 +43,8 @@ const getOrders = async (req, res) => {
         subtotal: order.subtotal,
         shippingCost: order.shippingCost,
         discount: order.discount,
+        trackingId: order.trackingId,
+        deliveryPartner: order.deliveryPartner,
         fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
         items: order.items.map(item => {
           // Robust product resolution
