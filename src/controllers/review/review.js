@@ -10,12 +10,12 @@ const { updateRatings } = require("../../services/ratingService");
  */
 const getPurchasedProductsForReview = async (req, res) => {
   try {
-    const userId = req.user.userId; // From auth middleware
+    const userId = req.user.id; // From auth middleware
 
-    // Find all delivered orders for this user
+    // Find all shipped or delivered orders for this user
     const orders = await Order.find({
       userId,
-      orderStatus: "delivered",
+      orderStatus: { $in: ["shipped", "delivered"] },
     }).populate({
       path: "items.variantId",
       populate: { path: "productId", select: "name images category" },
@@ -81,14 +81,14 @@ const getPurchasedProductsForReview = async (req, res) => {
  */
 const addReview = async (req, res) => {
   try {
-    const userId = req.user.userId; // From auth middleware
-    const { variantId, orderId, rating, review } = req.body;
+    const userId = req.user.id; // From auth middleware
+    const { productId, variantId, orderId, rating, review } = req.body;
 
     // Validate required fields
-    if (!variantId || !orderId || !rating) {
+    if (!productId || !orderId || !rating) {
       return res.status(400).json({
         success: false,
-        message: "variantId, orderId, and rating are required",
+        message: "productId, orderId, and rating are required",
       });
     }
 
@@ -107,26 +107,34 @@ const addReview = async (req, res) => {
         .json({ success: false, message: "Order not found or unauthorized" });
     }
 
-    if (order.orderStatus !== "delivered") {
+    if (!["shipped", "delivered"].includes(order.orderStatus)) {
       return res.status(403).json({
         success: false,
-        message: "You can only review delivered products",
+        message: "You can only review shipped or delivered products",
       });
     }
 
-    // Check if variant is part of this order
-    const variantInOrder = order.items.find(
-      (item) => item.variantId.toString() === variantId
-    );
-    if (!variantInOrder) {
+    // Check if product is part of this order
+    const itemInOrder = order.items.find((item) => {
+      const pIdMatch = item.productId.toString() === productId;
+      const vIdMatch = variantId ? item.variantId === variantId : true;
+      return pIdMatch && vIdMatch;
+    });
+
+    if (!itemInOrder) {
       return res.status(403).json({
         success: false,
-        message: "This variant is not part of your order",
+        message: "This product/variant is not part of your order",
       });
     }
 
-    // Check if user already reviewed this variant in this order
-    const existingReview = await Review.findOne({ userId, variantId, orderId });
+    // Check if user already reviewed this item in this order
+    const existingReview = await Review.findOne({
+      userId,
+      productId,
+      variantId,
+      orderId,
+    });
     if (existingReview) {
       return res.status(400).json({
         success: false,
@@ -136,6 +144,7 @@ const addReview = async (req, res) => {
 
     const newReview = new Review({
       userId,
+      productId,
       variantId,
       orderId,
       rating,
@@ -143,19 +152,13 @@ const addReview = async (req, res) => {
     });
     await newReview.save();
 
-    // ⭐ Update variant and product ratings
-    await updateRatings(variantId);
+    // ⭐ Update ratings
+    await updateRatings(productId, variantId);
 
     // Populate for response
     await newReview.populate([
       { path: "userId", select: "username email" },
-      {
-        path: "variantId",
-        populate: {
-          path: "productId",
-          select: "name images averageRating totalReviews",
-        },
-      },
+      { path: "productId", select: "name images averageRating totalReviews" },
     ]);
 
     res.status(201).json({
@@ -180,7 +183,7 @@ const addReview = async (req, res) => {
  */
 const getMyReviews = async (req, res) => {
   try {
-    const userId = req.user.userId; // From auth middleware
+    const userId = req.user.id; // From auth middleware
 
     const reviews = await Review.find({ userId })
       .populate({
@@ -212,7 +215,7 @@ const getMyReviews = async (req, res) => {
  */
 const updateMyReview = async (req, res) => {
   try {
-    const userId = req.user.userId; // From auth middleware
+    const userId = req.user.id; // From auth middleware
     const { reviewId } = req.params;
     const { rating, review } = req.body;
 
@@ -238,8 +241,8 @@ const updateMyReview = async (req, res) => {
 
     await existingReview.save();
 
-    // ⭐ Update variant and product ratings
-    await updateRatings(existingReview.variantId);
+    // ⭐ Update ratings
+    await updateRatings(existingReview.productId, existingReview.variantId);
 
     // Populate for response
     await existingReview.populate([
@@ -275,7 +278,7 @@ const updateMyReview = async (req, res) => {
  */
 const deleteMyReview = async (req, res) => {
   try {
-    const userId = req.user.userId; // From auth middleware
+    const userId = req.user.id; // From auth middleware
     const { reviewId } = req.params;
 
     // Find and delete review (only if owned by user)
@@ -290,8 +293,8 @@ const deleteMyReview = async (req, res) => {
       });
     }
 
-    // ⭐ Update variant and product ratings after deletion
-    await updateRatings(deletedReview.variantId);
+    // ⭐ Update ratings after deletion
+    await updateRatings(deletedReview.productId, deletedReview.variantId);
 
     res.status(200).json({
       success: true,
@@ -306,6 +309,38 @@ const deleteMyReview = async (req, res) => {
         message: "Internal Server Error",
         error: err.message,
       });
+  }
+};
+
+const getProductReviews = async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    const reviews = await Review.find({ productId })
+      .populate("userId", "username")
+      .sort({ createdAt: -1 });
+
+    // Calculate average rating
+    const avgRating =
+      reviews.length > 0
+        ? (
+          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+        ).toFixed(1)
+        : 0;
+
+    res.status(200).json({
+      success: true,
+      totalReviews: reviews.length,
+      averageRating: parseFloat(avgRating),
+      reviews,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching product reviews:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 
@@ -324,8 +359,8 @@ const getVariantReviews = async (req, res) => {
     const avgRating =
       reviews.length > 0
         ? (
-            reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-          ).toFixed(1)
+          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+        ).toFixed(1)
         : 0;
 
     res.status(200).json({
@@ -400,5 +435,6 @@ module.exports = {
   updateMyReview,
   deleteMyReview,
   getVariantReviews,
+  getProductReviews,
   getTopReviews,
 };
