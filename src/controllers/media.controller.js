@@ -32,11 +32,18 @@ class MediaController {
       }
 
       try {
-        // Get folder from request body (sent as form data)
+        // Get folder and imageType from request body (sent as form data)
         const folder = req.body?.folder || "uploads";
+        const imageType = req.body?.imageType || "default"; // product, banner_desktop, banner_mobile, category
         const validFolder = getValidFolder(folder);
 
-        console.log(`📁 [Media] Uploading to folder: ${validFolder}`);
+        console.log(
+          `📁 [Media] Uploading to folder: ${validFolder}, type: ${imageType}`
+        );
+
+        // Get transformation preset for this image type
+        const { getImageTransformation } = require("../config/cloudinary");
+        const transformation = getImageTransformation(imageType);
 
         // Create content-based hash for deduplication
         // This ensures same image content gets same public_id
@@ -51,7 +58,7 @@ class MediaController {
 
         console.log(`🔑 [Media] Content hash: ${fileHash}`);
 
-        // Upload directly to Cloudinary with specified folder
+        // Upload directly to Cloudinary with specified folder and transformations
         // Use overwrite: true to replace if same content already exists
         const uploadResult = await new Promise((resolve, reject) => {
           const uploadStream = cloudinary.uploader.upload_stream(
@@ -61,6 +68,8 @@ class MediaController {
               overwrite: true, // Replace existing if same hash
               allowed_formats: ["jpg", "jpeg", "png", "webp"],
               resource_type: "image",
+              // Apply transformation for automatic WebP conversion and sizing
+              ...transformation,
             },
             (error, result) => {
               if (error) reject(error);
@@ -78,6 +87,7 @@ class MediaController {
           size: req.file.size,
           folder: validFolder,
           public_id: publicId,
+          format: uploadResult.format,
         });
 
         // Add temp-upload tag to Cloudinary asset
@@ -93,22 +103,17 @@ class MediaController {
           );
         }
 
-        // Return Cloudinary metadata in the expected format
+        // Return minimal Cloudinary metadata (url, alt, width, height, public_id)
+        // Other fields are stored in DB for tracking but not returned to frontend
         const metadata = {
           url: uploadResult.secure_url,
-          public_id: publicId,
+          alt: req.file.originalname || "",
           width: uploadResult.width || 0,
           height: uploadResult.height || 0,
-          format: uploadResult.format || "jpg",
-          resource_type: uploadResult.resource_type || "image",
-          size: uploadResult.bytes || req.file.size,
-          bytes: uploadResult.bytes || req.file.size,
-          created_at: uploadResult.created_at || new Date().toISOString(),
-          alt: req.file.originalname, // Use original filename as alt text
-          folder: validFolder,
+          public_id: publicId,
         };
 
-        // Save to Media collection for tracking
+        // Save full metadata to Media collection for tracking (internal use only)
         const userId = req.user?.id || req.user?._id || null;
         const context = req.body?.context || validFolder;
 
@@ -120,9 +125,9 @@ class MediaController {
               url: metadata.url,
               width: metadata.width,
               height: metadata.height,
-              format: metadata.format,
-              size: metadata.bytes,
-              resource_type: metadata.resource_type,
+              format: uploadResult.format || "webp",
+              size: uploadResult.bytes || req.file.size,
+              resource_type: uploadResult.resource_type || "image",
               isTemp: true,
               uploadedAt: new Date(),
               finalizedAt: null,

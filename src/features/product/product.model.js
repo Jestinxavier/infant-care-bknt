@@ -9,7 +9,7 @@ const variantOptionValueSchema = new mongoose.Schema(
     label: { type: String },
     hex: { type: String },
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Variant Option Schema
@@ -20,7 +20,7 @@ const variantOptionSchema = new mongoose.Schema(
     code: { type: String, required: true },
     values: [variantOptionValueSchema],
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Image Metadata Schema
@@ -34,7 +34,7 @@ const imageMetadataSchema = new mongoose.Schema(
     size: { type: Number },
     alt: { type: String },
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Variant Schema (embedded)
@@ -65,7 +65,7 @@ const variantSchema = new mongoose.Schema(
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
     totalReviews: { type: Number, default: 0, min: 0 },
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Detail Field Schema
@@ -74,7 +74,7 @@ const detailFieldSchema = new mongoose.Schema(
     name: { type: String, required: true },
     value: { type: mongoose.Schema.Types.Mixed },
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Detail Schema
@@ -83,7 +83,7 @@ const detailSchema = new mongoose.Schema(
     title: { type: String, required: true },
     fields: [detailFieldSchema],
   },
-  { _id: false },
+  { _id: false }
 );
 
 // URL Key History Schema
@@ -92,7 +92,7 @@ const urlKeyHistorySchema = new mongoose.Schema(
     urlKey: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Product Schema
@@ -148,7 +148,7 @@ const productSchema = new mongoose.Schema(
   {
     timestamps: true,
     collection: "products",
-  },
+  }
 );
 
 // Indexes
@@ -169,7 +169,10 @@ productSchema.pre("save", async function (next) {
   if (this.isNew && !this.url_key && this.title) {
     try {
       const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
-      const Product = require("./product.model");
+
+      // Use mongoose.models to avoid recompilation
+      const Product =
+        mongoose.models.Product || mongoose.model("Product", productSchema);
 
       // Create a proper checkExists function
       const checkExists = async (urlKey) => {
@@ -185,4 +188,6 @@ productSchema.pre("save", async function (next) {
   next();
 });
 
-module.exports = mongoose.model("Product", productSchema);
+// Export using singleton pattern to prevent duplicate compilation
+module.exports =
+  mongoose.models.Product || mongoose.model("Product", productSchema);

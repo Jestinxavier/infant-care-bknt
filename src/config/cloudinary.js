@@ -41,6 +41,40 @@ const VALID_FOLDERS = [
 ];
 
 /**
+ * Image transformation presets for different image types
+ * All images are automatically converted to WebP for optimal compression
+ */
+const IMAGE_TRANSFORMATIONS = {
+  product: {
+    format: "webp",
+    quality: "auto:good", // Cloudinary auto-quality optimization
+    fetch_format: "auto", // Auto-select best format for browser
+  },
+  banner_desktop: {
+    format: "webp",
+    quality: "auto:good",
+    width: 1920,
+    crop: "limit", // Don't upscale, only downscale if needed
+  },
+  banner_mobile: {
+    format: "webp",
+    quality: "auto:good",
+    width: 1200,
+    crop: "limit",
+  },
+  category: {
+    format: "webp",
+    quality: "auto:good",
+    width: 800,
+    crop: "limit",
+  },
+  default: {
+    format: "webp",
+    quality: "auto:good",
+  },
+};
+
+/**
  * Get a valid folder name or fallback to default
  * @param {string} folder - Requested folder name
  * @returns {string} - Valid folder name
@@ -50,6 +84,15 @@ const getValidFolder = (folder) => {
     return folder;
   }
   return "uploads"; // Default fallback folder
+};
+
+/**
+ * Get transformation preset for image type
+ * @param {string} imageType - Type of image (product, banner_desktop, banner_mobile, category)
+ * @returns {object} - Cloudinary transformation object
+ */
+const getImageTransformation = (imageType) => {
+  return IMAGE_TRANSFORMATIONS[imageType] || IMAGE_TRANSFORMATIONS.default;
 };
 
 /**
@@ -107,4 +150,6 @@ module.exports = {
   createDynamicStorage,
   getValidFolder,
   VALID_FOLDERS,
+  IMAGE_TRANSFORMATIONS,
+  getImageTransformation,
 };

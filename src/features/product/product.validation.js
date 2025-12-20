@@ -28,6 +28,7 @@ const productValidation = {
       .optional()
       .isIn(["draft", "published", "archived"])
       .withMessage("Invalid status"),
+    body("images").optional().isArray().withMessage("Images must be an array"),
     body("variants")
       .optional()
       .isArray()
@@ -55,6 +56,11 @@ const productValidation = {
       .optional()
       .isIn(["draft", "published", "archived"])
       .withMessage("Invalid status"),
+    body("images").optional().isArray().withMessage("Images must be an array"),
+    body("variants")
+      .optional()
+      .isArray()
+      .withMessage("Variants must be an array"),
   ],
 
   // Get products validation (query params)

@@ -59,10 +59,17 @@ const variantSchema = new mongoose.Schema(
 );
 
 // Detail Field Schema (for details.fields array)
+// Supported field types:
+// 1. "text" - Simple label/value pair
+//    Example: { type: "text", label: "Material", value: "100% Cotton" }
+// 2. "badges" - Array of badge strings
+//    Example: { type: "badges", value: ["Soft", "Breathable"] }
+// 3. "flex_box" - Array of label/value objects (for grid display)
+//    Example: { type: "flex_box", value: [{ label: "Pattern", value: "Embroidered" }] }
 const detailFieldSchema = new mongoose.Schema(
   {
-    label: { type: String },
-    value: { type: mongoose.Schema.Types.Mixed }, // Can be string or array
+    label: { type: String }, // Required for "text" type, optional for others
+    value: { type: mongoose.Schema.Types.Mixed }, // Type-specific: string for text, array for badges/flex_box
     type: {
       type: String,
       enum: ["badges", "flex_box", "text"],
@@ -72,16 +79,17 @@ const detailFieldSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// Detail Schema (for details array) - supports new structure
+// Detail Schema (for details array)
+// Structure: [{ title: "Section Title", fields: [...] }]
 const detailSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true },
-    fields: [detailFieldSchema],
-    // Legacy format support
-    label: { type: String }, // For backward compatibility
-    value: { type: String }, // For backward compatibility
-    badges: [{ type: String }], // For backward compatibility
-    flex_box: { type: Boolean, default: false }, // For backward compatibility
+    title: { type: String, required: true }, // Section title (e.g., "Product Details", "Care Instructions")
+    fields: [detailFieldSchema], // Array of detail fields
+    // Legacy fields - kept for backward compatibility, should not be used in new products
+    label: { type: String },
+    value: { type: String },
+    badges: [{ type: String }],
+    flex_box: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -141,9 +149,6 @@ const productSchema = new mongoose.Schema(
     // Variant structure
     variantOptions: [variantOptionSchema],
     variants: [variantSchema],
-
-    // ✅ NEW: Lock configurable options when variants exist
-    optionsLocked: { type: Boolean, default: false },
 
     // Details array
     details: [detailSchema],

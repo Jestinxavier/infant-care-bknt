@@ -4,6 +4,7 @@ const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
 const ApiError = require("../../core/ApiError");
+const mongoose = require("mongoose");
 
 /**
  * CMS Service
@@ -323,71 +324,143 @@ class CmsService {
       );
     }
 
-    const existing = await pageConfig.model.findOne({});
-    let updated;
-
-    // For homepage/about: contentData is an array of blocks, need to wrap in { content: [...] }
-    // For policies: contentData is a string (HTML), need to wrap in { content: string }
+    // For policies: contentData is a string (HTML)
     // For header/footer: contentData is the object itself
+    // For home/about: contentData is an array of blocks (documents)
     const isBlockBasedPage = page === "home" || page === "about";
     const isPoliciesPage = page === "policies";
     const isFooterOrHeaderPage = page === "footer" || page === "header";
 
-    let updateData;
-    if (isBlockBasedPage && Array.isArray(contentData)) {
-      updateData = { content: contentData };
-    } else if (isPoliciesPage && typeof contentData === "string") {
-      // Store policies as single HTML string
-      updateData = { content: contentData };
-    } else if (
-      isFooterOrHeaderPage &&
-      typeof contentData === "object" &&
-      contentData !== null
-    ) {
-      // For footer/header, wrap the contentData in a content field
-      updateData = { content: contentData };
-    } else {
-      updateData = contentData;
-    }
+    let updatedContent;
 
-    if (existing) {
-      // Merge with existing data
-      const existingObj = existing.toObject ? existing.toObject() : existing;
-      const merged = { ...existingObj, ...updateData };
-      updated = await pageConfig.model.findOneAndUpdate({}, merged, {
-        new: true,
+    if (isBlockBasedPage && Array.isArray(contentData)) {
+      // For home/about, we perform a smart update to preserve documents where possible
+      // This avoids ID churn and cleaner handling of existing data structure issues
+
+      console.log(
+        `[CMS Service] Synchronizing content for page '${page}' with ${contentData.length} blocks`
+      );
+
+      // 1. Fetch all existing documents
+      const existingDocs = await pageConfig.model.find({});
+      const existingDocsMap = new Map(
+        existingDocs.map((d) => [d._id.toString(), d])
+      );
+      const processedIds = new Set();
+
+      // 2. Iterate through new blocks and update/create
+      for (let i = 0; i < contentData.length; i++) {
+        const block = contentData[i];
+        const order = i;
+
+        // Prepare block data
+        // If the block has an ID that looks like a MongoID, try to use it
+        // Otherwise, it's a temp ID or we rely on block_type matching
+        let match = null;
+
+        // Strategy 1: Match by valid MongoDB _id
+        if (block.id && mongoose.isValidObjectId(block.id)) {
+          match = existingDocsMap.get(block.id);
+        }
+
+        // Strategy 2: Match by block_type (fallback) if we haven't used this doc yet
+        // This is crucial for initial sync or if IDs are temp strings (e.g. "block-0-...")
+        if (!match && block.block_type) {
+          match = existingDocs.find(
+            (d) =>
+              d.block_type === block.block_type &&
+              !processedIds.has(d._id.toString())
+          );
+        }
+
+        const blockPayload = {
+          ...block,
+          order,
+          // Ensure we don't accidentally save the frontend 'id' as '_id' if it's not a MongoID
+          // But we DO want to strip 'id' from payload if we are saving to Mongo to avoid confusion
+        };
+        delete blockPayload.id; // Let Mongo handle _id or use existing match._id
+
+        if (match) {
+          // Update existing document
+          // This fixes nested structures by overwriting 'content' with new flat data
+          await pageConfig.model.findByIdAndUpdate(match._id, blockPayload, {
+            new: true,
+          });
+          processedIds.add(match._id.toString());
+        } else {
+          // Create new document
+          const newDoc = await pageConfig.model.create(blockPayload);
+          processedIds.add(newDoc._id.toString());
+        }
+      }
+
+      // 3. Delete any documents that were not part of the new list
+      const idsToDelete = existingDocs
+        .filter((d) => !processedIds.has(d._id.toString()))
+        .map((d) => d._id);
+
+      if (idsToDelete.length > 0) {
+        console.log(
+          `[CMS Service] Deleting ${idsToDelete.length} removed blocks`
+        );
+        await pageConfig.model.deleteMany({ _id: { $in: idsToDelete } });
+      }
+
+      // 4. Fetch the fresh documents to return
+      const newDocs = await pageConfig.model.find({}).sort({ order: 1 });
+      updatedContent = newDocs.map((doc) => {
+        const d = doc.toObject ? doc.toObject() : doc;
+        const { __v, createdAt, updatedAt, ...rest } = d;
+        return rest;
       });
     } else {
-      // Create new
-      updated = await pageConfig.model.create(updateData);
-    }
+      // Legacy/Single-Doc logic for Policies, Header, Footer
+      let updateData;
+      const existing = await pageConfig.model.findOne({});
 
-    // Extract content for response (same logic as getContentByPage)
-    const docObject = updated.toObject ? updated.toObject() : updated;
-    let content = docObject;
+      if (isPoliciesPage && typeof contentData === "string") {
+        updateData = { content: contentData };
+      } else if (
+        isFooterOrHeaderPage &&
+        typeof contentData === "object" &&
+        contentData !== null
+      ) {
+        updateData = { content: contentData };
+      } else {
+        updateData = contentData;
+      }
 
-    // For policies, content is a string
-    if (page === "policies" && docObject.content) {
-      content = docObject.content; // Already a string from updateData
-    }
-    // For footer/header, content is an object
-    else if (
-      (page === "footer" || page === "header") &&
-      docObject.content &&
-      typeof docObject.content === "object" &&
-      !Array.isArray(docObject.content)
-    ) {
-      content = docObject.content; // Extract the content object
-    }
-    // For home/about, content is an array
-    else if (docObject.content && Array.isArray(docObject.content)) {
-      content = docObject.content;
+      let result;
+      if (existing) {
+        const existingObj = existing.toObject ? existing.toObject() : existing;
+        const merged = { ...existingObj, ...updateData };
+        result = await pageConfig.model.findOneAndUpdate({}, merged, {
+          new: true,
+        });
+      } else {
+        result = await pageConfig.model.create(updateData);
+      }
+
+      const docObject = result.toObject ? result.toObject() : result;
+
+      // Extract content for response
+      if (page === "policies" && docObject.content) {
+        updatedContent = docObject.content;
+      } else if (
+        (page === "footer" || page === "header") &&
+        docObject.content
+      ) {
+        updatedContent = docObject.content;
+      } else {
+        updatedContent = docObject;
+      }
     }
 
     return {
       page,
       title: pageConfig.title,
-      content,
+      content: updatedContent,
     };
   }
 
@@ -505,6 +578,17 @@ class CmsService {
       order: blockData.order !== undefined ? blockData.order : 0,
       content: transformedContent,
     };
+
+    // Add optional widget metadata
+    if (blockData.title !== undefined) {
+      flatDocument.title = blockData.title;
+    }
+    if (blockData.link !== undefined) {
+      flatDocument.link = blockData.link;
+    }
+    if (blockData.categorySlug !== undefined) {
+      flatDocument.categorySlug = blockData.categorySlug;
+    }
 
     console.log(
       `[CMS Service] Transformed flat document:`,

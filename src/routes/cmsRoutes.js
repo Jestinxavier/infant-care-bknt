@@ -5,6 +5,7 @@ const {
   getCmsContentByPage,
   updateCmsContent,
   deleteCmsContent,
+  updateCmsBlock,
 } = require("../controllers/cms");
 const verifyToken = require("../middlewares/authMiddleware");
 const requireAdmin = require("../middlewares/adminMiddleware");
@@ -152,8 +153,11 @@ router.post("/", updateCmsContent);
 // PUT /api/v1/admin/cms/:page - Update CMS content by page (alternative endpoint)
 router.put("/:page", updateCmsContent);
 
+// PATCH /api/v1/admin/cms/:page/block/:blockType - Update specific block
+// Note: blockType is in the URL to match frontend hook, but logic uses body ID
+router.patch("/:page/block/:blockType", updateCmsBlock);
+
 // DELETE /api/v1/admin/cms/:page - Delete CMS content
 router.delete("/:page", deleteCmsContent);
 
 module.exports = router;
-

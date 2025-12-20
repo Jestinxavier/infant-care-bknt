@@ -75,6 +75,7 @@ const footerRoutes = require("./routes/footerRoutes");
 // New feature-based CMS routes
 const cmsAdminRoutes = require("./features/cms/cms.admin.routes");
 const cmsPublicRoutes = require("./features/cms/cms.routes");
+const cmsProductRoutes = require("./features/product/product.cms.routes");
 
 // Admin routes - using environment variable for prefix
 const adminRoutes = require("./routes/adminRoutes");
@@ -95,6 +96,8 @@ app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/health", healthRoutes);
 app.use("/api/v1/homepage", homepageRoutes);
 app.use("/api/v1/footer", footerRoutes);
+// CMS product routes (lightweight for widgets) - Must be before general /cms route
+app.use("/api/v1/cms/products", cmsProductRoutes);
 // Public CMS routes (for frontend)
 app.use("/api/v1/cms", cmsPublicRoutes);
 
