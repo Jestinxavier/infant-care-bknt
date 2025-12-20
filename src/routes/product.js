@@ -14,7 +14,17 @@ const {
 const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
 
-// Search index route (must be before other routes)
+/**
+ * @swagger
+ * /api/v1/product/search-index:
+ *   get:
+ *     summary: Get search index data for frontend
+ *     description: Returns a simplified list of all products (name, url_key, SKU, image) for localized search or autocomplete on the frontend.
+ *     tags: [Products]
+ *     responses:
+ *       200:
+ *         description: Search index retrieved successfully
+ */
 router.get("/search-index", getSearchIndex);
 
 /**
@@ -169,69 +179,6 @@ router.put(
   updateProduct
 );
 
-/**
- * @swagger
- * /api/v1/product/all:
- *   get:
- *     summary: Get all products with ratings
- *     description: Retrieve all products with rating information. Supports filtering and sorting.
- *     tags: [Products]
- *     parameters:
- *       - in: query
- *         name: category
- *         schema:
- *           type: string
- *         description: Filter by category
- *         example: Clothing
- *       - in: query
- *         name: minRating
- *         schema:
- *           type: number
- *         description: Minimum average rating filter
- *         example: 4
- *       - in: query
- *         name: sortBy
- *         schema:
- *           type: string
- *           enum: [rating, reviews, newest]
- *         description: Sort products by rating, number of reviews, or newest
- *         example: rating
- *     responses:
- *       200:
- *         description: Products retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 totalProducts:
- *                   type: number
- *                   example: 25
- *                 products:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       _id:
- *                         type: string
- *                       name:
- *                         type: string
- *                       description:
- *                         type: string
- *                       category:
- *                         type: string
- *                       averageRating:
- *                         type: number
- *                         example: 4.5
- *                       totalReviews:
- *                         type: number
- *                         example: 42
- *       500:
- *         description: Server error
- */
 /**
  * @swagger
  * /api/v1/product/all:
@@ -467,7 +414,25 @@ router.post("/all", getAllProducts);
 router.get("/url/:url_key", getProductByUrlKey);
 router.post("/url/:url_key", getProductByUrlKey);
 
-// Combined route for ID (legacy) or Category Slug (new)
+/**
+ * @swagger
+ * /api/v1/product/{param}:
+ *   get:
+ *     summary: Get product by ID or Category Slug
+ *     description: Versatile endpoint that detects if the parameter is a MongoDB ID or a category slug. If it's an ID, it returns product details. If it's a slug, it returns all products in that category.
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: param
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product ID or Category Slug
+ *         example: 64abc123def456788
+ *     responses:
+ *       200:
+ *         description: Data retrieved successfully
+ */
 router.get("/:param", (req, res, next) => {
   const { param } = req.params;
 
@@ -488,7 +453,25 @@ router.get("/:param", (req, res, next) => {
     return getAllProducts(req, res, next);
   }
 });
-// POST endpoint for fetching product by ID (for dashboard) - keep strict ID check or use similar logic if needed
+/**
+ * @swagger
+ * /api/v1/product/{productId}:
+ *   post:
+ *     summary: Get single product by ID (POST method)
+ *     description: Used primarily by the admin dashboard for fetching product details.
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Product retrieved successfully
+ */
 router.post("/:productId", getProductById);
 
 /**
