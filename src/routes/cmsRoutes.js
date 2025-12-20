@@ -135,6 +135,44 @@ const requireAdmin = require("../middlewares/adminMiddleware");
  *         description: CMS content not found
  *       500:
  *         description: Internal Server Error
+ * /api/v1/admin/cms/{page}/block/{blockType}:
+ *   patch:
+ *     summary: "[Admin] Update specific CMS block"
+ *     description: Update a specific block within a page's content.
+ *     tags: [Admin CMS]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: page
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [home, about, policies, header, footer]
+ *       - in: path
+ *         name: blockType
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - blockId
+ *               - content
+ *             properties:
+ *               blockId:
+ *                 type: string
+ *               content:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Block updated successfully
+ *       404:
+ *         description: Block or page not found
  */
 
 // Apply admin middleware to all CMS routes

@@ -55,66 +55,31 @@ const mongoClientOptions = {
 let isConnected = false;
 let mongoClient = null;
 
-const connectDB = async () => {
+const connectDB = async (retryCount = 5) => {
   if (isConnected && mongoose.connection.readyState === 1) {
-    console.log("✅ Using existing MongoDB connection");
     return Promise.resolve();
   }
 
   try {
     if (!process.env.MONGODB_URI) {
-      const error = new Error("MONGODB_URI is not defined");
-      console.error("❌", error.message);
-      throw error;
+      throw new Error("MONGODB_URI is not defined");
     }
 
-    console.log("🔍 Attempting to connect to MongoDB...");
-    console.log(
-      "🔍 URI preview:",
-      process.env.MONGODB_URI.substring(0, 50) + "..."
-    );
+    console.log(`🔍 Connecting to MongoDB (Attempt ${6 - retryCount}/5)...`);
 
-    // For Vercel: Use connection pooling with proper cleanup
-    if (process.env.VERCEL && attachDatabasePool) {
-      console.log("🔄 Setting up Vercel database connection pooling...");
-
-      // Create MongoClient for Vercel pooling with optimized options
-      mongoClient = new MongoClient(
-        process.env.MONGODB_URI,
-        mongoClientOptions
-      );
-
-      // Attach Vercel's database pool for proper cleanup on function suspension
-      attachDatabasePool(mongoClient);
-
-      // Connect mongoose using the same URI
-      const db = await mongoose.connect(
-        process.env.MONGODB_URI,
-        mongooseOptions
-      );
-      isConnected = db.connections[0].readyState === 1;
-      console.log("✅ MongoDB Connected with Vercel pooling");
-      console.log("📊 Connection state:", db.connections[0].readyState);
-      console.log("🏛️ Database:", db.connections[0].name);
-      console.log("🔧 Pool config: maxIdleTimeMS=5000, maxPoolSize=10");
-    } else {
-      // For local development or non-Vercel deployments
-      console.log("🔄 Setting up standard MongoDB connection...");
-      const db = await mongoose.connect(
-        process.env.MONGODB_URI,
-        mongooseOptions
-      );
-      isConnected = db.connections[0].readyState === 1;
-      console.log("✅ MongoDB Connected");
-      console.log("📊 Connection state:", db.connections[0].readyState);
-      console.log("🏛️ Database:", db.connections[0].name);
-    }
+    // For local development or non-Vercel deployments
+    const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+    isConnected = db.connections[0].readyState === 1;
+    console.log("✅ MongoDB Connected");
     return Promise.resolve();
   } catch (err) {
-    console.error("❌ MongoDB connection failed:", err.message);
-    console.error("🐞 Full error:", err);
+    console.error(`❌ MongoDB connection failed: ${err.message}`);
+    if (retryCount > 1) {
+      console.log(`🔄 Retrying in 5 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      return connectDB(retryCount - 1);
+    }
     isConnected = false;
-    // Don't throw in production serverless - let the app continue
     if (process.env.NODE_ENV !== "production") {
       throw err;
     }

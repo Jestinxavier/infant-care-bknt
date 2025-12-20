@@ -8,7 +8,8 @@ const app = express();
 // ✅ CORS setup - Allow multiple origins for frontend and dashboard
 const allowedOrigins = [
   "http://localhost:3000", // Next.js frontend
-  "http://localhost:3001", // Backend API port
+  "http://localhost:5001", // Backend API port
+  "http://localhost:3001", // Backend API port (legacy)
   "http://localhost:5173", // Vite default port
   "http://localhost:5174", // Vite alternate port
   "http://localhost:4173", // Vite preview port

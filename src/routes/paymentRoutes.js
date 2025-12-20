@@ -1,13 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const { 
-  initPhonePePayment, 
-  phonePeCallback, 
+const {
+  initPhonePePayment,
+  phonePeCallback,
   checkPaymentStatus,
   createRazorpayOrder,
   verifyRazorpayPayment,
   razorpayWebhook,
-  getPaymentDetails
+  getPaymentDetails,
+  initiatePhonePeRefund,
+  getPhonePeRefundStatus
 } = require("../controllers/payment");
 
 /**
@@ -35,18 +37,10 @@ const {
  *               amount:
  *                 type: number
  *                 description: Amount in rupees (will be converted to paise)
- *                 example: 1500
+ *                 example: 1199
  *               userId:
  *                 type: string
- *                 example: 64abc123def456789
- *               userPhone:
- *                 type: string
- *                 description: User's phone number (optional)
- *                 example: '9876543210'
- *               userName:
- *                 type: string
- *                 description: User's name (optional)
- *                 example: John Doe
+ *                 example: 68f66b14710c36437149f73c
  *     responses:
  *       200:
  *         description: Payment initiated successfully
@@ -113,8 +107,6 @@ router.post("/phonepe/init", initPhonePePayment);
  *                 message:
  *                   type: string
  *                   example: Payment successful
- *                 paymentId:
- *                   type: string
  *       400:
  *         description: Payment failed or invalid callback data
  */
@@ -171,6 +163,60 @@ router.post("/phonepe/callback", phonePeCallback);
  */
 // GET /api/v1/payments/phonepe/status/:transactionId - Check payment status
 router.get("/phonepe/status/:transactionId", checkPaymentStatus);
+
+/**
+ * @swagger
+ * /api/v1/payments/phonepe/refund:
+ *   post:
+ *     summary: Initiate PhonePe refund
+ *     description: Creates a refund request for a completed PhonePe payment
+ *     tags: [Payments]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *               - amount
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 example: 64abc123def456792
+ *               amount:
+ *                 type: number
+ *                 description: Amount to refund in rupees
+ *                 example: 500
+ *     responses:
+ *       200:
+ *         description: Refund initiated successfully
+ *       400:
+ *         description: Invalid request or refund failed
+ *       404:
+ *         description: Payment record not found
+ */
+router.post("/phonepe/refund", initiatePhonePeRefund);
+
+/**
+ * @swagger
+ * /api/v1/payments/phonepe/refund/status/{refundId}:
+ *   get:
+ *     summary: Check PhonePe refund status
+ *     description: Manually verify refund status with PhonePe
+ *     tags: [Payments]
+ *     parameters:
+ *       - in: path
+ *         name: refundId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Refund ID from refund init response
+ *     responses:
+ *       200:
+ *         description: Refund status retrieved successfully
+ */
+router.get("/phonepe/refund/status/:refundId", getPhonePeRefundStatus);
 
 // ============================================
 // Razorpay Payment Routes

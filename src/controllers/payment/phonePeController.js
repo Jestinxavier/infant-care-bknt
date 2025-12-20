@@ -1,103 +1,90 @@
 const axios = require('axios');
-const crypto = require('crypto');
-const { phonePeConfig, generateChecksum, verifyChecksum } = require('../../config/phonepe');
+const { phonePeConfig, generateXVerify, verifyCallbackChecksum } = require('../../config/phonepe');
 const Order = require('../../models/Order');
 const Payment = require('../../models/Payment');
 
 /**
- * Initialize PhonePe Payment
- * Creates a payment request and returns the payment URL
+ * Initialize PhonePe Payment (V1 Manual Flow)
  */
 const initPhonePePayment = async (req, res) => {
   try {
-    const { orderId, amount, userId, userPhone, userName } = req.body;
+    const { orderId, amount, userId } = req.body;
 
     if (!orderId || !amount || !userId) {
-      return res.status(400).json({
-        success: false,
-        message: "Order ID, amount, and user ID are required"
-      });
+      return res.status(400).json({ success: false, message: "Order ID, amount, and user ID are required" });
     }
 
-    // Verify order exists
-    const order = await Order.findById(orderId);
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found"
-      });
-    }
+    const transactionId = `T${Date.now()}${orderId.toString().slice(-12)}`;
 
-    // Generate unique transaction ID
-    const transactionId = `TXN_${orderId}_${Date.now()}`;
-    const merchantUserId = `USER_${userId}`;
-
-    // Prepare PhonePe payment payload
-    const paymentPayload = {
+    // Payload for PhonePe V1 API
+    const payload = {
       merchantId: phonePeConfig.merchantId,
       merchantTransactionId: transactionId,
-      merchantUserId: merchantUserId,
-      amount: Math.round(amount * 100), // Convert to paise (smallest currency unit)
+      merchantUserId: userId,
+      amount: Math.round(amount * 100), // paise
       redirectUrl: `${phonePeConfig.redirectUrl}?orderId=${orderId}`,
-      redirectMode: 'POST',
+      redirectMode: 'REDIRECT',
       callbackUrl: phonePeConfig.callbackUrl,
-      mobileNumber: userPhone || '',
-      paymentInstrument: {
-        type: 'PAY_PAGE'
-      }
+      paymentInstrument: { type: 'PAY_PAGE' }
     };
 
-    // Encode payload to Base64
-    const base64Payload = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
+    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
+    const xVerify = generateXVerify(base64Payload, phonePeConfig.endpoints.pay);
+    const fullUrl = `${phonePeConfig.baseUrl}${phonePeConfig.endpoints.pay}`;
 
-    // Generate checksum
-    const checksum = generateChecksum(base64Payload);
+    console.log("🔍 PhonePe V1 Init Request:", {
+      url: fullUrl,
+      merchantId: payload.merchantId,
+      merchantTransactionId: payload.merchantTransactionId,
+      xVerify: xVerify
+    });
 
-    // Make API call to PhonePe
     const response = await axios.post(
-      `${phonePeConfig.apiEndpoint}/pg/v1/pay`,
-      {
-        request: base64Payload
-      },
+      fullUrl,
+      { request: base64Payload },
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-VERIFY': checksum
-        }
+          'X-VERIFY': xVerify,
+          'accept': 'application/json'
+        },
+        timeout: 10000
       }
     );
 
-    if (response.data.success) {
-      // Update payment record with transaction ID
+    if (response.data && response.data.success) {
+      const { url } = response.data.data.instrumentResponse.redirectInfo;
+
+      // Upsert payment record
       await Payment.findOneAndUpdate(
         { orderId: orderId },
         {
           transactionId: transactionId,
           status: 'pending',
-          phonepeResponse: response.data
+          phonepeResponse: response.data,
+          method: 'PhonePe',
+          userId: userId,
+          amount: amount
         },
-        { new: true }
+        { new: true, upsert: true }
       );
 
       return res.status(200).json({
         success: true,
-        message: "Payment initiated successfully",
-        data: {
-          paymentUrl: response.data.data.instrumentResponse.redirectInfo.url,
-          transactionId: transactionId,
-          orderId: orderId
-        }
+        data: { paymentUrl: url, transactionId: transactionId, orderId: orderId }
       });
     } else {
-      return res.status(400).json({
-        success: false,
-        message: "Failed to initiate payment",
-        error: response.data.message
-      });
+      console.error("❌ PhonePe Error Response:", JSON.stringify(response.data, null, 2));
+      throw new Error(response.data.message || "Failed to initiate payment");
     }
 
   } catch (error) {
-    console.error("❌ PhonePe payment init error:", error.response?.data || error.message);
+    if (error.response) {
+      console.error("❌ PhonePe API Error (HTTP " + error.response.status + "):", JSON.stringify(error.response.data, null, 2));
+    } else {
+      console.error("❌ PhonePe Network/Local Error:", error.message);
+    }
+
     return res.status(500).json({
       success: false,
       message: "Failed to initialize payment",
@@ -107,157 +94,170 @@ const initPhonePePayment = async (req, res) => {
 };
 
 /**
- * Handle PhonePe Payment Callback
- * Called by PhonePe after payment completion
+ * Handle PhonePe Payment Callback (V1 Manual Flow)
  */
 const phonePeCallback = async (req, res) => {
   try {
-    const { response } = req.body;
+    const { response: base64Response } = req.body;
+    const xVerify = req.headers['x-verify'] || req.headers['X-VERIFY'];
 
-    if (!response) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid callback data"
-      });
+    if (!base64Response || !xVerify) {
+      return res.status(400).json({ success: false, message: "Missing response or x-verify header" });
     }
 
-    // Decode the base64 response
-    const decodedResponse = JSON.parse(Buffer.from(response, 'base64').toString());
-    
-    const { merchantTransactionId, transactionId, amount, state, responseCode } = decodedResponse;
+    // Verify Checksum
+    const isValid = verifyCallbackChecksum(xVerify, base64Response);
+    if (!isValid) {
+      console.warn("⚠️ PhonePe V1 Callback: Invalid Checksum!");
+      return res.status(401).json({ success: false, message: "Checksum verification failed" });
+    }
 
-    console.log("📞 PhonePe Callback received:", decodedResponse);
+    const decoded = JSON.parse(Buffer.from(base64Response, 'base64').toString());
+    const { success, code, data } = decoded;
+    const { merchantTransactionId, transactionId } = data;
 
-    // Find payment by transaction ID
+    console.log(`📞 PhonePe V1 Webhook Received. Status: ${code}`);
+
     const payment = await Payment.findOne({ transactionId: merchantTransactionId });
-    
     if (!payment) {
-      return res.status(404).json({
-        success: false,
-        message: "Payment record not found"
-      });
+      return res.status(404).json({ success: false, message: "Payment record not found" });
     }
 
-    // Update payment status based on PhonePe response
-    if (state === 'COMPLETED' && responseCode === 'SUCCESS') {
+    if (success && code === 'PAYMENT_SUCCESS') {
       payment.status = 'success';
       payment.phonepeTransactionId = transactionId;
-      payment.phonepeResponse = decodedResponse;
-      
-      // Update order payment status
-      await Order.findByIdAndUpdate(payment.orderId, {
-        paymentStatus: 'paid'
-      });
-
+      payment.phonepeResponse = decoded;
       await payment.save();
 
-      return res.status(200).json({
-        success: true,
-        message: "Payment successful",
-        paymentId: payment._id
-      });
+      await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: 'paid' });
+      return res.status(200).json({ success: true, message: "Payment successful" });
     } else {
       payment.status = 'failed';
-      payment.phonepeResponse = decodedResponse;
-      
-      await Order.findByIdAndUpdate(payment.orderId, {
-        paymentStatus: 'failed'
-      });
-
+      payment.phonepeResponse = decoded;
       await payment.save();
 
-      return res.status(400).json({
-        success: false,
-        message: "Payment failed",
-        reason: decodedResponse.message
-      });
+      await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: 'failed' });
+      return res.status(200).json({ success: true, message: "Payment failed marked" });
     }
 
   } catch (error) {
-    console.error("❌ PhonePe callback error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Callback processing failed",
-      error: error.message
-    });
+    console.error("❌ PhonePe V1 Callback Error:", error.message);
+    return res.status(500).json({ success: false, message: "Callback processing failed", error: error.message });
   }
 };
 
 /**
- * Check Payment Status
- * Manually verify payment status with PhonePe
+ * Check Payment Status (V1 Manual Flow)
  */
 const checkPaymentStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
+    const endpoint = `${phonePeConfig.endpoints.status}/${phonePeConfig.merchantId}/${transactionId}`;
 
-    if (!transactionId) {
-      return res.status(400).json({
-        success: false,
-        message: "Transaction ID is required"
-      });
-    }
+    // For status, payload is empty string
+    const xVerify = generateXVerify('', endpoint);
 
-    // Generate checksum for status check
-    const statusEndpoint = `/pg/v1/status/${phonePeConfig.merchantId}/${transactionId}`;
-    const checksum = crypto
-      .createHash('sha256')
-      .update(statusEndpoint + phonePeConfig.saltKey)
-      .digest('hex') + '###' + phonePeConfig.saltIndex;
-
-    // Check status from PhonePe
     const response = await axios.get(
-      `${phonePeConfig.apiEndpoint}${statusEndpoint}`,
+      `${phonePeConfig.baseUrl}${endpoint}`,
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-VERIFY': checksum,
-          'X-MERCHANT-ID': phonePeConfig.merchantId
+          'X-VERIFY': xVerify,
+          'X-MERCHANT-ID': phonePeConfig.merchantId,
+          'accept': 'application/json'
         }
       }
     );
 
-    if (response.data.success) {
-      const paymentData = response.data.data;
-      
-      // Update local payment record
-      const payment = await Payment.findOne({ transactionId: transactionId });
+    if (response.data && response.data.success) {
+      const { code, data } = response.data;
+      const payment = await Payment.findOne({ transactionId });
+
       if (payment) {
-        if (paymentData.state === 'COMPLETED') {
+        if (code === 'PAYMENT_SUCCESS') {
           payment.status = 'success';
+          payment.phonepeResponse = response.data;
+          await payment.save();
           await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: 'paid' });
-        } else if (paymentData.state === 'FAILED') {
+        } else if (code === 'PAYMENT_ERROR') {
           payment.status = 'failed';
+          payment.phonepeResponse = response.data;
+          await payment.save();
           await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: 'failed' });
         }
-        payment.phonepeResponse = paymentData;
-        await payment.save();
       }
 
-      return res.status(200).json({
-        success: true,
-        message: "Payment status retrieved",
-        data: paymentData
-      });
+      return res.status(200).json({ success: true, data: response.data });
     } else {
-      return res.status(400).json({
-        success: false,
-        message: "Failed to check payment status"
-      });
+      return res.status(400).json({ success: false, message: "Failed to check payment status", data: response.data });
     }
 
   } catch (error) {
-    console.error("❌ Payment status check error:", error.response?.data || error.message);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to check payment status",
-      error: error.response?.data || error.message
-    });
+    console.error("❌ PhonePe V1 Status Check Error:", error.response?.data || error.message);
+    return res.status(500).json({ success: false, message: "Failed to check status", error: error.response?.data || error.message });
   }
+};
+
+/**
+ * Initiate Refund (V1 Manual Flow)
+ */
+const initiatePhonePeRefund = async (req, res) => {
+  try {
+    const { orderId, amount } = req.body;
+    const payment = await Payment.findOne({ orderId, status: 'success' });
+
+    if (!payment || !payment.phonepeTransactionId) {
+      return res.status(404).json({ success: false, message: "Success payment not found for refund" });
+    }
+
+    const refundId = `REF_${orderId}_${Date.now()}`;
+    const payload = {
+      merchantId: phonePeConfig.merchantId,
+      merchantTransactionId: refundId,
+      originalTransactionId: payment.transactionId,
+      amount: Math.round(amount * 100), // paise
+      callbackUrl: phonePeConfig.callbackUrl
+    };
+
+    const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64');
+    const xVerify = generateXVerify(base64Payload, phonePeConfig.endpoints.refund);
+
+    const response = await axios.post(
+      `${phonePeConfig.baseUrl}${phonePeConfig.endpoints.refund}`,
+      { request: base64Payload },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-VERIFY': xVerify,
+          'accept': 'application/json'
+        }
+      }
+    );
+
+    if (response.data) {
+      payment.phonepeRefundResponse = response.data;
+      await payment.save();
+      return res.status(200).json({ success: true, data: response.data });
+    }
+
+  } catch (error) {
+    console.error("❌ PhonePe V1 Refund Error:", error.response?.data || error.message);
+    return res.status(500).json({ success: false, message: "Refund failed", error: error.response?.data || error.message });
+  }
+};
+
+/**
+ * Check Refund Status (V1 Manual Flow)
+ */
+const getPhonePeRefundStatus = async (req, res) => {
+  req.params.transactionId = req.params.refundId;
+  return checkPaymentStatus(req, res);
 };
 
 module.exports = {
   initPhonePePayment,
   phonePeCallback,
-  checkPaymentStatus
+  checkPaymentStatus,
+  initiatePhonePeRefund,
+  getPhonePeRefundStatus
 };
