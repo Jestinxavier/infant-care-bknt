@@ -81,30 +81,9 @@ class CmsAdminController {
     });
 
     // Ensure content is in correct format for each page type
-    if (page === "policies") {
-      // Policies should be a string
-      if (typeof content.content !== "string") {
-        console.warn(
-          `⚠️ [CMS] Content for ${page} is not a string, converting...`
-        );
-        // If it's an array (legacy), convert to HTML string
-        if (Array.isArray(content.content)) {
-          content.content = content.content
-            .map((block) => {
-              if (block && block.html) {
-                return `<section id="${block.slug || "policy"}">\n<h1>${
-                  block.title || "Policy"
-                }</h1>\n${block.html}\n</section>`;
-              }
-              return "";
-            })
-            .filter(Boolean)
-            .join("\n\n");
-        } else {
-          content.content = "";
-        }
-      }
-    } else if (page === "home" || page === "about") {
+    // Policies: should be an array of { slug, title, content } objects
+    // Home/About: should be an array of blocks
+    if (page === "home" || page === "about") {
       // Home/About should be an array
       if (!Array.isArray(content.content)) {
         console.warn(
@@ -113,6 +92,7 @@ class CmsAdminController {
         content.content = content.content ? [content.content] : [];
       }
     }
+    // Note: Policies are now handled as array format by default from service
 
     res
       .status(200)
@@ -188,11 +168,13 @@ class CmsAdminController {
    */
   updateContentByPage = asyncHandler(async (req, res) => {
     const { page } = req.params;
-    const { content } = req.body;
+    const { content, slug, title } = req.body; // Extract slug and title for policies
 
     console.log(`📥 [CMS] PUT /admin/cms/${page} - updateContentByPage called`);
     console.log("📥 [CMS] Request body:", {
       page,
+      slug,
+      title,
       hasContent: !!content,
       contentType: Array.isArray(content)
         ? `array[${content.length}]`
@@ -206,7 +188,13 @@ class CmsAdminController {
         .json(ApiResponse.error("Content is required", 400).toJSON());
     }
 
-    const updated = await cmsService.updateContent(page, content);
+    // For policies, pass an object with slug, title, and content
+    let contentData = content;
+    if (page === "policies" && slug) {
+      contentData = { slug, title, content };
+    }
+
+    const updated = await cmsService.updateContent(page, contentData);
 
     console.log(`📤 [CMS] Update successful for page "${page}":`, {
       page: updated.page,

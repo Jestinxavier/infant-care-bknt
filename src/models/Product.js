@@ -53,7 +53,9 @@ const variantSchema = new mongoose.Schema(
     length: { type: Number },
     height: { type: Number },
     width: { type: Number },
+    width: { type: Number },
     _optionsHash: { type: String }, // ✅ NEW: Hash of options for duplicate detection
+    parentId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" }, // ✅ NEW: Reference to parent product
   },
   { _id: false }
 );

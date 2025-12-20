@@ -94,6 +94,8 @@ const getCmsContentByPage = async (req, res) => {
   try {
     const { page } = req.params;
 
+    const { slug } = req.query; // Get slug from query parameters
+
     // Map page names to models
     const pageModelMap = {
       home: { model: Homepage, title: "Home Page" },
@@ -113,24 +115,54 @@ const getCmsContentByPage = async (req, res) => {
       });
     }
 
-    // Fetch from the appropriate collection
-    const content = await pageConfig.model.findOne({});
+    let resultData = {
+      page,
+      title: pageConfig.title,
+    };
 
-    if (!content) {
-      return res.status(404).json({
-        success: false,
-        message: `CMS content for page '${page}' not found`,
-      });
+    // Special handling for policies: Fetch ALL or by SLUG
+    if (page === "policies") {
+      if (slug) {
+        // Expected behavior: Single Policy Document
+        const policyDoc = await pageConfig.model.findOne({ slug });
+
+        if (!policyDoc) {
+          // Return empty content if not found (expected for new policy)
+          resultData.content = "";
+          resultData.slug = slug;
+        } else {
+          resultData.title = policyDoc.title || pageConfig.title;
+          resultData.content = policyDoc.content;
+          resultData.slug = policyDoc.slug;
+        }
+      } else {
+        // Expected behavior: All Policy Documents
+        const allPolicies = await pageConfig.model.find({});
+        // Map to array of { slug, title, content }
+        resultData.content = allPolicies.map((p) => ({
+          slug: p.slug,
+          title: p.title,
+          content: p.content,
+        }));
+      }
+    } else {
+      // Default behavior for single-doc pages (home, about, etc.)
+      const content = await pageConfig.model.findOne({});
+
+      if (!content) {
+        // For others, 404 might be appropriate or empty object
+        return res.status(404).json({
+          success: false,
+          message: `CMS content for page '${page}' not found`,
+        });
+      }
+      resultData.content = content;
     }
 
     res.status(200).json({
       success: true,
       message: "CMS content fetched successfully",
-      data: {
-        page,
-        title: pageConfig.title,
-        content,
-      },
+      data: resultData,
     });
   } catch (err) {
     console.error("❌ Error fetching CMS content:", err);

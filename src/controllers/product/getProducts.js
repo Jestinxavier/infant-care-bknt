@@ -29,520 +29,68 @@ const getAllProducts = async (req, res) => {
       inStock = filters.inStock || requestData.inStock,
     } = { ...requestData, ...filters };
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const skip = (pageNum - 1) * limitNum;
+    // Delegate to ProductService (which now handles Aggregation & Grouping)
+    const productService = require("../../features/product/product.service");
 
-    // Build filter
-    let filter = { status: "published" }; // Only show published products on frontend
-    let categoryTitle = "All Products"; // Initialize categoryTitle
+    // Prepare filters for service
+    const serviceFilters = {
+      page,
+      limit,
+      category, // code or ID will be handled
+      status: "published",
+      minPrice,
+      maxPrice,
+      inStock,
+      sortBy: sortBy || "createdAt",
+      sortOrder: "desc", // Default, could be extracted from sortBy
+      color,
+      size,
+      search: requestData.search || requestData.q,
+    };
 
+    // If category is provided as code (e.g. "clothing"), resolve it to ID first
+    // because service expects ObjectId for category filter
     if (category && category !== "all") {
-      // Find category by code (frontend passes category code, not slug)
       const Category = require("../../models/Category");
-      const categoryDoc = await Category.findOne({
-        code: category,
+      // Try to find by code first, then slug
+      // (New system uses 'code', old might use 'slug')
+      let categoryDoc = await Category.findOne({
+        $or: [{ code: category }, { slug: category }],
         isActive: true,
       });
+
       if (categoryDoc) {
-        filter.category = categoryDoc._id;
-        categoryTitle = categoryDoc.name || categoryTitle; // Set category title
+        serviceFilters.category = categoryDoc._id.toString();
+        // We also need categoryTitle for response
+        res.locals.categoryTitle = categoryDoc.name;
       } else {
-        // Category not found - return empty results
-        return res.status(200).json({
-          success: true,
-          categoryTitle: "Category not found",
-          items: [],
-          pagination: {
-            page: pageNum || 1,
-            limit: limitNum || 20,
-            total: 0,
-            totalPages: 0,
-          },
-        });
-      }
-    }
-    if (minRating) {
-      filter.averageRating = { $gte: parseFloat(minRating) };
-    }
-
-    // Search filter (smart regex)
-    if (requestData.search || requestData.q) {
-      const searchQuery = requestData.search || requestData.q;
-      // Escape special characters for regex
-      const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      filter.$or = [
-        { title: { $regex: escapedQuery, $options: "i" } },
-        { name: { $regex: escapedQuery, $options: "i" } },
-        { description: { $regex: escapedQuery, $options: "i" } },
-        { categoryName: { $regex: escapedQuery, $options: "i" } }, // assuming categoryName exists on product
-      ];
-    }
-
-    // Build sort (support both 'sort' and 'sortBy' from parsed filters)
-    const sortParam = sortBy || filters.sortBy;
-    let sort = {};
-    if (sortParam === "rating") {
-      sort.averageRating = -1;
-    } else if (sortParam === "reviews" || sortParam === "popularity") {
-      sort.totalReviews = -1;
-    } else if (sortParam === "newest") {
-      sort.createdAt = -1;
-    } else if (sortParam === "price_low") {
-      sort.createdAt = -1; // Will sort by variant price after processing
-    } else if (sortParam === "price_high") {
-      sort.createdAt = -1; // Will sort by variant price after processing
-    } else {
-      sort.createdAt = -1; // Default: newest first
-    }
-
-    const products = await Product.find(filter)
-      .populate("category", "name slug")
-      .sort(sort)
-      .lean();
-
-    // Process products: return variants as separate items if inStock, otherwise parent
-    let allItems = [];
-
-    for (const product of products) {
-      const productObj = product;
-
-      // Get category info
-      const categoryName = productObj.category?.name || productObj.categoryName;
-      const categorySlug =
-        productObj.category?.slug ||
-        categoryName?.toLowerCase().replace(/\s+/g, "-");
-
-      // Process embedded variants (new structure)
-      if (productObj.variants && productObj.variants.length > 0) {
-        // Filter variants based on inStock filter (if provided)
-        // If inStock filter is not provided, only show inStock variants by default
-        let variantsToProcess = productObj.variants;
-
-        if (inStock === "false") {
-          // Show only out-of-stock variants
-          variantsToProcess = productObj.variants.filter((variant) => {
-            const stock =
-              variant.stockObj?.available !== undefined
-                ? variant.stockObj.available
-                : variant.stock || 0;
-            const isInStock =
-              variant.stockObj?.isInStock !== undefined
-                ? variant.stockObj.isInStock
-                : stock > 0;
-            return !isInStock;
-          });
+        // If 24 char hex, assume it's an ID
+        if (/^[0-9a-fA-F]{24}$/.test(category)) {
+          serviceFilters.category = category;
+          // Title defaults to "All Products" or we'd fetch it...
+          // Let's settle for "Propducts" if ID provided.
         } else {
-          // Default: show only inStock variants (or all if inStock="true" is explicitly set)
-          const inStockVariants = productObj.variants.filter((variant) => {
-            const stock =
-              variant.stockObj?.available !== undefined
-                ? variant.stockObj.available
-                : variant.stock || 0;
-            const isInStock =
-              variant.stockObj?.isInStock !== undefined
-                ? variant.stockObj.isInStock
-                : stock > 0;
-            return isInStock;
-          });
-          // If inStock="true" is explicitly set, show all variants (including out of stock)
-          // Otherwise, show only inStock variants by default
-          variantsToProcess =
-            inStock === "true" ? productObj.variants : inStockVariants;
-        }
-
-        // If there are variants to process, add them as separate items
-        if (variantsToProcess.length > 0) {
-          for (const variant of variantsToProcess) {
-            // Apply filters
-            let includeVariant = true;
-
-            // Get attributes
-            const variantAttrs = variant.attributes
-              ? variant.attributes instanceof Map
-                ? Object.fromEntries(variant.attributes)
-                : variant.attributes
-              : variant.options instanceof Map
-              ? Object.fromEntries(variant.options)
-              : variant.options || {};
-
-            // Color filter (supports array of colors)
-            if (color) {
-              const variantColor = variantAttrs.color;
-              const colorArray = Array.isArray(color) ? color : [color];
-              if (!colorArray.includes(variantColor)) includeVariant = false;
-            }
-
-            // Size/Age filter (supports array of sizes)
-            if (size || filters.age) {
-              const variantSize = variantAttrs.size || variantAttrs.age;
-              const sizeArray = Array.isArray(size || filters.age)
-                ? size || filters.age
-                : [size || filters.age].filter(Boolean);
-              if (sizeArray.length > 0 && !sizeArray.includes(variantSize)) {
-                includeVariant = false;
-              }
-            }
-
-            // Price filter - use effective price (discountPrice if available, otherwise price) with null checks
-            const filterMinPrice = filters?.minPrice;
-            const filterMaxPrice = filters?.maxPrice;
-            if (filterMinPrice || filterMaxPrice) {
-              const variantPrice =
-                variant?.pricing?.price || variant?.price || 0;
-              const variantDiscountPrice =
-                variant?.pricing?.discountPrice || variant?.discountPrice;
-              // Use effective price (discountPrice if available, otherwise regular price)
-              const effectivePrice =
-                variantDiscountPrice && variantDiscountPrice > 0
-                  ? variantDiscountPrice
-                  : variantPrice || 0;
-
-              if (
-                filterMinPrice &&
-                effectivePrice < parseFloat(String(filterMinPrice))
-              ) {
-                includeVariant = false;
-              }
-              if (
-                filterMaxPrice &&
-                effectivePrice > parseFloat(String(filterMaxPrice))
-              ) {
-                includeVariant = false;
-              }
-            }
-
-            // Stock filter
-            const variantStock =
-              variant.stockObj?.available !== undefined
-                ? variant.stockObj.available
-                : variant.stock || 0;
-            const variantIsInStock =
-              variant.stockObj?.isInStock !== undefined
-                ? variant.stockObj.isInStock
-                : variantStock > 0;
-
-            if (inStock === "true" && !variantIsInStock) {
-              includeVariant = false;
-            } else if (inStock === "false" && variantIsInStock) {
-              includeVariant = false;
-            }
-
-            if (includeVariant) {
-              // Use variant.url_key if it exists, otherwise generate it (backward compatibility)
-              const { generateSlug } = require("../../utils/slugGenerator");
-              let variantUrlKey = variant.url_key;
-              if (!variantUrlKey && productObj.url_key) {
-                const parts = [productObj.url_key];
-                if (variantAttrs.color)
-                  parts.push(generateSlug(variantAttrs.color));
-                if (variantAttrs.size || variantAttrs.age) {
-                  parts.push(
-                    generateSlug(variantAttrs.size || variantAttrs.age)
-                  );
-                }
-                variantUrlKey = parts.join("-");
-              }
-
-              const variantPrice = variant.pricing?.price || variant.price || 0;
-              const variantDiscountPrice =
-                variant.pricing?.discountPrice || variant.discountPrice;
-              const variantStock =
-                variant.stockObj?.available !== undefined
-                  ? variant.stockObj.available
-                  : variant.stock || 0;
-
-              allItems.push({
-                _id: variant.id || `${productObj._id}-${variant.id}`,
-                url_key: variantUrlKey || productObj.url_key,
-                title: productObj.title || productObj.name,
-                price: variantPrice,
-                discountPrice: variantDiscountPrice,
-                stock: variantStock,
-                images:
-                  variant.images && variant.images.length > 0
-                    ? variant.images
-                    : productObj.images || [],
-                sku: variant.sku,
-                productId: {
-                  _id: productObj._id.toString(),
-                  title: productObj.title || productObj.name,
-                  url_key: productObj.url_key,
-                },
-                category: categorySlug || categoryName,
-                categoryName: categoryName,
-                averageRating: productObj.averageRating || 0,
-                totalReviews: productObj.totalReviews || 0,
-                attributes: variantAttrs,
-                tags: productObj.tags || "",
-              });
-            }
-          }
-        } else {
-          // No variants to process, add parent product (only if inStock filter allows)
-          const totalStock = productObj.variants.reduce((sum, v) => {
-            return (
-              sum +
-              (v.stockObj?.available !== undefined
-                ? v.stockObj.available
-                : v.stock || 0)
-            );
-          }, 0);
-          const parentIsInStock = totalStock > 0;
-
-          // Apply stock filter to parent products
-          if (inStock === "true" && !parentIsInStock) {
-            continue; // Skip parent products without stock when filtering for inStock
-          } else if (inStock === "false" && parentIsInStock) {
-            continue; // Skip parent products with stock when filtering for out-of-stock
-          }
-          // Calculate price from all variants (even out of stock) - use effective price
-          const variantPrices = productObj.variants
-            .map((v) => {
-              if (!v) return 0;
-              const vPrice = v.pricing?.price || v.price || 0;
-              const vDiscountPrice =
-                v.pricing?.discountPrice || v.discountPrice;
-              // Use effective price (discountPrice if available, otherwise regular price)
-              return vDiscountPrice && vDiscountPrice > 0
-                ? vDiscountPrice
-                : vPrice;
-            })
-            .filter((p) => p > 0);
-          const minVariantPrice =
-            variantPrices.length > 0 ? Math.min(...variantPrices) : 0;
-
-          // Get discountPrice from variant with minVariantPrice (if available)
-          let parentDiscountPrice = null;
-          if (minVariantPrice > 0) {
-            const variantWithMinPrice = productObj.variants.find((v) => {
-              if (!v) return false;
-              const vPrice = v.pricing?.price || v.price || 0;
-              const vDiscountPrice =
-                v.pricing?.discountPrice || v.discountPrice;
-              const effectivePrice =
-                vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
-              return effectivePrice === minVariantPrice;
-            });
-            if (variantWithMinPrice) {
-              parentDiscountPrice =
-                variantWithMinPrice.pricing?.discountPrice ||
-                variantWithMinPrice.discountPrice ||
-                null;
-            }
-          }
-
-          // Fallback to product's own price fields if no variant prices
-          const parentPrice =
-            minVariantPrice ||
-            productObj?.pricing?.price ||
-            productObj?.price ||
-            productObj?.basePrice ||
-            0;
-          if (
-            parentPrice === productObj?.pricing?.price ||
-            parentPrice === productObj?.price
-          ) {
-            parentDiscountPrice =
-              productObj?.pricing?.discountPrice ||
-              productObj?.discountPrice ||
-              null;
-          }
-
-          // Apply price filter to parent products
-          const filterMinPrice = filters?.minPrice;
-          const filterMaxPrice = filters?.maxPrice;
-          let includeParent = true;
-
-          if (filterMinPrice || filterMaxPrice) {
-            const effectivePrice =
-              parentDiscountPrice && parentDiscountPrice > 0
-                ? parentDiscountPrice
-                : parentPrice || 0;
-
-            if (
-              filterMinPrice &&
-              effectivePrice < parseFloat(String(filterMinPrice))
-            ) {
-              includeParent = false;
-            }
-            if (
-              filterMaxPrice &&
-              effectivePrice > parseFloat(String(filterMaxPrice))
-            ) {
-              includeParent = false;
-            }
-          }
-
-          if (!includeParent) {
-            continue;
-          }
-
-          allItems.push({
-            _id: productObj._id.toString(),
-            url_key: productObj.url_key,
-            title: productObj.title || productObj.name,
-            price: parentPrice,
-            discountPrice: parentDiscountPrice,
-            stock: totalStock,
-            images: productObj.images || [],
-            sku: null,
-            productId: {
-              _id: productObj._id.toString(),
-              title: productObj.title || productObj.name,
-              url_key: productObj.url_key,
-            },
-            category: categorySlug || categoryName,
-            categoryName: categoryName,
-            averageRating: productObj.averageRating || 0,
-            totalReviews: productObj.totalReviews || 0,
-            attributes: {},
-            tags: productObj.tags || "",
+          // Category not found
+          return res.status(200).json({
+            success: true,
+            categoryTitle: "Category not found",
+            items: [],
+            pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
           });
         }
-      } else {
-        // No variants, add parent product
-        // Use product's own price fields
-        const parentPrice =
-          productObj.pricing?.price ||
-          productObj.price ||
-          productObj.basePrice ||
-          0;
-        const parentDiscountPrice =
-          productObj.pricing?.discountPrice || productObj.discountPrice || null;
-
-        // Apply stock filter to products without variants
-        // Check actual stock value first, then fallback to isInStock flag
-        const productStock =
-          productObj.stockObj?.available !== undefined
-            ? productObj.stockObj.available
-            : productObj.stock !== undefined
-            ? productObj.stock
-            : 0;
-        // Product is in stock if stock > 0, regardless of isInStock flag
-        const productIsInStock = productStock > 0;
-
-        // Apply stock filter - inStock can be "true", "false", true, false, or undefined
-        // Normalize inStock to string for comparison
-        const inStockFilter = String(inStock).toLowerCase();
-        if (inStockFilter === "true" && !productIsInStock) {
-          continue; // Skip products without stock when filtering for inStock
-        } else if (inStockFilter === "false" && productIsInStock) {
-          continue; // Skip products with stock when filtering for out-of-stock
-        }
-
-        // Apply price filter to products without variants
-        const filterMinPrice = filters?.minPrice;
-        const filterMaxPrice = filters?.maxPrice;
-        let includeProduct = true;
-
-        if (filterMinPrice || filterMaxPrice) {
-          const effectivePrice =
-            parentDiscountPrice && parentDiscountPrice > 0
-              ? parentDiscountPrice
-              : parentPrice || 0;
-
-          if (
-            filterMinPrice &&
-            effectivePrice < parseFloat(String(filterMinPrice))
-          ) {
-            includeProduct = false;
-          }
-          if (
-            filterMaxPrice &&
-            effectivePrice > parseFloat(String(filterMaxPrice))
-          ) {
-            includeProduct = false;
-          }
-        }
-
-        if (!includeProduct) {
-          continue;
-        }
-
-        allItems.push({
-          _id: productObj._id.toString(),
-          url_key: productObj.url_key,
-          title: productObj.title || productObj.name,
-          subtitle: productObj.subtitle,
-          price: parentPrice,
-          discountPrice: parentDiscountPrice,
-          stock: productStock,
-          images: productObj.images || [],
-          sku: null,
-          productId: {
-            _id: productObj._id.toString(),
-            title: productObj.title || productObj.name,
-            url_key: productObj.url_key,
-          },
-          category: categorySlug || categoryName,
-          categoryName: categoryName,
-          averageRating: productObj.averageRating || 0,
-          totalReviews: productObj.totalReviews || 0,
-          attributes: {},
-          tags: productObj.tags || "",
-        });
       }
     }
 
-    // Sorting - use effective price (discountPrice if available, otherwise price)
-    let sortedItems = [...allItems];
-    if (sortBy === "price_low") {
-      sortedItems.sort((a, b) => {
-        const aEffectivePrice =
-          a.discountPrice && a.discountPrice > 0
-            ? a.discountPrice
-            : a.price || 0;
-        const bEffectivePrice =
-          b.discountPrice && b.discountPrice > 0
-            ? b.discountPrice
-            : b.price || 0;
-        return aEffectivePrice - bEffectivePrice;
-      });
-    } else if (sortBy === "price_high") {
-      sortedItems.sort((a, b) => {
-        const aEffectivePrice =
-          a.discountPrice && a.discountPrice > 0
-            ? a.discountPrice
-            : a.price || 0;
-        const bEffectivePrice =
-          b.discountPrice && b.discountPrice > 0
-            ? b.discountPrice
-            : b.price || 0;
-        return bEffectivePrice - aEffectivePrice;
-      });
-    } else if (sortBy === "rating") {
-      sortedItems.sort(
-        (a, b) => (b.averageRating || 0) - (a.averageRating || 0)
-      );
-    } else if (sortBy === "popularity") {
-      sortedItems.sort((a, b) => (b.totalReviews || 0) - (a.totalReviews || 0));
-    }
-
-    // Pagination
-    const total = sortedItems.length;
-    const totalPages = Math.ceil(total / limitNum);
-    const paginatedItems = sortedItems.slice(skip, skip + limitNum);
-
-    // Use first item's category name if categoryTitle wasn't set from category filter
-    if (
-      categoryTitle === "All Products" &&
-      paginatedItems.length > 0 &&
-      paginatedItems[0]?.categoryName
-    ) {
-      categoryTitle = paginatedItems[0].categoryName;
-    }
+    // Call Service
+    const result = await productService.getAllProducts(serviceFilters, {
+      isAdmin: false,
+    });
 
     res.status(200).json({
       success: true,
-      categoryTitle: categoryTitle || "All Products",
-      items: paginatedItems || [],
-      pagination: {
-        page: pageNum || 1,
-        limit: limitNum || 20,
-        total: total || 0,
-        totalPages: totalPages || 0,
-      },
+      categoryTitle: res.locals.categoryTitle || "All Products",
+      items: result.items,
+      pagination: result.pagination,
     });
   } catch (err) {
     console.error("❌ Error fetching products:", err);

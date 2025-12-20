@@ -197,50 +197,46 @@ class CmsService {
     // For header/footer: document IS the content
     let content = docObject;
 
-    // Case 1: Policies page - content is a string
-    if (page === "policies" && docObject && docObject.content) {
-      if (typeof docObject.content === "string") {
-        content = docObject.content;
+    // Case 1: Policies page
+    if (page === "policies") {
+      // If slug is provided, find specific policy document
+      if (slug) {
+        const policyDoc = await pageConfig.model.findOne({ slug });
+        if (!policyDoc) {
+          // Fallback or empty struct?
+          console.log(`⚠️ [CMS Service] Policy with slug '${slug}' not found`);
+          return {
+            page,
+            title: pageConfig.title,
+            content: "", // Return empty content for 404/new policy
+            slug,
+          };
+        }
+        return {
+          page,
+          title: policyDoc.title || pageConfig.title,
+          content: policyDoc.content || "",
+          slug,
+        };
+      } else {
+        // Return ALL policy documents
+        const allPolicies = await pageConfig.model.find({});
         console.log(
-          `✅ [CMS Service] Extracted policy content (string, length: ${content.length})`
+          `✅ [CMS Service] Found ${allPolicies.length} policy documents`
         );
 
-        // If slug is provided, try to extract that section from HTML using regex
-        if (slug && typeof content === "string") {
-          const sectionMatch = content.match(
-            new RegExp(
-              `<section[^>]*id=["']${slug}["'][^>]*>([\\s\\S]*?)<\\/section>`,
-              "i"
-            )
-          );
-          if (sectionMatch) {
-            content = sectionMatch[0];
-            console.log(
-              `🔍 [CMS Service] Extracted policy section with slug '${slug}'`
-            );
-          } else {
-            console.log(
-              `⚠️ [CMS Service] No section found with slug '${slug}', returning full content`
-            );
-          }
-        }
-      } else if (Array.isArray(docObject.content)) {
-        // Legacy format: convert array to HTML string
-        console.log(
-          `⚠️ [CMS Service] Converting legacy array format to HTML string`
-        );
-        const policyBlocks = docObject.content;
-        content = policyBlocks
-          .map((block) => {
-            if (block && block.html) {
-              return `<section id="${block.slug || "policy"}">\n<h1>${
-                block.title || "Policy"
-              }</h1>\n${block.html}\n</section>`;
-            }
-            return "";
-          })
-          .filter(Boolean)
-          .join("\n\n");
+        // Return as an array of { slug, title, content }
+        const content = allPolicies.map((p) => ({
+          slug: p.slug,
+          title: p.title,
+          content: p.content,
+        }));
+
+        return {
+          page,
+          title: pageConfig.title,
+          content,
+        };
       }
     }
     // Case 2: Single document with content array (homepage/about)
@@ -415,45 +411,80 @@ class CmsService {
         return rest;
       });
     } else {
-      // Legacy/Single-Doc logic for Policies, Header, Footer
-      let updateData;
-      const existing = await pageConfig.model.findOne({});
+      // Legacy/Single-Doc logic for Header, Footer
+      // AND new Multi-Doc logic for Policies if slug is provided in contentData?
+      // Wait, contentData structure depends on what frontend sends.
+      // If frontend sends { slug: '...', content: '...' }, we use that.
 
-      if (isPoliciesPage && typeof contentData === "string") {
-        updateData = { content: contentData };
-      } else if (
-        isFooterOrHeaderPage &&
-        typeof contentData === "object" &&
-        contentData !== null
-      ) {
-        updateData = { content: contentData };
+      let updateData = contentData;
+      let filter = {};
+
+      if (page === "policies") {
+        // Policies expect an object with { slug, content, title? }
+        // If contentData is just string, it's legacy single-doc update (not supported in new mode?)
+        // Let's assume contentData IS the object with slug.
+
+        if (typeof contentData === "object" && contentData.slug) {
+          filter = { slug: contentData.slug };
+          // Use updateData as is (it has content and title)
+          // Default title if missing?
+          if (!updateData.title) {
+            // Try to map slug to title
+            const slugToTitle = {
+              "privacy-policy": "Privacy Policy",
+              "terms-and-conditions": "Terms & Conditions",
+              "shipping-policy": "Shipping Policy",
+              "returns-and-refunds": "Returns & Refunds",
+            };
+            updateData.title = slugToTitle[contentData.slug] || "Policy";
+          }
+        } else {
+          throw new Error("Invalid policy update data. Slug is required.");
+        }
+
+        // Use findOneAndUpdate with upsert
+        const result = await pageConfig.model.findOneAndUpdate(
+          filter,
+          updateData,
+          { new: true, upsert: true }
+        );
+        updatedContent = result.content; // Return just the content string as per legacy expectation? Or object?
+        // Frontend expects consistent return. Let's return the content string for now as it maps to the editor state.
       } else {
-        updateData = contentData;
-      }
+        // Header/Footer (Single Doc)
+        const existing = await pageConfig.model.findOne({});
 
-      let result;
-      if (existing) {
-        const existingObj = existing.toObject ? existing.toObject() : existing;
-        const merged = { ...existingObj, ...updateData };
-        result = await pageConfig.model.findOneAndUpdate({}, merged, {
-          new: true,
-        });
-      } else {
-        result = await pageConfig.model.create(updateData);
-      }
+        if (
+          isFooterOrHeaderPage &&
+          typeof contentData === "object" &&
+          contentData !== null
+        ) {
+          updateData = { content: contentData };
+        } else {
+          updateData = contentData;
+        }
 
-      const docObject = result.toObject ? result.toObject() : result;
+        let result;
+        if (existing) {
+          const existingObj = existing.toObject
+            ? existing.toObject()
+            : existing;
+          const merged = { ...existingObj, ...updateData };
+          result = await pageConfig.model.findOneAndUpdate({}, merged, {
+            new: true,
+          });
+        } else {
+          result = await pageConfig.model.create(updateData);
+        }
 
-      // Extract content for response
-      if (page === "policies" && docObject.content) {
-        updatedContent = docObject.content;
-      } else if (
-        (page === "footer" || page === "header") &&
-        docObject.content
-      ) {
-        updatedContent = docObject.content;
-      } else {
-        updatedContent = docObject;
+        const docObject = result.toObject ? result.toObject() : result;
+
+        // Extract content for response
+        if ((page === "footer" || page === "header") && docObject.content) {
+          updatedContent = docObject.content;
+        } else {
+          updatedContent = docObject;
+        }
       }
     }
 
