@@ -7,6 +7,7 @@ const {
   updateMyReview,
   deleteMyReview,
   getVariantReviews,
+  getProductReviews,
   getTopReviews,
 } = require("../controllers/review/review");
 const verifyToken = require("../middlewares/authMiddleware");
@@ -338,6 +339,38 @@ router.delete("/my-review/:reviewId", verifyToken, deleteMyReview);
  *         description: Server error
  */
 router.get("/variant/:variantId", getVariantReviews);
+
+/**
+ * @swagger
+ * /api/v1/review/product/{productId}:
+ *   get:
+ *     summary: Get all reviews for a product (Public)
+ *     description: Get all reviews for a specific product with average rating
+ *     tags: [Reviews]
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product ID
+ *         example: 64abc123def456790
+ *     responses:
+ *       200:
+ *         description: Reviews retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: true
+ *                 totalReviews: 15
+ *                 averageRating: 4.3
+ *                 reviews: []
+ *       500:
+ *         description: Server error
+ */
+router.get("/product/:productId", getProductReviews);
 
 /**
  * @swagger

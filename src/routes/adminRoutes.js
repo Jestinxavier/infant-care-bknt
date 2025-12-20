@@ -11,6 +11,8 @@ const {
   getAllCategories,
   getCategoryById,
   getAllCustomers,
+  getAllReviews,
+  replyToReview,
 } = require("../controllers/admin");
 
 const { getDashboardStats } = require("../controllers/admin/dashboardController");
@@ -780,30 +782,33 @@ router.patch(
  *     responses:
  *       200:
  *         description: Customers retrieved successfully
- *   post:
- *     summary: "[Admin] Get all customers (POST)"
- *     description: Same as GET but accepts filters in the request body.
- *     tags: [Admin]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               page:
- *                 type: integer
- *               limit:
- *                 type: integer
- *               search:
- *                 type: string
- *     responses:
- *       200:
- *         description: Customers retrieved successfully
  */
 router.get("/customers", verifyToken, requireAdmin, getAllCustomers);
 router.post("/customers", verifyToken, requireAdmin, getAllCustomers);
+
+// ==================== REVIEWS ====================
+
+/**
+ * @swagger
+ * /api/v1/admin/reviews:
+ *   get:
+ *     summary: "[Admin] Get all product reviews"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get("/reviews", verifyToken, requireAdmin, getAllReviews);
+
+/**
+ * @swagger
+ * /api/v1/admin/reviews/reply:
+ *   post:
+ *     summary: "[Admin] Reply to a review"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post("/reviews/reply", verifyToken, requireAdmin, replyToReview);
 
 // ==================== CATEGORIES ====================
 
