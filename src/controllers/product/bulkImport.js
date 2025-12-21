@@ -427,6 +427,11 @@ class BulkImportController {
         // Build images array
         const images = []; // ✅ Restored missing variable
 
+        // Pre-calculate ID for new products to use in variant linkage
+        const finalProductId = isUpdate
+          ? productData.csvId
+          : new mongoose.Types.ObjectId();
+
         // 1. Process Temp Images
         if (productData.imageMetadata) {
           for (const key of productData.imageMetadata) {
@@ -466,8 +471,54 @@ class BulkImportController {
               }
             }
 
+            // ✅ NEW: ID Generation Logic
+            let variantId = variantData.csvId;
+            // Only generate new ID if it's a temp ID or a new variant
+            if (
+              !variantId ||
+              variantId.startsWith("TMP_") ||
+              variantData.isNewVariant
+            ) {
+              let configCode = "";
+              if (
+                variantData.attributes &&
+                typeof variantData.attributes === "object"
+              ) {
+                const attrs = variantData.attributes;
+                // Attributes might be a Map or object depending on parsing.
+                // Assuming object based on earlier use.
+                const parts = [];
+                // Try common keys case-insensitively
+                const colorKey = Object.keys(attrs).find(
+                  (k) => k.toLowerCase() === "color"
+                );
+                const sizeKey = Object.keys(attrs).find(
+                  (k) => k.toLowerCase() === "size"
+                );
+
+                if (colorKey && attrs[colorKey])
+                  parts.push(
+                    String(attrs[colorKey]).substring(0, 3).toUpperCase()
+                  );
+                if (sizeKey && attrs[sizeKey])
+                  parts.push(String(attrs[sizeKey]).toUpperCase());
+
+                if (parts.length > 0) configCode = parts.join("-");
+              }
+
+              if (!configCode) {
+                configCode = Math.random()
+                  .toString(36)
+                  .substring(2, 6)
+                  .toUpperCase();
+              }
+
+              variantId = `${finalProductId}-${configCode}`;
+            }
+
             embeddedVariants.push({
-              id: variantData.csvId,
+              id: variantId, // ✅ Use standardized ID
+              parentId: finalProductId, // ✅ Linking to parent
               url_key: `${productData.url_key}-${variantData.sku
                 .toLowerCase()
                 .replace(/[^a-z0-9]+/g, "-")}`, // Generate simplified url_key for variant
@@ -540,6 +591,7 @@ class BulkImportController {
         } else {
           // Create new product
           const newProduct = new Product({
+            _id: finalProductId, // ✅ Explicit ID
             title: productData.title,
             name: productData.title, // Sync name with title
             sku: productData.sku,

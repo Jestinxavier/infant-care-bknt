@@ -1,6 +1,11 @@
-const { razorpayInstance, verifyPaymentSignature, verifyWebhookSignature } = require('../../config/razorpay');
-const Order = require('../../models/Order');
-const Payment = require('../../models/Payment');
+const {
+  razorpayInstance,
+  verifyPaymentSignature,
+  verifyWebhookSignature,
+} = require("../../config/razorpay");
+const Order = require("../../models/Order");
+const Payment = require("../../models/Payment");
+const Cart = require("../../models/Cart");
 
 /**
  * Create Razorpay Order
@@ -13,7 +18,7 @@ const createRazorpayOrder = async (req, res) => {
     if (!orderId || !amount || !userId) {
       return res.status(400).json({
         success: false,
-        message: "Order ID, amount, and user ID are required"
+        message: "Order ID, amount, and user ID are required",
       });
     }
 
@@ -22,19 +27,19 @@ const createRazorpayOrder = async (req, res) => {
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: "Order not found"
+        message: "Order not found",
       });
     }
 
     // Create Razorpay order
     const options = {
       amount: Math.round(amount * 100), // Amount in paise (smallest currency unit)
-      currency: 'INR',
+      currency: "INR",
       receipt: `order_${orderId}`,
       notes: {
         orderId: orderId,
         userId: userId,
-      }
+      },
     };
 
     const razorpayOrder = await razorpayInstance.orders.create(options);
@@ -45,8 +50,8 @@ const createRazorpayOrder = async (req, res) => {
       {
         transactionId: razorpayOrder.id,
         razorpayOrderId: razorpayOrder.id,
-        status: 'pending',
-        razorpayResponse: razorpayOrder
+        status: "pending",
+        razorpayResponse: razorpayOrder,
       },
       { new: true }
     );
@@ -59,16 +64,15 @@ const createRazorpayOrder = async (req, res) => {
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency,
         orderId: orderId,
-        keyId: process.env.RAZORPAY_KEY_ID // Frontend needs this
-      }
+        keyId: process.env.RAZORPAY_KEY_ID, // Frontend needs this
+      },
     });
-
   } catch (error) {
     console.error("❌ Razorpay order creation error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to create Razorpay order",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -79,17 +83,22 @@ const createRazorpayOrder = async (req, res) => {
  */
 const verifyRazorpayPayment = async (req, res) => {
   try {
-    const { 
-      razorpay_order_id, 
-      razorpay_payment_id, 
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
       razorpay_signature,
-      orderId 
+      orderId,
     } = req.body;
 
-    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !orderId) {
+    if (
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature ||
+      !orderId
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Missing required payment verification parameters"
+        message: "Missing required payment verification parameters",
       });
     }
 
@@ -104,19 +113,19 @@ const verifyRazorpayPayment = async (req, res) => {
       // Update payment as failed
       await Payment.findOneAndUpdate(
         { orderId: orderId },
-        { 
-          status: 'failed',
-          razorpayPaymentId: razorpay_payment_id 
+        {
+          status: "failed",
+          razorpayPaymentId: razorpay_payment_id,
         }
       );
 
       await Order.findByIdAndUpdate(orderId, {
-        paymentStatus: 'failed'
+        paymentStatus: "failed",
       });
 
       return res.status(400).json({
         success: false,
-        message: "Invalid payment signature"
+        message: "Invalid payment signature",
       });
     }
 
@@ -124,32 +133,39 @@ const verifyRazorpayPayment = async (req, res) => {
     const payment = await Payment.findOneAndUpdate(
       { orderId: orderId },
       {
-        status: 'success',
+        status: "success",
         razorpayOrderId: razorpay_order_id,
         razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature
+        razorpaySignature: razorpay_signature,
       },
       { new: true }
     );
 
     // Update order payment status
-    await Order.findByIdAndUpdate(orderId, {
-      paymentStatus: 'paid'
+    const order = await Order.findByIdAndUpdate(orderId, {
+      paymentStatus: "paid",
     });
+
+    // Clear user's cart after successful payment
+    if (order && order.userId) {
+      await Cart.deleteMany({ userId: order.userId });
+      console.log(
+        `🗑️  Cleared cart for user ${order.userId} after successful payment`
+      );
+    }
 
     return res.status(200).json({
       success: true,
       message: "Payment verified successfully",
       paymentId: payment._id,
-      orderId: orderId
+      orderId: orderId,
     });
-
   } catch (error) {
     console.error("❌ Payment verification error:", error);
     return res.status(500).json({
       success: false,
       message: "Payment verification failed",
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -161,12 +177,12 @@ const verifyRazorpayPayment = async (req, res) => {
 const razorpayWebhook = async (req, res) => {
   try {
     // Get signature from header
-    const signature = req.headers['x-razorpay-signature'];
-    
+    const signature = req.headers["x-razorpay-signature"];
+
     if (!signature) {
       return res.status(400).json({
         success: false,
-        message: "Missing webhook signature"
+        message: "Missing webhook signature",
       });
     }
 
@@ -177,7 +193,7 @@ const razorpayWebhook = async (req, res) => {
     if (!isValid) {
       return res.status(400).json({
         success: false,
-        message: "Invalid webhook signature"
+        message: "Invalid webhook signature",
       });
     }
 
@@ -189,38 +205,38 @@ const razorpayWebhook = async (req, res) => {
 
     // Handle different events
     switch (event) {
-      case 'payment.captured':
+      case "payment.captured":
         // Payment successful
-        const payment = await Payment.findOne({ 
-          razorpayPaymentId: paymentData.id 
+        const payment = await Payment.findOne({
+          razorpayPaymentId: paymentData.id,
         });
 
         if (payment) {
-          payment.status = 'success';
+          payment.status = "success";
           payment.razorpayResponse = paymentData;
           await payment.save();
 
           await Order.findByIdAndUpdate(payment.orderId, {
-            paymentStatus: 'paid'
+            paymentStatus: "paid",
           });
 
           console.log("✅ Payment captured:", paymentData.id);
         }
         break;
 
-      case 'payment.failed':
+      case "payment.failed":
         // Payment failed
-        const failedPayment = await Payment.findOne({ 
-          razorpayPaymentId: paymentData.id 
+        const failedPayment = await Payment.findOne({
+          razorpayPaymentId: paymentData.id,
         });
 
         if (failedPayment) {
-          failedPayment.status = 'failed';
+          failedPayment.status = "failed";
           failedPayment.razorpayResponse = paymentData;
           await failedPayment.save();
 
           await Order.findByIdAndUpdate(failedPayment.orderId, {
-            paymentStatus: 'failed'
+            paymentStatus: "failed",
           });
 
           console.log("❌ Payment failed:", paymentData.id);
@@ -232,12 +248,11 @@ const razorpayWebhook = async (req, res) => {
     }
 
     return res.status(200).json({ success: true });
-
   } catch (error) {
     console.error("❌ Webhook processing error:", error);
     return res.status(500).json({
       success: false,
-      message: "Webhook processing failed"
+      message: "Webhook processing failed",
     });
   }
 };
@@ -253,7 +268,7 @@ const getPaymentDetails = async (req, res) => {
     if (!paymentId) {
       return res.status(400).json({
         success: false,
-        message: "Payment ID is required"
+        message: "Payment ID is required",
       });
     }
 
@@ -262,15 +277,14 @@ const getPaymentDetails = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: payment
+      data: payment,
     });
-
   } catch (error) {
     console.error("❌ Fetch payment error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch payment details",
-      error: error.message
+      error: error.message,
     });
   }
 };

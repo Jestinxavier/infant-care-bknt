@@ -11,10 +11,9 @@ const formatCartResponse = (cart) => {
   const formattedItems = cart.items.map((item) => {
     const itemObj = {
       _id: item._id.toString(), // Item ID (embedded document ID, needed for updates)
-      productId:
-        item.productId?._id
-          ? item.productId._id.toString()
-          : item.productId.toString(),
+      productId: item.productId?._id
+        ? item.productId._id.toString()
+        : item.productId.toString(),
       variantId: item.variantId || null,
       quantity: item.quantity,
       priceSnapshot: item.priceSnapshot,
@@ -55,4 +54,3 @@ const formatCartResponse = (cart) => {
 };
 
 module.exports = { formatCartResponse };
-

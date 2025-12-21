@@ -414,7 +414,7 @@ router.post("/refresh", refreshToken);
  *                   type: string
  *                   example: Logout successful
  */
-router.post("/logout", logout);
+router.post("/logout", verifyToken, logout);
 
 /**
  * @swagger

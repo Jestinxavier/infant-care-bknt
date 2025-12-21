@@ -45,33 +45,80 @@ const updateCmsContent = async (req, res) => {
     if (!pageConfig) {
       return res.status(400).json({
         success: false,
-        message: `Invalid page. Must be one of: ${Object.keys(pageModelMap).join(", ")}`,
+        message: `Invalid page. Must be one of: ${Object.keys(
+          pageModelMap
+        ).join(", ")}`,
       });
     }
 
     // Check if document exists
-    const existingDoc = await pageConfig.model.findOne({});
+    let existingDoc;
+    let filter = {};
+    const { slug, title: bodyTitle } = req.body; // Extract from request body, not content
+
+    // Special handling for Policies (Multi-document)
+    if (page === "policies") {
+      if (!slug) {
+        return res.status(400).json({
+          success: false,
+          message: "Slug is required for policy updates",
+        });
+      }
+      filter = { slug };
+      existingDoc = await pageConfig.model.findOne(filter);
+    } else {
+      // Legacy single-doc behavior
+      existingDoc = await pageConfig.model.findOne({});
+      if (existingDoc) {
+        filter = { _id: existingDoc._id };
+      }
+    }
+
     const isNew = !existingDoc;
 
     // Update or create the document
-    // Since these are flexible schemas, we merge the content with existing data
     let updatedContent;
-    if (existingDoc) {
-      // Merge new content with existing document
-      const mergedData = { ...existingDoc.toObject(), ...content };
+
+    if (page === "policies") {
+      // Upsert based on slug
+      // Construct document with slug, title, and content
+      const docData = {
+        slug,
+        content, // content is the HTML string
+        title:
+          bodyTitle ||
+          slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+      };
+
       updatedContent = await pageConfig.model.findOneAndUpdate(
-        { _id: existingDoc._id },
-        mergedData,
-        { new: true, runValidators: true }
+        { slug },
+        docData,
+        {
+          new: true,
+          upsert: true,
+          runValidators: true,
+          setDefaultsOnInsert: true,
+        }
       );
     } else {
-      // Create new document with content
-      updatedContent = await pageConfig.model.create(content);
+      // Legacy single-doc update
+      if (existingDoc) {
+        const mergedData = { ...existingDoc.toObject(), ...content };
+        updatedContent = await pageConfig.model.findOneAndUpdate(
+          filter,
+          mergedData,
+          { new: true, runValidators: true }
+        );
+      } else {
+        updatedContent = await pageConfig.model.create(content);
+      }
     }
 
     res.status(200).json({
       success: true,
-      message: `CMS content for '${page}' ${isNew ? 'created' : 'updated'} successfully`,
+      message: `CMS content for '${page}' ${
+        isNew ? "created" : "updated"
+      } successfully`,
       data: {
         page,
         title: pageConfig.title,
@@ -80,7 +127,7 @@ const updateCmsContent = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error updating CMS content:", err);
-    
+
     // Handle validation errors
     if (err.name === "ValidationError") {
       return res.status(400).json({
@@ -121,7 +168,9 @@ const deleteCmsContent = async (req, res) => {
     if (!pageConfig) {
       return res.status(400).json({
         success: false,
-        message: `Invalid page. Must be one of: ${Object.keys(pageModelMap).join(", ")}`,
+        message: `Invalid page. Must be one of: ${Object.keys(
+          pageModelMap
+        ).join(", ")}`,
       });
     }
 
@@ -153,4 +202,3 @@ module.exports = {
   updateCmsContent,
   deleteCmsContent,
 };
-

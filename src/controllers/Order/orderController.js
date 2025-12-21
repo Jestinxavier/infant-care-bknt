@@ -3,13 +3,24 @@ const Variant = require("../../models/Variant");
 const Address = require("../../models/Address");
 const Payment = require("../../models/Payment");
 const Product = require("../../models/Product");
+const Cart = require("../../models/Cart");
 
 const createOrder = async (req, res) => {
   try {
-    const { userId, items, addressId, newAddress, paymentMethod, shippingCost = 0, discount = 0 } = req.body;
+    const {
+      userId,
+      items,
+      addressId,
+      newAddress,
+      paymentMethod,
+      shippingCost = 0,
+      discount = 0,
+    } = req.body;
 
     if (!userId || !items || items.length === 0) {
-      return res.status(400).json({ message: "User ID and order items are required" });
+      return res
+        .status(400)
+        .json({ message: "User ID and order items are required" });
     }
 
     // Step 1: Validate stock availability and build items with full data
@@ -22,24 +33,29 @@ const createOrder = async (req, res) => {
       // Always find the Product first
       const product = await Product.findById(item.productId);
       if (!product) {
-        return res.status(404).json({ message: `Product not found: ${item.productId}` });
+        return res
+          .status(404)
+          .json({ message: `Product not found: ${item.productId}` });
       }
 
       let regularPrice, offerPrice, stock, variantData;
 
       if (item.variantId) {
         // Find variant
-        variantData = product.variants?.find(v => v.id === item.variantId || v._id?.toString() === item.variantId);
+        variantData = product.variants?.find(
+          (v) => v.id === item.variantId || v._id?.toString() === item.variantId
+        );
 
         if (!variantData) {
-          return res.status(404).json({ message: `Variant ${item.variantId} not found in product ${product.name}` });
+          return res.status(404).json({
+            message: `Variant ${item.variantId} not found in product ${product.name}`,
+          });
         }
 
         // Use variant pricing
         regularPrice = variantData.pricing?.price || variantData.price || 0;
         offerPrice = variantData.pricing?.discountPrice || regularPrice;
         stock = variantData.stockObj?.available ?? variantData.stock ?? 0;
-
       } else {
         // Use Product pricing
         regularPrice = product.pricing?.price || product.price || 0;
@@ -50,7 +66,9 @@ const createOrder = async (req, res) => {
       // Check stock availability
       if (stock < item.quantity) {
         return res.status(400).json({
-          message: `Insufficient stock for ${product.title || product.name || 'product'}. Available: ${stock}, Requested: ${item.quantity}`
+          message: `Insufficient stock for ${
+            product.title || product.name || "product"
+          }. Available: ${stock}, Requested: ${item.quantity}`,
         });
       }
 
@@ -64,14 +82,14 @@ const createOrder = async (req, res) => {
         productId: product._id,
         variantId: item.variantId || null,
         quantity: itemQuantity,
-        price: offerPrice // Store the effective price (offer price)
+        price: offerPrice, // Store the effective price (offer price)
       });
 
       // Prepare stock update
       productsToUpdate.push({
         productId: product._id,
         variantId: item.variantId || null,
-        quantity: itemQuantity
+        quantity: itemQuantity,
       });
     }
 
@@ -80,7 +98,9 @@ const createOrder = async (req, res) => {
     const shippingAmount = totalAfterDiscount >= 1000 ? 0 : 60; // Free shipping threshold
     const totalAmount = totalAfterDiscount + shippingAmount;
 
-    console.log(`💰 Order Calc: Subtotal=${subtotal}, Discount=${discountAmount}, Shipping=${shippingAmount}, Total=${totalAmount}`);
+    console.log(
+      `💰 Order Calc: Subtotal=${subtotal}, Discount=${discountAmount}, Shipping=${shippingAmount}, Total=${totalAmount}`
+    );
 
     // Step 2: Handle Address
     let finalAddressId = addressId;
@@ -101,7 +121,9 @@ const createOrder = async (req, res) => {
     }
 
     if (!finalAddressId || !shippingAddressData) {
-      return res.status(400).json({ message: "Address ID or new address is required" });
+      return res
+        .status(400)
+        .json({ message: "Address ID or new address is required" });
     }
 
     // Step 3: Create Order
@@ -120,7 +142,7 @@ const createOrder = async (req, res) => {
       totalAmount,
       addressId: finalAddressId,
       shippingAddress: shippingAddressData,
-      paymentMethod: paymentMethod || "COD"
+      paymentMethod: paymentMethod || "COD",
     });
 
     await order.save();
@@ -134,21 +156,18 @@ const createOrder = async (req, res) => {
           {
             $inc: {
               "variants.$.stock": -update.quantity,
-              "variants.$.stockObj.available": -update.quantity
-            }
+              "variants.$.stockObj.available": -update.quantity,
+            },
           }
         );
       } else {
         // Update main product stock
-        await Product.findByIdAndUpdate(
-          update.productId,
-          {
-            $inc: {
-              stock: -update.quantity,
-              "stockObj.available": -update.quantity
-            }
-          }
-        );
+        await Product.findByIdAndUpdate(update.productId, {
+          $inc: {
+            stock: -update.quantity,
+            "stockObj.available": -update.quantity,
+          },
+        });
       }
     }
 
@@ -158,7 +177,7 @@ const createOrder = async (req, res) => {
       userId,
       amount: totalAmount,
       method: paymentMethod,
-      status: paymentMethod === "COD" ? "pending" : "pending"
+      status: paymentMethod === "COD" ? "pending" : "pending",
     });
 
     await payment.save();
@@ -167,22 +186,24 @@ const createOrder = async (req, res) => {
     if (paymentMethod === "PhonePe") {
       return res.status(201).json({
         success: true,
-        message: "✅ Order created successfully. Please initiate PhonePe payment.",
+        message:
+          "✅ Order created successfully. Please initiate PhonePe payment.",
         order,
         payment,
         requiresPayment: true,
-        paymentMethod: "PhonePe"
+        paymentMethod: "PhonePe",
       });
     }
 
     if (paymentMethod === "Razorpay") {
       return res.status(201).json({
         success: true,
-        message: "✅ Order created successfully. Please initiate Razorpay payment.",
+        message:
+          "✅ Order created successfully. Please initiate Razorpay payment.",
         order,
         payment,
         requiresPayment: true,
-        paymentMethod: "Razorpay"
+        paymentMethod: "Razorpay",
       });
     }
 
@@ -191,15 +212,14 @@ const createOrder = async (req, res) => {
       success: true,
       message: "✅ Order created successfully",
       order,
-      payment
+      payment,
     });
-
   } catch (err) {
     console.error("❌ Error creating order:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message
+      error: err.message,
     });
   }
 };

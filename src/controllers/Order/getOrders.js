@@ -10,28 +10,40 @@ const getOrders = async (req, res) => {
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: "User ID is required. Please authenticate."
+        message: "User ID is required. Please authenticate.",
       });
     }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const totalOrders = await Order.countDocuments({ userId });
+    const totalPages = Math.ceil(totalOrders / limit);
 
     const orders = await Order.find({ userId })
       .populate({
         path: "items.variantId",
         populate: {
           path: "productId",
-          select: "name images"
-        }
+          select: "name images",
+        },
       })
       .populate({
         path: "items.productId",
-        select: "name images"
+        select: "name images",
       })
-      .populate("addressId", "fullName phone houseName street landmark city state pincode country nickname")
+      .populate(
+        "addressId",
+        "fullName phone houseName street landmark city state pincode country nickname"
+      )
       .populate("deliveryPartner")
-      .sort({ createdAt: -1 }); // Most recent first
+      .sort({ createdAt: -1 }) // Most recent first
+      .skip(skip)
+      .limit(limit);
 
     // Format orders for frontend
-    const formattedOrders = orders.map(order => {
+    const formattedOrders = orders.map((order) => {
       return {
         _id: order._id,
         orderId: order.orderId || order._id.toString(),
@@ -46,9 +58,12 @@ const getOrders = async (req, res) => {
         trackingId: order.trackingId,
         deliveryPartner: order.deliveryPartner,
         fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
-        items: order.items.map(item => {
+        items: order.items.map((item) => {
           // Robust product resolution
-          const product = (item.productId && item.productId._id) ? item.productId : (item.variantId?.productId);
+          const product =
+            item.productId && item.productId._id
+              ? item.productId
+              : item.variantId?.productId;
 
           return {
             variantId: item.variantId?._id || item.variantId,
@@ -68,17 +83,19 @@ const getOrders = async (req, res) => {
       success: true,
       message: "Orders fetched successfully",
       orders: formattedOrders,
-      total: formattedOrders.length
+      total: totalOrders,
+      totalPages,
+      currentPage: page,
+      limit,
     });
   } catch (err) {
     console.error("❌ Error fetching orders:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message
+      error: err.message,
     });
   }
 };
 
 module.exports = getOrders;
-
