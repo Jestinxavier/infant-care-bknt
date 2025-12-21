@@ -129,7 +129,7 @@ app.use(
 // Default route
 app.get("/", (req, res) =>
   res.send(
-    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5000/api-docs</a>"
+    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5001/api-docs</a>"
   )
 );
 
