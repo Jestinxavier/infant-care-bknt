@@ -8,8 +8,11 @@ const Homepage = require("../../models/Homepage");
  */
 const getHomepage = async (req, res) => {
   try {
-    // Fetch all documents from homepage collection, sorted by order
-    const homepageData = await Homepage.find({}).sort({ order: 1 });
+    // Fetch only enabled widgets from homepage collection, sorted by order
+    // This ensures disabled widgets are not shown on the frontend
+    const homepageData = await Homepage.find({ enabled: true }).sort({
+      order: 1,
+    });
 
     if (!homepageData || homepageData.length === 0) {
       return res.status(404).json({

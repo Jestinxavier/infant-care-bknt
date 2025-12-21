@@ -13,6 +13,7 @@ const allowedOrigins = [
   "http://localhost:5174", // Vite alternate port
   "http://localhost:4173", // Vite preview port
   "https://infant-care.vercel.app", // Production frontend (Vercel)
+  "https://infantscare.in/",
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
 ].filter(Boolean); // Remove undefined values

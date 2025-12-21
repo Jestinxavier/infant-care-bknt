@@ -564,6 +564,11 @@ class CmsService {
           // Add only link (no banner-level alt - alt is inside image objects)
           if (banner.link !== undefined) contentItem.link = banner.link;
 
+          // Add display type for strip/full banner optimization
+          if (banner.displayType !== undefined) {
+            contentItem.displayType = banner.displayType;
+          }
+
           return contentItem;
         })
         .filter(Boolean); // Remove null entries
