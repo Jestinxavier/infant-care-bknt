@@ -113,13 +113,31 @@ const formatProductResponse = (product) => {
     return detail;
   });
 
+  // Get category value - return full object if populated
+  let categoryValue;
+  if (
+    productObj.category &&
+    typeof productObj.category === "object" &&
+    productObj.category._id
+  ) {
+    // Category was populated - return the full object
+    categoryValue = {
+      _id: productObj.category._id.toString(),
+      name: productObj.category.name,
+      slug: productObj.category.slug,
+    };
+  } else {
+    // Category not populated - return the slug or name as fallback
+    categoryValue = categorySlug || categoryName;
+  }
+
   // Format response
   return {
     id: productObj._id?.toString() || productObj.id,
     url_key: productObj.url_key,
     title: productObj.title || productObj.name,
     description: productObj.description,
-    category: categorySlug || categoryName,
+    category: categoryValue,
     images: productObj.images || [],
     rating: {
       value: productObj.averageRating || 0,
