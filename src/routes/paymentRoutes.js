@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   initPhonePePayment,
   phonePeCallback,
+  phonePeRedirect,
   checkPaymentStatus,
   createRazorpayOrder,
   verifyRazorpayPayment,
@@ -112,6 +113,9 @@ router.post("/phonepe/init", initPhonePePayment);
  */
 // POST /api/v1/payments/phonepe/callback - PhonePe callback handler
 router.post("/phonepe/callback", phonePeCallback);
+
+// GET /api/v1/payments/phonepe/redirect - PhonePe redirect handler
+router.get("/phonepe/redirect", phonePeRedirect);
 
 /**
  * @swagger
