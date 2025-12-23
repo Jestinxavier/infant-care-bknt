@@ -461,7 +461,7 @@ router.post("/resend-otp", resendOTP);
 /**
  * @swagger
  * /api/v1/auth/profile:
- *   get:
+ *   post:
  *     summary: Get authenticated user profile
  *     description: Retrieve the current user's profile information using the access token
  *     tags: [Authentication]
@@ -545,14 +545,14 @@ router.post("/profile", verifyToken, getProfile);
  * /api/v1/auth/profile:
  *   put:
  *     summary: Update authenticated user profile
- *     description: Update the current user's profile information (username, email, phone)
+ *     description: Update the current user's profile information (username, email, phone, avatar)
  *     tags: [Authentication]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
@@ -560,81 +560,24 @@ router.post("/profile", verifyToken, getProfile);
  *                 type: string
  *                 minLength: 3
  *                 example: johndoe
- *                 description: New username (optional, must be unique)
  *               email:
  *                 type: string
  *                 format: email
  *                 example: john@example.com
- *                 description: New email (optional, must be unique, will mark email as unverified if changed)
  *               phone:
  *                 type: string
  *                 example: "+91 9876543210"
- *                 description: Phone number (optional)
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *                 description: User profile picture
  *     responses:
  *       200:
  *         description: Profile updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Profile updated successfully
- *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                       example: 60d5f484f8d2e63a4c8b4567
- *                     username:
- *                       type: string
- *                       example: johndoe
- *                     email:
- *                       type: string
- *                       example: john@example.com
- *                     phone:
- *                       type: string
- *                       example: "+91 9876543210"
- *                     role:
- *                       type: string
- *                       example: user
- *                     isEmailVerified:
- *                       type: boolean
- *                       example: true
- *                     createdAt:
- *                       type: string
- *                       format: date-time
- *                     updatedAt:
- *                       type: string
- *                       format: date-time
  *       400:
- *         description: Username or email already taken, or validation error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Validation error or upload failed
  *       401:
- *         description: No token provided or invalid token format
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: Internal Server Error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Unauthorized
  */
 router.put(
   "/profile",

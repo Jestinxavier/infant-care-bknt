@@ -8,12 +8,13 @@ const app = express();
 // ✅ CORS setup - Allow multiple origins for frontend and dashboard
 const allowedOrigins = [
   "http://localhost:3000", // Next.js frontend
-  "http://localhost:3001", // Backend API port
+  "http://localhost:5001", // Backend API port
+  "http://localhost:3001", // Backend API port (legacy)
   "http://localhost:5173", // Vite default port
   "http://localhost:5174", // Vite alternate port
   "http://localhost:4173", // Vite preview port
   "https://infant-care.vercel.app", // Production frontend (Vercel)
-  "https://infantscare.in/",
+  "https://infantscare.in",
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
 ].filter(Boolean); // Remove undefined values
@@ -128,7 +129,7 @@ app.use(
 // Default route
 app.get("/", (req, res) =>
   res.send(
-    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5000/api-docs</a>"
+    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5001/api-docs</a>"
   )
 );
 

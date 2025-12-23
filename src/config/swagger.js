@@ -18,7 +18,7 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:5000',
+        url: `http://localhost:${process.env.PORT || 5001}`,
         description: 'Development server',
       },
       {
@@ -311,6 +311,19 @@ const options = {
             transactionId: {
               type: 'string',
               example: 'TXN_123456789',
+            },
+            phonepeTransactionId: {
+              type: 'string',
+              description: 'PhonePe internal transaction ID',
+              example: 'T231221123456789',
+            },
+            phonepeResponse: {
+              type: 'object',
+              description: 'Full response from PhonePe',
+            },
+            phonepeRefundResponse: {
+              type: 'object',
+              description: 'Full refund response from PhonePe',
             },
           },
         },
