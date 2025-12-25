@@ -15,7 +15,9 @@ const {
   replyToReview,
 } = require("../controllers/admin");
 
-const { getDashboardStats } = require("../controllers/admin/dashboardController");
+const {
+  getDashboardStats,
+} = require("../controllers/admin/dashboardController");
 
 // Import existing product controllers for create/update/delete
 const {
@@ -809,6 +811,11 @@ router.get("/reviews", verifyToken, requireAdmin, getAllReviews);
  *       - bearerAuth: []
  */
 router.post("/reviews/reply", verifyToken, requireAdmin, replyToReview);
+
+// ==================== CACHE REVALIDATION ====================
+// Secure proxy for Next.js cache revalidation - requires admin auth
+const revalidateProxy = require("../../routes/admin/revalidate");
+router.use("/", revalidateProxy);
 
 // ==================== CATEGORIES ====================
 
