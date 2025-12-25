@@ -43,6 +43,7 @@ app.use(
       "X-Requested-With",
       "x-cart-id",
       "X-Client-Type",
+      "Access-Control-Allow-Origin",
     ],
     exposedHeaders: ["set-cookie"],
     optionsSuccessStatus: 204,
