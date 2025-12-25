@@ -1,20 +1,8 @@
 const app = require("./app");
 
 const mongoose = require("mongoose");
-const { MongoClient } = require("mongodb");
 const dotenv = require("dotenv");
 const path = require("path");
-
-// Import Vercel's database pooling (only available in Vercel environment)
-let attachDatabasePool;
-try {
-  const vercelFunctions = require("@vercel/functions");
-  attachDatabasePool = vercelFunctions.attachDatabasePool;
-} catch (err) {
-  // Not in Vercel environment or package not available
-  console.log("ℹ️ Not in Vercel environment - using standard connection");
-  attachDatabasePool = null;
-}
 
 // Load .env from project root
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -76,7 +64,7 @@ const connectDB = async (retryCount = 5) => {
     console.error(`❌ MongoDB connection failed: ${err.message}`);
     if (retryCount > 1) {
       console.log(`🔄 Retrying in 5 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       return connectDB(retryCount - 1);
     }
     isConnected = false;
