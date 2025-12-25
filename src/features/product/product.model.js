@@ -68,20 +68,33 @@ const variantSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// Detail Field Schema
+// Detail Field Schema (for details.fields array)
+// Supported field types:
+// 1. "text" - Simple label/value pair
+// 2. "badges" - Array of badge strings
+// 3. "flex_box" - Array of label/value objects (for grid display)
+// 4. "list" - Array of strings (for bullet-point lists)
 const detailFieldSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
-    value: { type: mongoose.Schema.Types.Mixed },
+    label: { type: String }, // Required for "text" type, optional for others
+    value: { type: mongoose.Schema.Types.Mixed }, // Type-specific: string for text, array for badges/flex_box/list
+    type: {
+      type: String,
+      enum: ["badges", "flex_box", "list", "text"],
+      default: "text",
+    },
   },
   { _id: false }
 );
 
-// Detail Schema
+// Detail Schema (for details array)
 const detailSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true },
-    fields: [detailFieldSchema],
+    title: { type: String, required: true }, // Section title
+    fields: [detailFieldSchema], // Array of detail fields
+    // Legacy fields - kept for backward compatibility
+    badges: { type: Array, default: [] },
+    flex_box: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -188,6 +201,13 @@ productSchema.pre("save", async function (next) {
   next();
 });
 
+// Force clear any cached model to ensure schema updates are applied
+if (mongoose.connection.models.Product) {
+  delete mongoose.connection.models.Product;
+}
+if (mongoose.models.Product) {
+  delete mongoose.models.Product;
+}
+
 // Export using singleton pattern to prevent duplicate compilation
-module.exports =
-  mongoose.models.Product || mongoose.model("Product", productSchema);
+module.exports = mongoose.model("Product", productSchema);

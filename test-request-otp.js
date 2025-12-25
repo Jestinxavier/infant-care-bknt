@@ -10,12 +10,12 @@ const testRequestOTP = async () => {
     console.log('🧪 Testing /api/v1/auth/request-otp endpoint...\n');
 
     const testEmail = `test${Date.now()}@example.com`; // Unique email each time
-    
+
     console.log('📧 Test Email:', testEmail);
-    console.log('🌐 API URL: http://localhost:3000/api/v1/auth/request-otp\n');
+    console.log('🌐 API URL: http://localhost:5001/api/v1/auth/request-otp\n');
 
     const response = await axios.post(
-      'http://localhost:3000/api/v1/auth/request-otp',
+      'http://localhost:5001/api/v1/auth/request-otp',
       { email: testEmail },
       { headers: { 'Content-Type': 'application/json' } }
     );

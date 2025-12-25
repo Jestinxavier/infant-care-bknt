@@ -6,74 +6,77 @@
 const crypto = require("crypto");
 
 /**
- * Generate short code for attribute values with collision safety
+ * Generate short code for attribute values - Aligned with frontend product-helpers.ts
  * @param {string} value - Attribute value
- * @returns {string} Short code (3-4 characters, uppercase)
+ * @returns {string} Short code
  */
 const generateShortCode = (value) => {
   if (!value || typeof value !== "string") return "UNK";
 
-  const normalized = value.toUpperCase().trim();
+  const normalized = value.toLowerCase().trim();
 
-  const patterns = {
-    RED: "RD",
-    BLUE: "BL",
-    GREEN: "GR",
-    BLACK: "BLK",
-    WHITE: "WHT",
-    YELLOW: "YL",
-    ORANGE: "OR",
-    PURPLE: "PR",
-    PINK: "PK",
-    BROWN: "BR",
-    GRAY: "GRY",
-    GREY: "GRY",
-    SMALL: "S",
-    MEDIUM: "M",
-    LARGE: "L",
-    "EXTRA LARGE": "XL",
-    "EXTRA SMALL": "XS",
-    XXL: "XXL",
-    XXXL: "XXXL",
-    "0-3 MONTHS": "03M",
-    "3-6 MONTHS": "36M",
-    "6-9 MONTHS": "69M",
-    "9-12 MONTHS": "912M",
-    "12-18 MONTHS": "1218M",
-    "18-24 MONTHS": "1824M",
-    "0-3M": "03M",
-    "3-6M": "36M",
-    "6-9M": "69M",
+  const abbreviations = {
+    // Colors
+    red: "RED",
+    blue: "BLU",
+    green: "GRN",
+    yellow: "YEL",
+    orange: "ORG",
+    purple: "PUR",
+    pink: "PNK",
+    black: "BLK",
+    white: "WHT",
+    gray: "GRY",
+    brown: "BRN",
+    navy: "NVY",
+    maroon: "MAR",
+    beige: "BGE",
+    cream: "CRM",
+
+    // Sizes
+    "extra-small": "XS",
+    "x-small": "XS",
+    xsmall: "XS",
+    small: "S",
+    medium: "M",
+    large: "L",
+    "extra-large": "XL",
+    "x-large": "XL",
+    xlarge: "XL",
+    "xx-large": "XXL",
+    xxl: "XXL",
+    "2xl": "XXL",
+    "xxx-large": "XXXL",
+    xxxl: "XXXL",
+    "3xl": "XXXL",
+
+    // Ages/Months
     "0-3": "03M",
     "3-6": "36M",
     "6-9": "69M",
-    COTTON: "COT",
-    POLYESTER: "PLY",
-    WOOL: "WOL",
-    SILK: "SLK",
-    LINEN: "LIN",
-    DENIM: "DNM",
+    "9-12": "912M",
+    "12-18": "1218M",
+    "18-24": "1824M",
+    "0-3-months": "03M",
+    "3-6-months": "36M",
+    "6-9-months": "69M",
+    "9-12-months": "912M",
+
+    // Materials
+    cotton: "COT",
+    organic: "ORG",
+    wool: "WOL",
+    linen: "LIN",
+    polyester: "POL",
+    silk: "SLK",
+    denim: "DEN",
+    leather: "LTH",
   };
 
-  // Known cases
-  if (patterns[normalized]) return patterns[normalized];
+  if (abbreviations[normalized]) return abbreviations[normalized];
 
-  // Normalize multilingual characters
-  const ascii = normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-  // Fallback: take first 3 consonants
-  const consonants = ascii.replace(/[AEIOU\s\-]/g, "");
-  let code = consonants.substring(0, 3);
-
-  if (code.length < 2) {
-    // Add first letters to reach min length
-    code = ascii.substring(0, 3);
-  }
-
-  // Add a 1-byte hash suffix for collision safety
-  const hash = crypto.createHash("md5").update(normalized).digest("hex")[0];
-
-  return (code + hash).toUpperCase();
+  // Fallback: take first 3 chars uppercase
+  return normalized.toUpperCase().substring(0, 3);
 };
 
 /**
@@ -137,12 +140,17 @@ const generateBaseSku = (productName, options = {}) => {
  * Generate SKU suggestion for a product
  * @param {string} productName - The product name
  * @param {Object} options - Generation options
+ * @param {string} options.categoryCode - Optional category code to prefix
  * @returns {string} - Suggested SKU
  */
 const suggestProductSku = (productName, options = {}) => {
+  const prefix = options.categoryCode
+    ? `${options.categoryCode.toUpperCase().substring(0, 4)}-`
+    : options.prefix || "P-";
+
   return generateBaseSku(productName, {
-    maxLength: 15,
-    prefix: options.prefix || "P-",
+    maxLength: 20,
+    prefix: prefix,
     suffix: options.suffix || "",
     ...options,
   });
@@ -165,66 +173,7 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
   const { separator = "-", maxLength = 30 } = config;
   let variantSku = baseSku;
 
-  // Predefined abbreviations for common variant values
-  const abbreviations = {
-    // Colors
-    red: "RED",
-    blue: "BLU",
-    green: "GRN",
-    yellow: "YEL",
-    orange: "ORG",
-    purple: "PUR",
-    pink: "PNK",
-    black: "BLK",
-    white: "WHT",
-    gray: "GRY",
-    brown: "BRN",
-    navy: "NVY",
-    maroon: "MAR",
-    beige: "BGE",
-    cream: "CRM",
-
-    // Sizes
-    "extra-small": "XS",
-    "x-small": "XS",
-    xsmall: "XS",
-    small: "S",
-    medium: "M",
-    large: "L",
-    "extra-large": "XL",
-    "x-large": "XL",
-    xlarge: "XL",
-    "xx-large": "XXL",
-    xxl: "XXL",
-    "2xl": "XXL",
-    "xxx-large": "XXXL",
-    xxxl: "XXXL",
-    "3xl": "XXXL",
-
-    // Ages/Months
-    "0-3": "03M",
-    "3-6": "36M",
-    "6-9": "69M",
-    "9-12": "912M",
-    "12-18": "1218M",
-    "18-24": "1824M",
-    "0-3-months": "03M",
-    "3-6-months": "36M",
-    "6-9-months": "69M",
-    "9-12-months": "912M",
-
-    // Materials
-    cotton: "COT",
-    organic: "ORG",
-    wool: "WOL",
-    linen: "LIN",
-    polyester: "POL",
-    silk: "SLK",
-    denim: "DEN",
-    leather: "LTH",
-  };
-
-  // Process variant options in a consistent order
+  // Process variant options in a consistent order - Aligned with frontend
   const orderedKeys = ["color", "size", "age", "material", "style"].filter(
     (key) => variantOptions[key]
   );
@@ -240,18 +189,14 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
     const value = variantOptions[key];
     if (!value) continue;
 
-    const normalizedValue = value.toString().toLowerCase().trim();
-    const abbreviation =
-      abbreviations[normalizedValue] ||
-      normalizedValue.toUpperCase().substring(0, 3);
-
+    const abbreviation = generateShortCode(value.toString());
     const newPart = separator + abbreviation;
 
     // Check if adding this part would exceed maxLength
     if (variantSku.length + newPart.length <= maxLength) {
       variantSku += newPart;
     } else {
-      // If we're running out of space, use shorter abbreviations
+      // If we're running out of space, use shorter abbreviations (first 2 chars)
       const shortAbbr = abbreviation.substring(0, 2);
       const shortPart = separator + shortAbbr;
 

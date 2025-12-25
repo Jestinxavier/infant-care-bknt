@@ -7,6 +7,11 @@ const CsvTempImage = require("../../models/CsvTempImage");
 const { cloudinary } = require("../../config/cloudinary");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+const {
+  suggestProductSku,
+  generateVariantSku,
+  generateUniqueSku,
+} = require("../../utils/skuGenerator");
 
 // Cloudinary folder for permanent product images
 const PERMANENT_FOLDER = "products";
@@ -88,8 +93,9 @@ class BulkImportController {
           message: "Title is required",
         });
       }
-      if (!product.sku || product.sku.trim() === "") {
-        errors.push({ row: rowNum, field: "sku", message: "SKU is required" });
+      // SKU is now optional for new products (it will be auto-generated)
+      if (!product.isNewProduct && (!product.sku || product.sku.trim() === "")) {
+        errors.push({ row: rowNum, field: "sku", message: "SKU is required for updates" });
       }
 
       // Validate category
@@ -129,15 +135,8 @@ class BulkImportController {
           const variant = product.variants[j];
           const variantRow = `${rowNum}.${j + 1}`;
 
-          // Check variant SKU
+          // Check variant SKU (only if present, it will be auto-generated otherwise)
           if (variant.sku) {
-            if (inputSkus.has(variant.sku)) {
-              errors.push({
-                row: variantRow,
-                field: "sku",
-                message: `Duplicate variant SKU: ${variant.sku}`,
-              });
-            }
             inputSkus.add(variant.sku);
           }
 
@@ -171,30 +170,31 @@ class BulkImportController {
 
     // Check for existing SKUs in database
     // Check for existing SKUs in database (Product and embedded variants)
-    const allSkus = Array.from(inputSkus);
+    const allSkus = Array.from(inputSkus).filter(s => !!s);
 
-    // Find products where either the main sku OR any variant sku matches our list
-    const existingProducts = await Product.find({
-      $or: [
-        { sku: { $in: allSkus } },
-        { "variants.sku": { $in: allSkus } }, // Access embedded variants
-      ],
-    })
-      .select("sku variants.sku")
-      .lean();
+    let existingSkusInDb = new Set();
+    if (allSkus.length > 0) {
+      // Find products where either the main sku OR any variant sku matches our list
+      const existingProducts = await Product.find({
+        $or: [
+          { sku: { $in: allSkus } },
+          { "variants.sku": { $in: allSkus } }, // Access embedded variants
+        ],
+      })
+        .select("sku variants.sku")
+        .lean();
 
-    const existingSkusInDb = new Set();
-
-    // Add parent SKUs
-    existingProducts.forEach((p) => {
-      if (p.sku) existingSkusInDb.add(p.sku);
-      // Add variant SKUs
-      if (p.variants && Array.isArray(p.variants)) {
-        p.variants.forEach((v) => {
-          if (v.sku) existingSkusInDb.add(v.sku);
-        });
-      }
-    });
+      // Add parent SKUs
+      existingProducts.forEach((p) => {
+        if (p.sku) existingSkusInDb.add(p.sku);
+        // Add variant SKUs
+        if (p.variants && Array.isArray(p.variants)) {
+          p.variants.forEach((v) => {
+            if (v.sku) existingSkusInDb.add(v.sku);
+          });
+        }
+      });
+    }
 
     // Validate uniqueness against DB
     for (let i = 0; i < products.length; i++) {
@@ -202,7 +202,7 @@ class BulkImportController {
       const rowNum = i + 1;
 
       // If creating new product, SKU must not exist
-      if (p.isNewProduct && existingSkusInDb.has(p.sku)) {
+      if (p.isNewProduct && p.sku && existingSkusInDb.has(p.sku)) {
         errors.push({
           row: rowNum,
           field: "sku",
@@ -216,7 +216,7 @@ class BulkImportController {
           const v = p.variants[j];
           const variantRow = `${rowNum}.${j + 1}`;
 
-          if (v.isNewVariant && existingSkusInDb.has(v.sku)) {
+          if (v.isNewVariant && v.sku && existingSkusInDb.has(v.sku)) {
             errors.push({
               row: variantRow,
               field: "sku",
@@ -232,6 +232,7 @@ class BulkImportController {
       (p) => p.csvId && !p.csvId.startsWith("TMP_")
     ).length;
     const createCount = products.length - updateCount;
+
     // Calculate total variants
     const totalVariants = products.reduce(
       (sum, p) => sum + (p.variants ? p.variants.length : 0),
@@ -261,8 +262,7 @@ class BulkImportController {
     const isValid = errors.length === 0;
 
     console.log(
-      `${isValid ? "✅" : "❌"} [Bulk Import] Validation ${
-        isValid ? "passed" : "failed"
+      `${isValid ? "✅" : "❌"} [Bulk Import] Validation ${isValid ? "passed" : "failed"
       }: ${errors.length} errors`
     );
 
@@ -275,7 +275,7 @@ class BulkImportController {
           totalProducts: products.length,
           createCount,
           updateCount,
-          totalVariants, // ✅ Added variant count
+          totalVariants,
           tempImagesCount: tempKeysArray.length,
           missingImagesCount: missingImages.length,
         },
@@ -297,9 +297,31 @@ class BulkImportController {
         .json(ApiResponse.error("Products array is required", 400).toJSON());
     }
 
-    // Start MongoDB session for transaction
+    // Initialize session for transaction support
     const session = await mongoose.startSession();
-    session.startTransaction();
+    let isTransactionStarted = false;
+
+    // Detect MongoDB topology and determine transaction support
+    const supportsTransactions = await this._checkTransactionSupport();
+
+    if (supportsTransactions) {
+      try {
+        await session.startTransaction();
+        isTransactionStarted = true;
+        console.log("✅ [Bulk Import] Transaction started (replica set detected)");
+      } catch (transactionError) {
+        console.warn(
+          "⚠️ [Bulk Import] Failed to start transaction:",
+          transactionError.message
+        );
+        console.warn("⚠️ [Bulk Import] Continuing without transaction");
+      }
+    } else {
+      console.warn(
+        "⚠️ [Bulk Import] Standalone MongoDB detected - transactions not supported"
+      );
+      console.warn("⚠️ [Bulk Import] Import will proceed without atomic guarantees");
+    }
 
     // Track created resources for rollback
     const createdProductIds = [];
@@ -313,11 +335,11 @@ class BulkImportController {
       );
 
       // Fetch categories for resolution
-      const categories = await Category.find({})
-        .select("name code slug _id")
-        .session(session); // Use session? No, read doesn't strictly need it unless we want snapshot isolation, but safe.
-      // Actually, just find normally. Session is for write transaction mainly.
-      // Let's use standard find.
+      let categoriesQuery = Category.find({}).select("name code slug _id");
+      if (isTransactionStarted) {
+        categoriesQuery = categoriesQuery.session(session);
+      }
+      const categories = await categoriesQuery;
 
       const categoryMap = new Map();
       const idToDataMap = new Map();
@@ -360,9 +382,13 @@ class BulkImportController {
           `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`
         );
 
-        const tempImages = await CsvTempImage.find({
+        let tempImagesQuery = CsvTempImage.find({
           temp_key: { $in: tempKeysArray },
         });
+        if (isTransactionStarted) {
+          tempImagesQuery = tempImagesQuery.session(session);
+        }
+        const tempImages = await tempImagesQuery;
 
         for (const tempImage of tempImages) {
           try {
@@ -431,6 +457,26 @@ class BulkImportController {
         const finalProductId = isUpdate
           ? productData.csvId
           : new mongoose.Types.ObjectId();
+
+        // 0. Auto-generate SKU for new product
+        let finalProductSku = productData.sku;
+        if (!isUpdate) {
+          const catObj = idToDataMap.get(resolvedCategoryId?.toString());
+          const catCode = catObj?.code || catObj?.name || "PROD";
+
+          const baseSku = suggestProductSku(productData.title, {
+            categoryCode: catCode,
+          });
+
+          // Check uniqueness and generate unique SKU
+          finalProductSku = await generateUniqueSku(baseSku, async (sku) => {
+            const query = { sku };
+            const exists = isTransactionStarted
+              ? await Product.findOne(query).session(session)
+              : await Product.findOne(query);
+            return !!exists;
+          });
+        }
 
         // 1. Process Temp Images
         if (productData.imageMetadata) {
@@ -516,13 +562,19 @@ class BulkImportController {
               variantId = `${finalProductId}-${configCode}`;
             }
 
+            // 3. Auto-generate Variant SKU if new
+            let finalVariantSku = variantData.sku;
+            if (!variantData.csvId || variantData.csvId.startsWith("TMP_") || variantData.isNewVariant) {
+              finalVariantSku = generateVariantSku(finalProductSku, variantData.attributes || {});
+            }
+
             embeddedVariants.push({
               id: variantId, // ✅ Use standardized ID
               parentId: finalProductId, // ✅ Linking to parent
-              url_key: `${productData.url_key}-${variantData.sku
+              url_key: `${productData.url_key}-${(finalVariantSku || variantData.sku)
                 .toLowerCase()
                 .replace(/[^a-z0-9]+/g, "-")}`, // Generate simplified url_key for variant
-              sku: variantData.sku,
+              sku: finalVariantSku || variantData.sku,
               price: variantData.price,
               stock: variantData.stock,
               images: variantImages,
@@ -585,7 +637,7 @@ class BulkImportController {
               // ✅ NEW: Embed variants directly
               variants: embeddedVariants,
             },
-            { session }
+            isTransactionStarted ? { session } : {}
           );
           console.log(`  📝 Updated product: ${productData.sku}`);
         } else {
@@ -627,9 +679,9 @@ class BulkImportController {
             variants: embeddedVariants,
           });
 
-          await newProduct.save({ session });
+          await newProduct.save(isTransactionStarted ? { session } : {});
           createdProductIds.push(newProduct._id);
-          console.log(`  ✨ Created product: ${productData.sku}`);
+          console.log(`  ✨ Created product with SKU: ${finalProductSku}`);
         }
 
         // REMOVED: Separate Step 3 for creating variants in Variant collection
@@ -639,15 +691,22 @@ class BulkImportController {
       if (tempKeysUsed.length > 0) {
         await CsvTempImage.deleteMany(
           { temp_key: { $in: tempKeysUsed } },
-          { session }
+          isTransactionStarted ? { session } : {}
         );
         console.log(
           `🧹 [Bulk Import] Cleaned up ${tempKeysUsed.length} temp image records`
         );
       }
 
-      // Commit transaction
-      await session.commitTransaction();
+      // Commit transaction if started
+      if (isTransactionStarted) {
+        try {
+          await session.commitTransaction();
+          console.log("✅ [Bulk Import] Transaction committed");
+        } catch (commitError) {
+          console.warn("⚠️ [Bulk Import] Failed to commit transaction (standalone MongoDB):", commitError.message);
+        }
+      }
       session.endSession();
 
       console.log(
@@ -669,8 +728,15 @@ class BulkImportController {
     } catch (error) {
       console.error(`❌ [Bulk Import] Error during commit:`, error.message);
 
-      // Rollback transaction
-      await session.abortTransaction();
+      // Rollback transaction if started
+      if (isTransactionStarted) {
+        try {
+          await session.abortTransaction();
+          console.log("🔄 [Bulk Import] Transaction aborted");
+        } catch (abortError) {
+          console.warn("⚠️ [Bulk Import] Failed to abort transaction (standalone MongoDB):", abortError.message);
+        }
+      }
       session.endSession();
 
       // Manual rollback: Delete any created products/variants
@@ -741,6 +807,32 @@ class BulkImportController {
       );
     }
   });
+
+  /**
+   * Helper: Check if MongoDB supports transactions
+   * @private
+   * @returns {Promise<boolean>} True if transactions are supported
+   */
+  _checkTransactionSupport = async () => {
+    try {
+      // Check if we're connected to a replica set or sharded cluster
+      const adminDb = mongoose.connection.db.admin();
+      const serverInfo = await adminDb.serverStatus();
+
+      // Transaction support requires replica set or mongos
+      const isReplicaSet = serverInfo.repl && serverInfo.repl.setName;
+      const isMongos = serverInfo.process === "mongos";
+
+      return isReplicaSet || isMongos;
+    } catch (error) {
+      // If we can't determine topology, assume standalone (no transaction support)
+      console.warn(
+        "⚠️ [Bulk Import] Unable to detect MongoDB topology:",
+        error.message
+      );
+      return false;
+    }
+  };
 }
 
 module.exports = new BulkImportController();

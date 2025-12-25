@@ -68,13 +68,15 @@ const variantSchema = new mongoose.Schema(
 //    Example: { type: "badges", value: ["Soft", "Breathable"] }
 // 3. "flex_box" - Array of label/value objects (for grid display)
 //    Example: { type: "flex_box", value: [{ label: "Pattern", value: "Embroidered" }] }
+// 4. "list" - Array of strings (for bullet-point lists)
+//    Example: { type: "list", label: "Included Items", value: ["Frock", "Hanger", "Care Card"] }
 const detailFieldSchema = new mongoose.Schema(
   {
     label: { type: String }, // Required for "text" type, optional for others
-    value: { type: mongoose.Schema.Types.Mixed }, // Type-specific: string for text, array for badges/flex_box
+    value: { type: mongoose.Schema.Types.Mixed }, // Type-specific: string for text, array for badges/flex_box/list
     type: {
       type: String,
-      enum: ["badges", "flex_box", "text"],
+      enum: ["badges", "flex_box", "list", "text"],
       default: "text",
     },
   },
@@ -192,4 +194,13 @@ productSchema.pre("save", function (next) {
 // Index for url_key lookups
 productSchema.index({ url_key: 1 });
 
+// Force clear any cached model to ensure schema updates are applied
+if (mongoose.connection.models.Product) {
+  delete mongoose.connection.models.Product;
+}
+if (mongoose.models.Product) {
+  delete mongoose.models.Product;
+}
+
 module.exports = mongoose.model("Product", productSchema);
+
