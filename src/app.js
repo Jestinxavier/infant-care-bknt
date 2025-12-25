@@ -5,16 +5,10 @@ const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
 
 const app = express();
-// ✅ CORS setup - Allow multiple origins for frontend and dashboard
+// ✅ CORS setup - Allow localhost from any port + production origins
 const allowedOrigins = [
-  "http://localhost:3000", // Next.js frontend
-  "http://localhost:5001", // Backend API port
-  "http://localhost:3001", // Backend API port (legacy)
-  "http://localhost:5173", // Vite default port
-  "http://localhost:5174", // Vite alternate port
-  "http://localhost:4173", // Vite preview port
-  "https://infant-care.vercel.app", // Production frontend (Vercel)
-  "https://infantscare.in",
+  "https://infantscare.in", // Production domain
+  "https://infant-care-dashboard.vercel.app", // Dashboard domain
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
 ].filter(Boolean); // Remove undefined values
@@ -25,18 +19,26 @@ app.use(
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
 
-      // Check if origin is in allowed list
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        // In development, allow all origins for easier testing
-        if (process.env.NODE_ENV === "development") {
-          console.log(`⚠️  Allowing CORS from: ${origin} (development mode)`);
-          callback(null, true);
-        } else {
-          callback(new Error("Not allowed by CORS"));
-        }
+      // Allow all localhost origins (any port)
+      if (
+        origin.startsWith("http://localhost:") ||
+        origin.startsWith("http://127.0.0.1:")
+      ) {
+        return callback(null, true);
       }
+
+      // Check if origin is in production allowed list
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // In development, allow all origins for easier testing
+      if (process.env.NODE_ENV === "development") {
+        console.log(`⚠️  Allowing CORS from: ${origin} (development mode)`);
+        return callback(null, true);
+      }
+
+      callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
@@ -46,7 +48,6 @@ app.use(
       "X-Requested-With",
       "x-cart-id",
       "X-Client-Type",
-      "Access-Control-Allow-Origin",
     ],
   })
 );

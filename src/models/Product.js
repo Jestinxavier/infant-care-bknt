@@ -60,38 +60,42 @@ const variantSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// Detail Field Schema (for details.fields array)
-// Supported field types:
-// 1. "text" - Simple label/value pair
-//    Example: { type: "text", label: "Material", value: "100% Cotton" }
-// 2. "badges" - Array of badge strings
-//    Example: { type: "badges", value: ["Soft", "Breathable"] }
-// 3. "flex_box" - Array of label/value objects (for grid display)
-//    Example: { type: "flex_box", value: [{ label: "Pattern", value: "Embroidered" }] }
+// Detail Field Schema - Used across all section types
+// For description type: { type: "list" | "badge", data: [...] }
+// For grid/pair types: { label: "...", value: "..." }
 const detailFieldSchema = new mongoose.Schema(
   {
-    label: { type: String }, // Required for "text" type, optional for others
-    value: { type: mongoose.Schema.Types.Mixed }, // Type-specific: string for text, array for badges/flex_box
+    // For list/badge items in description sections
     type: {
       type: String,
-      enum: ["badges", "flex_box", "text"],
-      default: "text",
+      enum: ["list", "badge"],
     },
+    data: [{ type: String }],
+
+    // For grid/pair label-value pairs
+    label: { type: String },
+    value: { type: String },
   },
   { _id: false }
 );
 
-// Detail Schema (for details array)
-// Structure: [{ title: "Section Title", fields: [...] }]
+// Detail Section Schema
+// Supports three section types:
+// 1. "description" - Has description text + fields array with list/badge items
+// 2. "grid" - Has fields array with label-value pairs (displayed in grid)
+// 3. "pair" - Has fields array with label-value pairs (displayed as pairs)
 const detailSchema = new mongoose.Schema(
   {
-    title: { type: String, required: true }, // Section title (e.g., "Product Details", "Care Instructions")
-    fields: [detailFieldSchema], // Array of detail fields
-    // Legacy fields - kept for backward compatibility, should not be used in new products
-    label: { type: String },
-    value: { type: String },
-    badges: [{ type: String }],
-    flex_box: { type: Boolean, default: false },
+    title: { type: String, required: true },
+    type: {
+      type: String,
+      enum: ["description", "grid", "pair"],
+      required: true,
+    },
+    // For description type
+    description: { type: String },
+    // For all types (structure differs based on type)
+    fields: [detailFieldSchema],
   },
   { _id: false }
 );
