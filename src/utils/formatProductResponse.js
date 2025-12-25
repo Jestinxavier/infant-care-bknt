@@ -68,48 +68,10 @@ const formatProductResponse = (product) => {
     })
   );
 
-  // Format details
+  // Format details - preserve new structure (description/grid/pair)
   const formattedDetails = (productObj.details || []).map((detail) => {
-    // New format: has title and fields
-    if (detail.title && detail.fields) {
-      return {
-        title: detail.title,
-        fields: detail.fields.map((field) => {
-          if (field.type === "badges") {
-            return {
-              type: "badges",
-              value: Array.isArray(field.value) ? field.value : [field.value],
-            };
-          } else if (field.type === "flex_box") {
-            return {
-              type: "flex_box",
-              value: Array.isArray(field.value) ? field.value : [field.value],
-            };
-          } else {
-            return {
-              label: field.label,
-              value: field.value,
-            };
-          }
-        }),
-      };
-    }
-    // Legacy format: has label and value
-    else if (detail.label && detail.value) {
-      return {
-        title: detail.label,
-        fields: [
-          {
-            label: detail.label,
-            value: detail.value,
-            ...(detail.badges?.length > 0
-              ? { type: "badges", value: detail.badges }
-              : {}),
-            ...(detail.flex_box ? { type: "flex_box" } : {}),
-          },
-        ],
-      };
-    }
+    // Just return detail as-is to preserve all fields including type, description, data
+    // The schema already handles the correct structure
     return detail;
   });
 

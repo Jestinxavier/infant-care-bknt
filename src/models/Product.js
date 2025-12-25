@@ -76,7 +76,7 @@ const detailFieldSchema = new mongoose.Schema(
     label: { type: String },
     value: { type: String },
   },
-  { _id: false }
+  { _id: false, strict: false }
 );
 
 // Detail Section Schema
@@ -90,14 +90,14 @@ const detailSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ["description", "grid", "pair"],
-      required: true,
+      // Made optional for backward compatibility with old data
     },
     // For description type
     description: { type: String },
     // For all types (structure differs based on type)
     fields: [detailFieldSchema],
   },
-  { _id: false }
+  { _id: false, strict: false }
 );
 
 const productSchema = new mongoose.Schema(
