@@ -15,11 +15,9 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
+    origin(origin, callback) {
       if (!origin) return callback(null, true);
 
-      // Allow all localhost origins (any port)
       if (
         origin.startsWith("http://localhost:") ||
         origin.startsWith("http://127.0.0.1:")
@@ -27,21 +25,18 @@ app.use(
         return callback(null, true);
       }
 
-      // Check if origin is in production allowed list
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      // In development, allow all origins for easier testing
       if (process.env.NODE_ENV === "development") {
-        console.log(`⚠️  Allowing CORS from: ${origin} (development mode)`);
         return callback(null, true);
       }
 
-      callback(new Error("Not allowed by CORS"));
+      return callback(new Error("Not allowed by CORS"));
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -49,6 +44,8 @@ app.use(
       "x-cart-id",
       "X-Client-Type",
     ],
+    exposedHeaders: ["set-cookie"],
+    optionsSuccessStatus: 204,
   })
 );
 
