@@ -65,10 +65,10 @@ const variantSchema = new mongoose.Schema(
 // For grid/pair types: { label: "...", value: "..." }
 const detailFieldSchema = new mongoose.Schema(
   {
-    // For list/badge items in description sections
+    // For list/badge/text items in description sections
     type: {
       type: String,
-      enum: ["list", "badge"],
+      enum: ["list", "badge", "text"],
     },
     data: [{ type: String }],
 
