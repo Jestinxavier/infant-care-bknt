@@ -3,12 +3,12 @@ const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
-
+require('dotenv').config();
 const app = express();
 // ✅ CORS setup - Allow localhost from any port + production origins
 const allowedOrigins = [
-  "https://infantscare.in", // Production domain
-  "https://infant-care-dashboard.vercel.app", // Dashboard domain
+ // "https://infantscare.in", // Production domain
+ // "https://infant-care-dashboard.vercel.app", // Dashboard domain
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
 ].filter(Boolean); // Remove undefined values
