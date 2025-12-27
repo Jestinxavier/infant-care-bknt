@@ -157,18 +157,57 @@ const updateProduct = async (req, res) => {
     if (metaDescription !== undefined)
       product.metaDescription = metaDescription;
 
+    // Update product-level images
+    if (req.body.images !== undefined) {
+      try {
+        const imagesData =
+          typeof req.body.images === "string"
+            ? JSON.parse(req.body.images)
+            : req.body.images;
+
+        if (Array.isArray(imagesData)) {
+          // Extract URLs from Cloudinary metadata objects or use strings directly
+          product.images = imagesData
+            .map((img) => {
+              if (typeof img === "string") return img;
+              if (img && typeof img === "object" && img.url) return img.url;
+              return null;
+            })
+            .filter(Boolean);
+        }
+      } catch (err) {
+        console.error("Error parsing product images:", err);
+      }
+    }
+
     // Update variants (new structure)
     if (variantsArray !== undefined && Array.isArray(variantsArray)) {
       const { generateSlug } = require("../../utils/slugGenerator");
 
       const processedVariants = variantsArray.map((v, index) => {
-        // Map images from uploaded files
-        const images =
-          req.files && req.files.length > 0
-            ? req.files
-                .filter((f) => f.fieldname.includes(v.sku || v.id || index))
-                .map((f) => f.path)
-            : v.images || [];
+        // Process variant images - handle both file uploads and Cloudinary metadata
+        let variantImages = [];
+
+        // First, collect existing images from variant data
+        if (v.images && Array.isArray(v.images)) {
+          // Extract URLs from Cloudinary metadata objects or use strings directly
+          variantImages = v.images
+            .map((img) => {
+              if (typeof img === "string") return img;
+              if (img && typeof img === "object" && img.url) return img.url;
+              return null;
+            })
+            .filter(Boolean);
+        }
+
+        // Then, add newly uploaded files (merge, don't replace)
+        if (req.files && req.files.length > 0) {
+          const uploadedFiles = req.files
+            .filter((f) => f.fieldname.includes(v.sku || v.id || index))
+            .map((f) => f.path);
+          // Append new uploads to existing images
+          variantImages = [...variantImages, ...uploadedFiles];
+        }
 
         // Convert attributes/options object to Map if needed
         let attributesMap = new Map();
@@ -223,7 +262,7 @@ const updateProduct = async (req, res) => {
             available: stock,
             isInStock: isInStock,
           },
-          images: images.length > 0 ? images : v.images || [],
+          images: variantImages,
           attributes: attributesMap, // New format
           options: attributesMap, // Keep for backward compatibility
           weight: v.weight,
@@ -241,7 +280,42 @@ const updateProduct = async (req, res) => {
 
     // Update details
     if (details !== undefined) {
-      product.details = details;
+      // Clean up details by removing empty/irrelevant fields
+      const cleanedDetails = details.map((section) => {
+        const cleanedSection = {
+          title: section.title,
+          type: section.type,
+        };
+
+        // Only include description for description-type sections and if not empty
+        if (section.type === "description" && section.description) {
+          cleanedSection.description = section.description;
+        }
+
+        // Clean fields based on their structure
+        cleanedSection.fields = (section.fields || []).map((field) => {
+          // If field has 'type' property (list/badge), only include type and data
+          if (field.type && (field.type === "list" || field.type === "badge")) {
+            return {
+              type: field.type,
+              data: field.data || [],
+            };
+          }
+          // Otherwise it's a label-value pair, only include label and value
+          else if (field.label !== undefined && field.value !== undefined) {
+            return {
+              label: field.label,
+              value: field.value,
+            };
+          }
+          // Fallback: return as-is but this shouldn't happen
+          return field;
+        });
+
+        return cleanedSection;
+      });
+
+      product.details = cleanedDetails;
     }
 
     // DO NOT allow rating fields to be updated manually

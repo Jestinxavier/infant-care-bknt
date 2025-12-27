@@ -17,6 +17,8 @@ Our complete API is documented with **Swagger/OpenAPI 3.0** - an interactive int
 - ✅ View all data schemas
 - ✅ Export to Postman
 
+**script: npm run create-admin**
+
 > **Quick Start:** Run `npm run dev` and open [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
 
 ### 📚 Additional Documentation

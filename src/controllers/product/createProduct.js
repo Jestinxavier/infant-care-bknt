@@ -453,7 +453,44 @@ const createProduct = async (req, res) => {
         : [],
       variants: processedVariants,
       optionsLocked: optionsLocked, // ✅ NEW: Lock if variants exist
-      details: details || [],
+      details: details
+        ? details.map((section) => {
+            const cleanedSection = {
+              title: section.title,
+              type: section.type,
+            };
+
+            // Only include description for description-type sections and if not empty
+            if (section.type === "description" && section.description) {
+              cleanedSection.description = section.description;
+            }
+
+            // Clean fields based on their structure
+            cleanedSection.fields = (section.fields || []).map((field) => {
+              // If field has 'type' property (list/badge), only include type and data
+              if (
+                field.type &&
+                (field.type === "list" || field.type === "badge")
+              ) {
+                return {
+                  type: field.type,
+                  data: field.data || [],
+                };
+              }
+              // Otherwise it's a label-value pair, only include label and value
+              else if (field.label !== undefined && field.value !== undefined) {
+                return {
+                  label: field.label,
+                  value: field.value,
+                };
+              }
+              // Fallback: return as-is
+              return field;
+            });
+
+            return cleanedSection;
+          })
+        : [],
       pricing: pricing || null, // Parent-level pricing
       stockObj: stockObj || null, // Parent-level stock
       tags: parsedTags,

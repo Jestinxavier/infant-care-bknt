@@ -196,4 +196,12 @@ productSchema.pre("save", function (next) {
 // Index for url_key lookups
 productSchema.index({ url_key: 1 });
 
+// Force clear any cached model to ensure schema updates are applied
+if (mongoose.connection.models.Product) {
+  delete mongoose.connection.models.Product;
+}
+if (mongoose.models.Product) {
+  delete mongoose.models.Product;
+}
+
 module.exports = mongoose.model("Product", productSchema);
