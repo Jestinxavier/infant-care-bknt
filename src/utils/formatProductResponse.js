@@ -192,6 +192,9 @@ const formatProductResponse = (product) => {
     details: formattedDetails,
     // Additional fields
     tags: productObj.tags || "",
+    meta_title: productObj.metaTitle || productObj.meta_title || "",
+    meta_description:
+      productObj.metaDescription || productObj.meta_description || "",
     uiMeta: productObj.uiMeta || {},
   };
 };
