@@ -379,7 +379,11 @@ const updateProduct = async (req, res) => {
       };
       const imagePublicIds = extractImagePublicIds(productData);
       if (imagePublicIds.length > 0) {
-        const finalizeResult = await finalizeImages(imagePublicIds);
+        const finalizeResult = await finalizeImages(
+          imagePublicIds,
+          "product",
+          product._id
+        );
         console.log("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
           succeeded: finalizeResult.success.length,

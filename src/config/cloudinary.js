@@ -40,39 +40,9 @@ const VALID_FOLDERS = [
   "cms", // legacy fallback
 ];
 
-/**
- * Image transformation presets for different image types
- * All images are automatically converted to WebP for optimal compression
- */
-const IMAGE_TRANSFORMATIONS = {
-  product: {
-    format: "webp",
-    quality: "auto:good", // Cloudinary auto-quality optimization
-    fetch_format: "auto", // Auto-select best format for browser
-  },
-  banner_desktop: {
-    format: "webp",
-    quality: "auto:good",
-    width: 1920,
-    crop: "limit", // Don't upscale, only downscale if needed
-  },
-  banner_mobile: {
-    format: "webp",
-    quality: "auto:good",
-    width: 1200,
-    crop: "limit",
-  },
-  category: {
-    format: "webp",
-    quality: "auto:good",
-    width: 800,
-    crop: "limit",
-  },
-  default: {
-    format: "webp",
-    quality: "auto:good",
-  },
-};
+// NOTE: Upload-time transformations have been REMOVED per design rules.
+// All image optimization (format, quality, size) happens at DELIVERY time
+// via frontend URL transformations in cloudinary-transform.ts
 
 /**
  * Get a valid folder name or fallback to default
@@ -84,15 +54,6 @@ const getValidFolder = (folder) => {
     return folder;
   }
   return "uploads"; // Default fallback folder
-};
-
-/**
- * Get transformation preset for image type
- * @param {string} imageType - Type of image (product, banner_desktop, banner_mobile, category)
- * @returns {object} - Cloudinary transformation object
- */
-const getImageTransformation = (imageType) => {
-  return IMAGE_TRANSFORMATIONS[imageType] || IMAGE_TRANSFORMATIONS.default;
 };
 
 /**
@@ -109,14 +70,17 @@ const createDynamicStorage = (folder) => {
   });
 };
 
-// Storage for product images - no transformation (client-side compression handles sizing)
+// Storage for product images - STRICT: NO TRANSFORMATIONS ALLOWED
+// Uploads must store the original file bytes as-is.
+// No resizing, no eager transformations, no format conversion.
+// Format conversion happens ONLY at delivery time via frontend.
 const productStorage = new CloudinaryStorage({
   cloudinary,
   params: {
     folder: "products",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    // Note: Removed transformation - dashboard compresses to 1200px before upload
-    // Cloudinary will serve optimized WebP on demand via URL transformations
+    allowed_formats: ["jpg", "jpeg", "png", "webp"], // Validation only
+    // NO format conversion - preserve original
+    // NO transformation - preserve original resolution
   },
 });
 
@@ -150,6 +114,4 @@ module.exports = {
   createDynamicStorage,
   getValidFolder,
   VALID_FOLDERS,
-  IMAGE_TRANSFORMATIONS,
-  getImageTransformation,
 };

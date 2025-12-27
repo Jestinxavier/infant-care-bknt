@@ -3,12 +3,12 @@ const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
-require('dotenv').config();
+require("dotenv").config();
 const app = express();
 // ✅ CORS setup - Allow localhost from any port + production origins
 const allowedOrigins = [
- // "https://infantscare.in", // Production domain
- // "https://infant-care-dashboard.vercel.app", // Dashboard domain
+  // "https://infantscare.in", // Production domain
+  // "https://infant-care-dashboard.vercel.app", // Dashboard domain
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
 ].filter(Boolean); // Remove undefined values
@@ -81,6 +81,7 @@ const cmsProductRoutes = require("./features/product/product.cms.routes");
 // Admin routes - using environment variable for prefix
 const adminRoutes = require("./routes/adminRoutes");
 const deliveryPartnerRoutes = require("./routes/deliveryPartnerRoutes");
+const assetRoutes = require("./routes/asset");
 const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
 
 // Storefront routes (unchanged)
@@ -114,6 +115,9 @@ app.use(`/api/v1${ADMIN_PREFIX}/media`, mediaRoutes);
 // CSV temp image routes under admin
 const csvImageRoutes = require("./routes/csvImageRoutes");
 app.use(`/api/v1${ADMIN_PREFIX}/csv-images`, csvImageRoutes);
+
+// Asset management routes under admin
+app.use(`/api/v1${ADMIN_PREFIX}/assets`, assetRoutes);
 
 // Swagger API Documentation
 app.use(

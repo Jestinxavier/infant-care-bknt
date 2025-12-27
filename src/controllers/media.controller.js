@@ -41,9 +41,8 @@ class MediaController {
           `📁 [Media] Uploading to folder: ${validFolder}, type: ${imageType}`
         );
 
-        // Get transformation preset for this image type
-        const { getImageTransformation } = require("../config/cloudinary");
-        const transformation = getImageTransformation(imageType);
+        // NOTE: imageType is logged but NOT used for upload-time transformation
+        // All optimization happens at DELIVERY time via frontend URL transforms
 
         // Create content-based hash for deduplication
         // This ensures same image content gets same public_id
@@ -58,8 +57,9 @@ class MediaController {
 
         console.log(`🔑 [Media] Content hash: ${fileHash}`);
 
-        // Upload directly to Cloudinary with specified folder and transformations
-        // Use overwrite: true to replace if same content already exists
+        // Upload directly to Cloudinary with specified folder
+        // STRICT: NO transformations at upload - store original bytes only
+        // All optimization happens at DELIVERY time via frontend URL transforms
         const uploadResult = await new Promise((resolve, reject) => {
           const uploadStream = cloudinary.uploader.upload_stream(
             {
@@ -68,8 +68,7 @@ class MediaController {
               overwrite: true, // Replace existing if same hash
               allowed_formats: ["jpg", "jpeg", "png", "webp"],
               resource_type: "image",
-              // Apply transformation for automatic WebP conversion and sizing
-              ...transformation,
+              // NO transformation - preserve original format and resolution
             },
             (error, result) => {
               if (error) reject(error);

@@ -4,7 +4,7 @@
  */
 
 const { cloudinary } = require("../config/cloudinary");
-const Media = require("../models/Media");
+const Asset = require("../models/Asset");
 
 /**
  * Extract all public_ids from product and variant images
@@ -21,8 +21,9 @@ function extractImagePublicIds(productData) {
         publicIds.push(img.public_id);
       } else if (typeof img === "string") {
         // Legacy format - try to extract public_id from URL
-        // Cloudinary URLs contain public_id in the path
-        const match = img.match(/\/v\d+\/([^\/]+)\./);
+        // Cloudinary URLs contain public_id in the path: /v<version>/<public_id>.<format>
+        // Regex matches everything after /v<digits>/ up to the last dot
+        const match = img.match(/\/v\d+\/(.+)\.[^.]+$/);
         if (match && match[1]) {
           publicIds.push(match[1]);
         }
@@ -38,7 +39,7 @@ function extractImagePublicIds(productData) {
           if (typeof img === "object" && img.public_id) {
             publicIds.push(img.public_id);
           } else if (typeof img === "string") {
-            const match = img.match(/\/v\d+\/([^\/]+)\./);
+            const match = img.match(/\/v\d+\/(.+)\.[^.]+$/);
             if (match && match[1]) {
               publicIds.push(match[1]);
             }
@@ -52,11 +53,13 @@ function extractImagePublicIds(productData) {
 }
 
 /**
- * Mark images as final (remove temp tag and update DB)
+ * Mark images as final (permanent) and track usage
  * @param {string[]} publicIds - Array of Cloudinary public_ids
+ * @param {string} entityType - Entity type (product, cms, etc.)
+ * @param {string|Object} entityId - Entity ID
  * @returns {Promise<{success: string[], failed: Array}>}
  */
-async function finalizeImages(publicIds) {
+async function finalizeImages(publicIds, entityType, entityId) {
   if (!publicIds || publicIds.length === 0) {
     return { success: [], failed: [] };
   }
@@ -68,34 +71,34 @@ async function finalizeImages(publicIds) {
 
   for (const publicId of publicIds) {
     try {
-      // Remove temp-upload tag from Cloudinary
+      // Find the asset
+      const asset = await Asset.findOne({ publicId });
+
+      if (asset) {
+        // Promote to permanent and add reference
+        if (entityType && entityId) {
+          await asset.promoteToPermanent(entityType, entityId);
+        } else {
+          // Fallback if no entity info (just mark permanent)
+          asset.status = "permanent";
+          asset.expiresAt = null;
+          await asset.save();
+        }
+
+        results.success.push(publicId);
+      } else {
+        // Asset not found in DB - might be legacy or external
+        // We can't track it, but we can try to remove the Cloudinary tag if we want
+        results.failed.push({ publicId, error: "Asset not found in DB" });
+      }
+
+      // Attempt to remove temp tag from Cloudinary regardless of DB status
       try {
         await cloudinary.uploader.remove_tag("temp-upload", [publicId], {
           resource_type: "image",
         });
       } catch (tagError) {
-        // Tag might not exist - that's okay
-        console.warn(
-          `⚠️ Could not remove tag from ${publicId}:`,
-          tagError.message
-        );
-      }
-
-      // Update Media collection
-      const updated = await Media.findOneAndUpdate(
-        { public_id: publicId },
-        {
-          isTemp: false,
-          finalizedAt: new Date(),
-        },
-        { new: true }
-      );
-
-      if (updated) {
-        results.success.push(publicId);
-      } else {
-        // Image not in DB, but that's okay - might be legacy
-        results.success.push(publicId);
+        // Ignore tag error
       }
     } catch (error) {
       console.error(`❌ Failed to finalize ${publicId}:`, error);
