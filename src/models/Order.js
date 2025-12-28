@@ -1,121 +1,143 @@
 // models/Order.js
 const mongoose = require("mongoose");
 
-const orderItemSchema = new mongoose.Schema({
-  productId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Product",
-    required: true
-  },
-  variantId: {
-    type: String,
-    default: null
-  },
-  quantity: {
-    type: Number,
-    required: true,
-    min: 1
-  },
-  price: {
-    type: Number,
-    required: true
-  }
-}, { _id: false });
-
-const orderSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true
-  },
-  orderId: {
-    type: String,
-    unique: true
-  },
-  items: [orderItemSchema],
-  totalAmount: {
-    type: Number,
-    required: true
-  },
-  subtotal: {
-    type: Number,
-    required: true
-  },
-  shippingCost: {
-    type: Number,
-    default: 0
-  },
-  discount: {
-    type: Number,
-    default: 0
-  },
-  addressId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Address",
-    required: false
-  },
-  shippingAddress: {
-    name: String,
-    fullName: String,
-    phone: String,
-    houseName: String,
-    street: String,
-    landmark: String,
-    addressLine1: String,
-    addressLine2: String,
-    city: String,
-    state: String,
-    district: String,
-    postalCode: String,
-    pincode: String,
-    country: String
-  },
-  paymentStatus: {
-    type: String,
-    enum: ["pending", "paid", "failed", "refunded"],
-    default: "pending"
-  },
-  orderStatus: {
-    type: String,
-    enum: ["processing", "shipped", "delivered", "cancelled"],
-    default: "processing"
-  },
-  trackingId: {
-    type: String,
-    default: ""
-  },
-  deliveryNote: {
-    type: String,
-    default: ""
-  },
-  paymentMethod: {
-    type: String,
-    enum: ["COD", "Razorpay", "Stripe", "PhonePe"],
-    default: "COD"
-  },
-  placedAt: {
-    type: Date,
-    default: Date.now
-  },
-  deliveryPartner: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "DeliveryPartner",
-    default: null
-  },
-  fulfillmentAdditionalInfo: [{
-    key: { type: String, required: true },
-    value: { type: String, required: true }
-  }],
-  statusHistory: [{
-    status: {
-      type: String,
-      enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
-      required: true
+const orderItemSchema = new mongoose.Schema(
+  {
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      required: true,
     },
-    timestamp: { type: Date, default: Date.now },
-    note: { type: String },
-    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" } // Optional: track who updated it
-  }]
-}, { timestamps: true });
+    variantId: {
+      type: String,
+      default: null,
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+    price: {
+      type: Number,
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
+const orderSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    orderId: {
+      type: String,
+      unique: true,
+    },
+    items: [orderItemSchema],
+    totalAmount: {
+      type: Number,
+      required: true,
+    },
+    subtotal: {
+      type: Number,
+      required: true,
+    },
+    shippingCost: {
+      type: Number,
+      default: 0,
+    },
+    discount: {
+      type: Number,
+      default: 0,
+    },
+    coupon: {
+      code: String,
+      couponId: mongoose.Schema.Types.ObjectId,
+      discountAmount: Number,
+    },
+    addressId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Address",
+      required: false,
+    },
+    shippingAddress: {
+      name: String,
+      fullName: String,
+      phone: String,
+      houseName: String,
+      street: String,
+      landmark: String,
+      addressLine1: String,
+      addressLine2: String,
+      city: String,
+      state: String,
+      district: String,
+      postalCode: String,
+      pincode: String,
+      country: String,
+    },
+    paymentStatus: {
+      type: String,
+      enum: ["pending", "paid", "failed", "refunded"],
+      default: "pending",
+    },
+    orderStatus: {
+      type: String,
+      enum: ["processing", "shipped", "delivered", "cancelled"],
+      default: "processing",
+    },
+    trackingId: {
+      type: String,
+      default: "",
+    },
+    deliveryNote: {
+      type: String,
+      default: "",
+    },
+    paymentMethod: {
+      type: String,
+      enum: ["COD", "Razorpay", "Stripe", "PhonePe"],
+      default: "COD",
+    },
+    placedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    deliveryPartner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "DeliveryPartner",
+      default: null,
+    },
+    fulfillmentAdditionalInfo: [
+      {
+        key: { type: String, required: true },
+        value: { type: String, required: true },
+      },
+    ],
+    statusHistory: [
+      {
+        status: {
+          type: String,
+          enum: [
+            "pending",
+            "confirmed",
+            "processing",
+            "shipped",
+            "delivered",
+            "cancelled",
+          ],
+          required: true,
+        },
+        timestamp: { type: Date, default: Date.now },
+        note: { type: String },
+        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // Optional: track who updated it
+      },
+    ],
+  },
+  { timestamps: true }
+);
 
 module.exports = mongoose.model("Order", orderSchema);

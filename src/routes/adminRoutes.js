@@ -38,6 +38,14 @@ const {
 } = require("../controllers/category");
 const { categoryImageUploader } = require("../config/categoryImageUpload");
 
+// Import coupon controller
+const {
+  createCoupon,
+  listCoupons,
+  updateCoupon,
+  deleteCoupon,
+} = require("../controllers/admin/couponController");
+
 // ==================== PRODUCTS ====================
 
 /**
@@ -811,6 +819,42 @@ router.get("/reviews", verifyToken, requireAdmin, getAllReviews);
  *       - bearerAuth: []
  */
 router.post("/reviews/reply", verifyToken, requireAdmin, replyToReview);
+
+// ==================== COUPONS ====================
+
+/**
+ * @swagger
+ * /api/v1/admin/coupons:
+ *   get:
+ *     summary: "[Admin] List all coupons"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *   post:
+ *     summary: "[Admin] Create a new coupon"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get("/coupons", verifyToken, requireAdmin, listCoupons);
+router.post("/coupons", verifyToken, requireAdmin, createCoupon);
+
+/**
+ * @swagger
+ * /api/v1/admin/coupons/{id}:
+ *   patch:
+ *     summary: "[Admin] Update coupon"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *   delete:
+ *     summary: "[Admin] Delete coupon"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch("/coupons/:id", verifyToken, requireAdmin, updateCoupon);
+router.delete("/coupons/:id", verifyToken, requireAdmin, deleteCoupon);
 
 // ==================== CACHE REVALIDATION ====================
 // Secure proxy for Next.js cache revalidation - requires admin auth

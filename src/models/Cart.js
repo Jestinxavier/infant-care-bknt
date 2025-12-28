@@ -96,13 +96,46 @@ const cartSchema = new mongoose.Schema(
       },
       index: { expireAfterSeconds: 0 }, // TTL index for auto-deletion
     },
+    // Coupon Applied
+    coupon: {
+      code: { type: String },
+      couponId: { type: mongoose.Schema.Types.ObjectId, ref: "Coupon" },
+      discountAmount: { type: Number, default: 0 },
+    },
+    // Checkout State Machine
+    status: {
+      type: String,
+      enum: ["active", "checkout", "ordered", "abandoned"],
+      default: "active",
+      index: true,
+    },
+    checkoutToken: {
+      type: String,
+      default: null,
+    },
+    checkoutStartedAt: {
+      type: Date,
+      default: null,
+    },
+    checkoutExpiry: {
+      type: Date,
+      default: null,
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+    },
+    completedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Pre-save middleware to calculate totals
 // Pre-save middleware to calculate totals
 cartSchema.pre("save", function (next) {
   // Calculate subtotal from REGULAR prices (priceSnapshot)
@@ -111,20 +144,36 @@ cartSchema.pre("save", function (next) {
   }, 0);
 
   // Calculate totalAfterDiscount using OFFER prices
-  const totalAfterDiscount = this.items.reduce((sum, item) => {
+  let totalAfterDiscount = this.items.reduce((sum, item) => {
     const price = item.discountPriceSnapshot || item.priceSnapshot;
     return sum + price * item.quantity;
   }, 0);
 
+  // Apply Coupon Discount (if any)
+  if (this.coupon && this.coupon.discountAmount > 0) {
+    // Ensure we don't discount more than the total
+    if (this.coupon.discountAmount > totalAfterDiscount) {
+      this.coupon.discountAmount = totalAfterDiscount; // Clamp
+    }
+    totalAfterDiscount -= this.coupon.discountAmount;
+  }
+
   // Calculate total (totalAfterDiscount + tax + shipping)
   // Note: shippingEstimate is set by controller, but we ensure total logic is consistent here
-  this.total = totalAfterDiscount + (this.tax || 0) + (this.shippingEstimate || 0);
+  this.total =
+    totalAfterDiscount + (this.tax || 0) + (this.shippingEstimate || 0);
+
+  // Final safety clamp
+  if (this.total < 0) {
+    this.total = 0;
+  }
 
   next();
 });
 
 // Index for efficient queries
 cartSchema.index({ userId: 1, cartId: 1 });
+cartSchema.index({ userId: 1, status: 1 }); // For checkout flow
 cartSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Static method to find or create cart

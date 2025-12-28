@@ -141,8 +141,56 @@ const verifyRazorpayPayment = async (req, res) => {
       { new: true }
     );
 
+    // Fetch order to check for coupon
+    const order = await Order.findById(orderId);
+
+    // ATOMIC COUPON CONSUMPTION
+    if (order && order.coupon && order.coupon.code) {
+      const { consumeCoupon } = require("../../utils/couponValidation");
+
+      const consumption = await consumeCoupon(
+        order.coupon.code,
+        order.subtotal || order.totalAmount,
+        order.userId
+      );
+
+      if (!consumption.success) {
+        // Coupon was valid at order creation but exhausted now
+        // This is a race condition - need to recalculate order
+        console.warn(
+          `⚠️ Coupon ${order.coupon.code} exhausted during payment. Error: ${consumption.error}`
+        );
+
+        // Remove coupon discount from order
+        const newTotal = order.subtotal || order.totalAmount;
+        await Order.findByIdAndUpdate(orderId, {
+          "coupon.applied": false,
+          "coupon.errorCode": consumption.error,
+          "coupon.errorMessage": consumption.message,
+          totalAmount: newTotal,
+        });
+
+        await Payment.findOneAndUpdate(
+          { orderId: orderId },
+          { amount: newTotal }
+        );
+
+        return res.status(400).json({
+          success: false,
+          message: consumption.message,
+          errorCode: consumption.error,
+          requiresRecalculation: true,
+        });
+      }
+
+      // Coupon consumed successfully
+      console.log(
+        `✅ Coupon ${order.coupon.code} consumed successfully for order ${orderId}`
+      );
+    }
+
     // Update order payment status
-    const order = await Order.findByIdAndUpdate(orderId, {
+    await Order.findByIdAndUpdate(orderId, {
       paymentStatus: "paid",
     });
 

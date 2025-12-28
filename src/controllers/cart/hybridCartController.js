@@ -2,6 +2,8 @@
 const { CART_ID } = require("../../../resources/constants");
 const Cart = require("../../models/Cart");
 const Product = require("../../models/Product");
+const Coupon = require("../../models/Coupon");
+const Order = require("../../models/Order");
 const {
   isValidCartId,
   generateCartId,
@@ -20,34 +22,34 @@ const calculateShipping = (subtotal) => {
  * Calculate cart totals (subtotal, tax, shipping, total)
  */
 const calculateTotals = (items) => {
-  console.log('🔍 calculateTotals called with items:', JSON.stringify(items, null, 2));
+  console.log(
+    "🔍 calculateTotals called with items:",
+    JSON.stringify(items, null, 2)
+  );
 
   // Calculate subtotal from REGULAR prices (before discount)
   const subtotal = items.reduce((sum, item) => {
-    console.log(`  Item: ${item.titleSnapshot}, priceSnapshot: ${item.priceSnapshot}, quantity: ${item.quantity}`);
+    console.log(
+      `  Item: ${item.titleSnapshot}, priceSnapshot: ${item.priceSnapshot}, quantity: ${item.quantity}`
+    );
     return sum + item.priceSnapshot * item.quantity;
   }, 0);
 
-  console.log('✅ Subtotal (from regular prices):', subtotal);
+  console.log("✅ Subtotal (from regular prices):", subtotal);
 
   // Calculate total using OFFER prices (after discount)
   const totalAfterDiscount = items.reduce((sum, item) => {
     const price = item.discountPriceSnapshot || item.priceSnapshot;
-    console.log(`  Item: ${item.titleSnapshot}, offer price: ${price}, quantity: ${item.quantity}`);
     return sum + price * item.quantity;
   }, 0);
 
-  console.log('✅ Total after discount:', totalAfterDiscount);
-
   const shippingEstimate = calculateShipping(totalAfterDiscount);
+  // Note: logic is basic here; Cart model checks coupon discount on save
   const total = totalAfterDiscount + shippingEstimate;
-
-  console.log('✅ Shipping:', shippingEstimate);
-  console.log('✅ Final total:', total);
 
   return {
     subtotal: Math.round(subtotal * 100) / 100,
-    tax: 0, // No tax for now
+    tax: 0,
     shippingEstimate: Math.round(shippingEstimate * 100) / 100,
     total: Math.round(total * 100) / 100,
   };
@@ -123,7 +125,10 @@ const createCart = async (req, res) => {
         // Safe Claim: If cart is unowned and user is logged in
         if (!existingCart.userId && userId) {
           // Check if user has another cart
-          const otherCart = await Cart.findOne({ userId, cartId: { $ne: cartId } });
+          const otherCart = await Cart.findOne({
+            userId,
+            cartId: { $ne: cartId },
+          });
           if (!otherCart) {
             existingCart.userId = userId;
             await existingCart.save();
@@ -245,9 +250,20 @@ const getCart = async (req, res) => {
     cart.total = totals.total;
     await cart.save();
 
+    // Ensure product data is populated for the response
+    await cart.populate({
+      path: "items.productId",
+      select: "title url_key images",
+    });
+
     const formatted = formatCartResponse(cart);
 
-    console.log('📤 Returning cart with subtotal:', formatted.subtotal, 'total:', formatted.total);
+    console.log(
+      "📤 Returning cart with subtotal:",
+      formatted.subtotal,
+      "total:",
+      formatted.total
+    );
 
     res.status(200).json({
       success: true,
@@ -302,7 +318,10 @@ const addItem = async (req, res) => {
       const userId = req.user?.id;
       if (!cartDoc.userId && userId) {
         // Check if user has another cart
-        const otherCart = await Cart.findOne({ userId, cartId: { $ne: cartDoc.cartId } });
+        const otherCart = await Cart.findOne({
+          userId,
+          cartId: { $ne: cartDoc.cartId },
+        });
         if (!otherCart) {
           cartDoc.userId = userId;
           // save() happens later after adding item
@@ -338,7 +357,14 @@ const addItem = async (req, res) => {
     cartDoc.tax = totals.tax;
     cartDoc.shippingEstimate = totals.shippingEstimate;
     cartDoc.total = totals.total;
+    cartDoc.total = totals.total;
     await cartDoc.save();
+
+    // Ensure product data is populated for the response
+    await cartDoc.populate({
+      path: "items.productId",
+      select: "title url_key images",
+    });
 
     const formatted = formatCartResponse(cartDoc);
 
@@ -406,6 +432,12 @@ const updateItem = async (req, res) => {
     cart.total = totals.total;
     await cart.save();
 
+    // Ensure product data is populated for the response
+    await cart.populate({
+      path: "items.productId",
+      select: "title url_key images",
+    });
+
     const formatted = formatCartResponse(cart);
 
     res.status(200).json({
@@ -454,6 +486,12 @@ const removeItem = async (req, res) => {
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
     await cart.save();
+
+    // Ensure product data is populated for the response
+    await cart.populate({
+      path: "items.productId",
+      select: "title url_key images",
+    });
 
     const formatted = formatCartResponse(cart);
 
@@ -558,6 +596,12 @@ const getItems = async (req, res) => {
       });
     }
 
+    // Ensure product data is populated for the response
+    await cart.populate({
+      path: "items.productId",
+      select: "title url_key images",
+    });
+
     const formatted = formatCartResponse(cart);
 
     res.status(200).json({
@@ -581,24 +625,51 @@ const getItems = async (req, res) => {
 const getPriceSummary = async (req, res) => {
   try {
     const cart = req.cart;
-
     if (!cart) {
+      // Return empty summary structure
       return res.status(200).json({
         success: true,
         priceSummary: {
-          subtotal: 0,
-          tax: 0,
-          shippingEstimate: 0,
-          total: 0,
+          currency: "INR",
+          lines: [
+            {
+              key: "items_subtotal",
+              label: "Subtotal",
+              amount: 0,
+              type: "base",
+              order: 1,
+            },
+            {
+              key: "shipping",
+              label: "Shipping",
+              amount: 0,
+              type: "charge",
+              estimated: true,
+              order: 3,
+            },
+          ],
+          payable: {
+            label: "Total Payable",
+            amount: 0,
+          },
         },
       });
     }
 
-    const totals = calculateTotals(cart.items);
+    // Ensure product data is populated for the response (needed for price calculation)
+    // Assuming cart is already populated by middleware or we do it here
+    if (!cart.items[0]?.productId?.title) {
+      await cart.populate({
+        path: "items.productId",
+        select: "title url_key images",
+      });
+    }
+
+    const formatted = formatCartResponse(cart);
 
     res.status(200).json({
       success: true,
-      priceSummary: totals,
+      priceSummary: formatted.priceSummary,
     });
   } catch (error) {
     console.error("❌ Error getting price summary:", error);
@@ -688,30 +759,54 @@ const getProductData = async (req, res) => {
 const getSummary = async (req, res) => {
   try {
     const cart = req.cart;
-
     if (!cart) {
       return res.status(200).json({
         success: true,
         summary: {
           count: 0,
           priceSummary: {
-            subtotal: 0,
-            tax: 0,
-            shippingEstimate: 0,
-            total: 0,
+            currency: "INR",
+            lines: [
+              {
+                key: "items_subtotal",
+                label: "Subtotal",
+                amount: 0,
+                type: "base",
+                order: 1,
+              },
+              {
+                key: "shipping",
+                label: "Shipping",
+                amount: 0,
+                type: "charge",
+                estimated: true,
+                order: 3,
+              },
+            ],
+            payable: {
+              label: "Total Payable",
+              amount: 0,
+            },
           },
         },
       });
     }
 
-    const count = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-    const totals = calculateTotals(cart.items);
+    // Ensure product data is populated for the response
+    if (!cart.items[0]?.productId?.title) {
+      await cart.populate({
+        path: "items.productId",
+        select: "title url_key images",
+      });
+    }
+
+    const formatted = formatCartResponse(cart);
 
     res.status(200).json({
       success: true,
       summary: {
-        count,
-        priceSummary: totals,
+        count: formatted.itemCount,
+        priceSummary: formatted.priceSummary,
       },
     });
   } catch (error) {
@@ -781,7 +876,9 @@ const mergeCart = async (req, res) => {
 
     if (userCart) {
       // SCENARIO 1: User has an existing cart -> MERGE
-      console.log(`🔄 Merging guest cart ${guestCart.cartId} into user cart ${userCart.cartId}`);
+      console.log(
+        `🔄 Merging guest cart ${guestCart.cartId} into user cart ${userCart.cartId}`
+      );
 
       // Merge items from guest cart
       for (const guestItem of guestCart.items) {
@@ -826,10 +923,11 @@ const mergeCart = async (req, res) => {
         cart: formatted,
         message: "Cart merged successfully",
       });
-
     } else {
       // SCENARIO 2: User has NO existing cart -> ASSIGN
-      console.log(`👤 Assigning guest cart ${guestCart.cartId} to user ${userId}`);
+      console.log(
+        `👤 Assigning guest cart ${guestCart.cartId} to user ${userId}`
+      );
 
       guestCart.userId = userId;
       // Totals remain the same, just saving the association
@@ -845,9 +943,255 @@ const mergeCart = async (req, res) => {
         message: "Cart assigned to user successfully",
       });
     }
-
   } catch (error) {
     console.error("❌ Error merging cart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST /api/v1/cart/apply-coupon
+ * Apply coupon to cart
+ */
+const applyCoupon = async (req, res) => {
+  try {
+    const cart = req.cart;
+    const { code } = req.body;
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart not found",
+      });
+    }
+
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon code is required",
+      });
+    }
+
+    // Find coupon
+    const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+    if (!coupon) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid coupon code",
+      });
+    }
+
+    // Validate coupon
+    if (!coupon.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon is inactive",
+      });
+    }
+
+    const now = new Date();
+    if (new Date(coupon.startDate) > now || new Date(coupon.endDate) < now) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon is expired or not yet active",
+      });
+    }
+
+    // Check usage limits
+    if (coupon.usageLimit && coupon.usageCount >= coupon.usageLimit) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon usage limit reached",
+      });
+    }
+
+    // Check for first order only
+    if (coupon.isNewUserOnly) {
+      // Must be logged in
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "Please login to use this new user coupon",
+        });
+      }
+
+      // Check if user has any previous orders
+      // We count orders that are NOT cancelled
+      const previousOrders = await Order.countDocuments({
+        userId,
+        orderStatus: { $ne: "cancelled" },
+      });
+
+      if (previousOrders > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "This coupon is valid for your first order only",
+        });
+      }
+    }
+
+    // Calculate cart value for minimum requirement
+    // Use subtotal or totalAfterDiscount (items only)
+    const totals = calculateTotals(cart.items);
+    // Assuming minCartValue applies to the item total after item discounts
+    // Calculate total from items only (excluding shipping) for validation
+    const cartItemTotal = cart.items.reduce((sum, item) => {
+      const price = item.discountPriceSnapshot || item.priceSnapshot;
+      return sum + price * item.quantity;
+    }, 0);
+
+    if (cartItemTotal < coupon.minCartValue) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum cart value of ₹${coupon.minCartValue} required`,
+      });
+    }
+
+    // Calculate discount
+    let discountAmount = 0;
+    if (coupon.type === "flat") {
+      discountAmount = coupon.value;
+    } else if (coupon.type === "percentage") {
+      discountAmount = (cartItemTotal * coupon.value) / 100;
+      if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
+        discountAmount = coupon.maxDiscount;
+      }
+    }
+
+    // Apply coupon to cart
+    cart.coupon = {
+      code: coupon.code,
+      couponId: coupon._id,
+      discountAmount: discountAmount,
+    };
+
+    // Update totals with new discount
+    // The pre-save hook in Cart model will apply this discountAmount to the total
+    // But we need to make sure the hook logic aligns or we set it here.
+    // The hook: if (this.coupon && this.coupon.discountAmount > 0) totalAfterDiscount -= ...
+    // So setting it here is correct.
+
+    // We also need to update other totals
+    cart.subtotal = totals.subtotal;
+    cart.tax = totals.tax;
+    cart.shippingEstimate = totals.shippingEstimate;
+
+    await cart.save();
+
+    const formatted = formatCartResponse(cart);
+
+    res.status(200).json({
+      success: true,
+      cart: formatted,
+      message: "Coupon applied successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error applying coupon:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * DELETE /api/v1/cart/remove-coupon
+ * Remove coupon from cart
+ */
+const removeCoupon = async (req, res) => {
+  try {
+    const cart = req.cart;
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart not found",
+      });
+    }
+
+    cart.coupon = undefined;
+
+    // Recalculate totals (without coupon)
+    const totals = calculateTotals(cart.items);
+    cart.subtotal = totals.subtotal;
+    cart.tax = 0;
+    cart.shippingEstimate = totals.shippingEstimate;
+    cart.total = totals.total;
+
+    await cart.save();
+
+    // Return lightweight response (no items, no tax)
+    const cartResponse = {
+      cartId: cart.cartId,
+      userId: cart.userId,
+      subtotal: cart.subtotal,
+      shippingEstimate: cart.shippingEstimate,
+      total: cart.total,
+      itemCount: cart.items.length,
+      coupon: null,
+      createdAt: cart.createdAt,
+      updatedAt: cart.updatedAt,
+    };
+
+    res.status(200).json({
+      success: true,
+      cart: cartResponse,
+      message: "Coupon removed successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error removing coupon:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/v1/cart/coupons
+ * Get list of available coupons
+ */
+const getAvailableCoupons = async (req, res) => {
+  try {
+    const now = new Date();
+
+    const coupons = await Coupon.find({
+      isActive: true,
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+      $or: [
+        { usageLimit: null },
+        { $expr: { $lt: ["$usageCount", "$usageLimit"] } },
+      ],
+    })
+      .select("code type value minCartValue maxDiscount endDate")
+      .sort({ endDate: 1 });
+
+    const formattedCoupons = coupons.map((coupon) => ({
+      code: coupon.code,
+      description:
+        coupon.type === "flat"
+          ? `Flat ₹${coupon.value} off`
+          : `${coupon.value}% off${
+              coupon.maxDiscount ? ` up to ₹${coupon.maxDiscount}` : ""
+            }`,
+      minCartValue: coupon.minCartValue,
+      expiresAt: coupon.endDate,
+    }));
+
+    res.status(200).json({
+      success: true,
+      coupons: formattedCoupons,
+    });
+  } catch (error) {
+    console.error("❌ Error getting coupons:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -870,4 +1214,7 @@ module.exports = {
   getProductData,
   getSummary,
   mergeCart,
+  applyCoupon,
+  removeCoupon,
+  getAvailableCoupons,
 };

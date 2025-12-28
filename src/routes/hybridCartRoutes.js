@@ -16,7 +16,11 @@ const {
   getProductData,
   getSummary,
   mergeCart,
+  applyCoupon,
+  removeCoupon,
+  getAvailableCoupons,
 } = require("../controllers/cart/hybridCartController");
+const startCheckout = require("../controllers/cart/startCheckout");
 const verifyToken = require("../middlewares/authMiddleware");
 
 /**
@@ -288,5 +292,78 @@ router.post("/summary", validateCart, getSummary);
  */
 router.post("/merge", verifyToken, validateCart, mergeCart);
 
-module.exports = router;
+/**
+ * @swagger
+ * /api/v1/cart/apply-coupon:
+ *   post:
+ *     summary: Apply coupon to cart
+ *     tags: [Cart]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - code
+ *             properties:
+ *               code:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Coupon applied successfully
+ *       400:
+ *         description: Invalid coupon or requirements not met
+ */
+router.post("/apply-coupon", validateCart, applyCoupon);
 
+/**
+ * @swagger
+ * /api/v1/cart/remove-coupon:
+ *   delete:
+ *     summary: Remove coupon from cart
+ *     tags: [Cart]
+ *     responses:
+ *       200:
+ *         description: Coupon removed successfully
+ */
+router.delete("/remove-coupon", validateCart, removeCoupon);
+
+/**
+ * @swagger
+ * /api/v1/cart/start-checkout:
+ *   post:
+ *     summary: Start checkout - Lock cart for atomic order creation
+ *     tags: [Cart]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Checkout started successfully
+ *       409:
+ *         description: Checkout already in progress or cart ordered
+ */
+router.post("/start-checkout", startCheckout);
+
+/**
+ * @swagger
+ * /api/v1/cart/coupons:
+ *   get:
+ *     summary: Get list of available coupons
+ *     tags: [Cart]
+ *     responses:
+ *       200:
+ *         description: List of available coupons
+ */
+router.get("/coupons", getAvailableCoupons);
+
+module.exports = router;
