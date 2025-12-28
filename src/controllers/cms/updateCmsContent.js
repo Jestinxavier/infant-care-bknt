@@ -114,6 +114,35 @@ const updateCmsContent = async (req, res) => {
       }
     }
 
+    // Finalize images found in the content
+    try {
+      // Use the generic extractor for CMS content
+      const {
+        extractPublicIdsFromObject,
+        finalizeImages,
+      } = require("../../utils/mediaFinalizer");
+
+      // Extract from the updated content to ensure we only capture what was saved
+      const imagePublicIds = extractPublicIdsFromObject(
+        updatedContent.toObject()
+      );
+
+      if (imagePublicIds.length > 0) {
+        const finalizeResult = await finalizeImages(
+          imagePublicIds,
+          "cms",
+          updatedContent._id
+        );
+        console.log(`✅ [CMS] Finalized images for ${page}:`, {
+          total: imagePublicIds.length,
+          succeeded: finalizeResult.success.length,
+          failed: finalizeResult.failed.length,
+        });
+      }
+    } catch (finalizeError) {
+      console.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
+    }
+
     res.status(200).json({
       success: true,
       message: `CMS content for '${page}' ${

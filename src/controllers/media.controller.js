@@ -177,31 +177,18 @@ class MediaController {
     }
 
     try {
-      // Delete from Cloudinary
-      const result = await cloudinary.uploader.destroy(publicId, {
-        resource_type: "image", // Default to image, can be made configurable
-      });
+      // Use unified delete utility
+      const { deleteAssets } = require("../utils/mediaFinalizer");
+      const results = await deleteAssets([publicId]);
 
-      console.log("🗑️ [Media] Delete result:", result);
-
-      // Also remove from Media collection
-      try {
-        await Media.findOneAndDelete({ public_id: publicId });
-        console.log("✅ [Media] Removed from database:", publicId);
-      } catch (dbError) {
-        console.warn(
-          "⚠️ [Media] Failed to remove from DB (non-critical):",
-          dbError
-        );
-      }
-
-      if (result.result === "ok" || result.result === "not found") {
-        // "not found" is also considered success (idempotent delete)
+      if (results.deleted.length > 0) {
         res
           .status(200)
           .json(ApiResponse.success("File deleted successfully").toJSON());
       } else {
-        throw new Error(`Delete failed: ${result.result}`);
+        throw new Error(
+          results.failed[0]?.error || "Failed to delete file (not found)"
+        );
       }
     } catch (error) {
       console.error("❌ [Media] Delete error:", error);
@@ -332,32 +319,8 @@ class MediaController {
     }
 
     try {
-      const results = {
-        deleted: [],
-        failed: [],
-      };
-
-      // Process each public_id
-      for (const publicId of publicIds) {
-        try {
-          // Delete from Cloudinary
-          const result = await cloudinary.uploader.destroy(publicId, {
-            resource_type: "image",
-          });
-
-          if (result.result === "ok" || result.result === "not found") {
-            // Remove from Media collection
-            await Media.findOneAndDelete({ public_id: publicId });
-            results.deleted.push(publicId);
-            console.log("✅ [Media] Deleted temp image:", publicId);
-          } else {
-            throw new Error(`Delete failed: ${result.result}`);
-          }
-        } catch (error) {
-          console.error(`❌ [Media] Failed to delete ${publicId}:`, error);
-          results.failed.push({ publicId, error: error.message });
-        }
-      }
+      const { deleteAssets } = require("../utils/mediaFinalizer");
+      const results = await deleteAssets(publicIds);
 
       res.status(200).json(
         ApiResponse.success("Temp images deleted", {

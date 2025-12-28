@@ -13,10 +13,10 @@ const deleteProduct = async (req, res) => {
     const { productId } = req.params;
 
     // Validate productId
-    if (!productId || productId === 'undefined' || productId === 'null') {
+    if (!productId || productId === "undefined" || productId === "null") {
       return res.status(400).json({
         success: false,
-        message: "Product ID is required"
+        message: "Product ID is required",
       });
     }
 
@@ -24,7 +24,7 @@ const deleteProduct = async (req, res) => {
     if (!/^[0-9a-fA-F]{24}$/.test(productId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid product ID format"
+        message: "Invalid product ID format",
       });
     }
 
@@ -33,48 +33,46 @@ const deleteProduct = async (req, res) => {
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not found",
       });
     }
 
     // Step 1: Get all variant IDs for this product
-    const variants = await Variant.find({ productId }).select('_id');
-    const variantIds = variants.map(v => v._id);
+    const variants = await Variant.find({ productId }).select("_id");
+    const variantIds = variants.map((v) => v._id);
 
     // Step 2: Delete all reviews associated with these variants
     let deletedReviewsCount = 0;
     if (variantIds.length > 0) {
-      const deleteReviewsResult = await Review.deleteMany({ variantId: { $in: variantIds } });
+      const deleteReviewsResult = await Review.deleteMany({
+        variantId: { $in: variantIds },
+      });
       deletedReviewsCount = deleteReviewsResult.deletedCount;
-      console.log(`Deleted ${deletedReviewsCount} reviews for ${variantIds.length} variants`);
+      console.log(
+        `Deleted ${deletedReviewsCount} reviews for ${variantIds.length} variants`
+      );
     }
 
     // Step 3: Delete all variants associated with this product
     const deleteVariantsResult = await Variant.deleteMany({ productId });
     const deletedVariantsCount = deleteVariantsResult.deletedCount;
-    console.log(`Deleted ${deletedVariantsCount} variants for product ${productId}`);
+    console.log(
+      `Deleted ${deletedVariantsCount} variants for product ${productId}`
+    );
 
-    // Step 4: Extract and delete all images from Cloudinary
+    // Step 4: Extract and delete all images from Cloudinary and DB
     let deletedImagesCount = 0;
     try {
       const publicIds = extractImagePublicIds(product);
 
       if (publicIds.length > 0) {
-        console.log(`Deleting ${publicIds.length} images from Cloudinary...`);
+        console.log(`Deleting ${publicIds.length} images...`);
 
-        for (const publicId of publicIds) {
-          try {
-            await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
-            deletedImagesCount++;
+        const { deleteAssets } = require("../../utils/mediaFinalizer");
+        const results = await deleteAssets(publicIds);
 
-            // Remove from Media collection
-            await Media.deleteOne({ public_id: publicId });
-          } catch (imgError) {
-            console.warn(`⚠️ Could not delete image ${publicId}:`, imgError.message);
-          }
-        }
-
-        console.log(`Deleted ${deletedImagesCount} images from Cloudinary`);
+        deletedImagesCount = results.deleted.length;
+        console.log(`Deleted ${deletedImagesCount} images successfully`);
       }
     } catch (imageError) {
       console.error("❌ Error deleting images:", imageError);
@@ -90,21 +88,20 @@ const deleteProduct = async (req, res) => {
       message: "Product and all associated data deleted successfully",
       deletedProduct: {
         id: product._id,
-        name: product.name
+        name: product.name,
       },
       deletedVariantsCount,
       deletedReviewsCount,
-      deletedImagesCount
+      deletedImagesCount,
     });
   } catch (err) {
     console.error("❌ Error deleting product:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message
+      error: err.message,
     });
   }
 };
 
 module.exports = deleteProduct;
-

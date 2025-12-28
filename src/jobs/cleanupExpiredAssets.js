@@ -15,37 +15,43 @@ const cleanupExpiredAssets = () => {
   // Schedule: Run every day at 2 AM (0 2 * * *)
   cron.schedule("0 2 * * *", async () => {
     try {
-      console.log("🧹 Starting expired asset cleanup job...");
-
-      // Find expired temp assets that are not in use
-      const expiredAssets = await Asset.find({
+      const now = new Date();
+      // 1. Cleanup expired temp assets (24h default)
+      const expiredTempAssets = await Asset.find({
         status: "temp",
-        expiresAt: { $lt: new Date() },
+        expiresAt: { $lt: now },
         usedBy: { $size: 0 },
-      });
+      }).limit(100);
 
-      console.log(`Found ${expiredAssets.length} expired assets to clean up`);
+      // 2. Cleanup archived assets (Hard delete after 7 days)
+      const archiveRetentionDate = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      const expiredArchivedAssets = await Asset.find({
+        status: "archived",
+        archivedAt: { $lt: archiveRetentionDate },
+      }).limit(100);
 
-      let deletedCount = 0;
-      let failedCount = 0;
+      const allAssetsToDelete = [
+        ...expiredTempAssets,
+        ...expiredArchivedAssets,
+      ];
 
-      for (const asset of expiredAssets) {
+      if (allAssetsToDelete.length === 0) {
+        console.log("🧹 [Asset Cleanup] No assets to clean up.");
+        return;
+      }
+
+      console.log(
+        `🧹 [Asset Cleanup] Found ${allAssetsToDelete.length} assets to delete (${expiredTempAssets.length} temp, ${expiredArchivedAssets.length} archived).`
+      );
+
+      for (const asset of allAssetsToDelete) {
         try {
-          console.log(`🗑️ Deleting expired asset: ${asset.publicId}`);
+          // Physical Delete from Cloudinary
+          await cloudinary.cloudinary.uploader.destroy(asset.publicId, {
+            resource_type: "image",
+          });
 
-          // Delete from Cloudinary
-          try {
-            await cloudinary.cloudinary.uploader.destroy(asset.publicId);
-            console.log(`  ✅ Deleted from Cloudinary: ${asset.publicId}`);
-          } catch (cloudinaryError) {
-            console.error(
-              `  ⚠️ Cloudinary deletion failed for ${asset.publicId}:`,
-              cloudinaryError.message
-            );
-            // Continue with DB deletion even if Cloudinary fails
-          }
-
-          // Delete from database
+          // Delete from DB
           await Asset.findByIdAndDelete(asset._id);
           console.log(`  ✅ Deleted from DB: ${asset.publicId}`);
 

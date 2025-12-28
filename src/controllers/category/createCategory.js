@@ -58,6 +58,25 @@ const createCategory = async (req, res) => {
 
     const category = await Category.create(categoryData);
 
+    // Finalize image if present
+    try {
+      if (category.image) {
+        const {
+          extractPublicIdsFromObject,
+          finalizeImages,
+        } = require("../../utils/mediaFinalizer");
+
+        const imagePublicIds = extractPublicIdsFromObject(category.image);
+
+        if (imagePublicIds.length > 0) {
+          await finalizeImages(imagePublicIds, "category", category._id);
+          console.log(`✅ [Category] Finalized image for ${category.name}`);
+        }
+      }
+    } catch (finalizeError) {
+      console.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
+    }
+
     res.status(201).json({
       success: true,
       message: "Category created successfully",

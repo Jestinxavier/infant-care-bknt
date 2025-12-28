@@ -198,6 +198,39 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
 
   if (!validateOnly && (results.created > 0 || results.updated > 0)) {
     await product.save();
+
+    // Finalize images found in the product variants
+    try {
+      const {
+        extractPublicIdsFromObject,
+        finalizeImages,
+      } = require("./mediaFinalizer");
+
+      // Extract all image IDs from the product's variants
+      const imagePublicIds = extractPublicIdsFromObject(product.variants);
+
+      if (imagePublicIds.length > 0) {
+        // Promote them to permanent
+        const finalizeResult = await finalizeImages(
+          imagePublicIds,
+          "product",
+          product._id
+        );
+        console.log(
+          `✅ [CSV Import] Finalized images for product ${product.slug}:`,
+          {
+            total: imagePublicIds.length,
+            succeeded: finalizeResult.success.length,
+          }
+        );
+      }
+    } catch (finalizeError) {
+      console.warn(
+        "⚠️ [CSV Import] Failed to finalize images:",
+        finalizeError.message
+      );
+      // Non-critical, don't fail the import
+    }
   }
 
   return results;

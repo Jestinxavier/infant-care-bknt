@@ -46,7 +46,7 @@ const AssetSchema = new mongoose.Schema(
     // Lifecycle management
     status: {
       type: String,
-      enum: ["temp", "permanent"],
+      enum: ["temp", "permanent", "archived"],
       required: true,
       default: "temp",
       index: true,
@@ -55,6 +55,11 @@ const AssetSchema = new mongoose.Schema(
       type: Date,
       default: () => new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
       index: true, // For cleanup queries
+    },
+    archivedAt: {
+      type: Date,
+      default: null,
+      index: true, // For delayed cleanup
     },
 
     // Origin tracking (immutable after creation - for audit)

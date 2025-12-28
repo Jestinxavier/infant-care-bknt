@@ -112,6 +112,32 @@ const updateCmsBlock = async (req, res) => {
       { new: true, runValidators: false } // flexible schema
     );
 
+    // Finalize images found in the block data
+    try {
+      const {
+        extractPublicIdsFromObject,
+        finalizeImages,
+      } = require("../../utils/mediaFinalizer");
+
+      const imagePublicIds = extractPublicIdsFromObject(blockData);
+
+      if (imagePublicIds.length > 0) {
+        // Use the page document ID as the entity ID
+        const finalizeResult = await finalizeImages(
+          imagePublicIds,
+          "cms",
+          existingDoc._id
+        );
+        console.log(`✅ [CMS] Finalized images for block ${blockType}:`, {
+          total: imagePublicIds.length,
+          succeeded: finalizeResult.success.length,
+          failed: finalizeResult.failed.length,
+        });
+      }
+    } catch (finalizeError) {
+      console.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
+    }
+
     res.status(200).json({
       success: true,
       message: `Block updated successfully`,
