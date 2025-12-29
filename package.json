@@ -6,8 +6,8 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev": "cross-env NODE_ENV=development nodemon src/server.js",
-    "test": "cross-env NODE_ENV=test jest",
-    "test:watch": "cross-env NODE_ENV=test jest --watch",
+    "start": "cross-env NODE_ENV=production node src/server.js",
+    "create-admin": "node scripts/createAdmin.js",
     "seed-categories": "node scripts/seedCategories.js",
     "seed:partners": "node scripts/seedDeliveryPartners.js"
   },
