@@ -10,6 +10,7 @@ const {
   getProductByUrlKey,
   getVariantById,
   getSearchIndex,
+  checkStock,
 } = require("../controllers/product");
 const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
@@ -26,6 +27,38 @@ const router = express.Router();
  *         description: Search index retrieved successfully
  */
 router.get("/search-index", getSearchIndex);
+
+/**
+ * @swagger
+ * /api/v1/product/check-stock:
+ *   post:
+ *     summary: Check stock availability for multiple items
+ *     tags: [Products]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - items
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     productId:
+ *                       type: string
+ *                     variantId:
+ *                       type: string
+ *                     quantity:
+ *                       type: number
+ *     responses:
+ *       200:
+ *         description: Stock check completed
+ */
+router.post("/check-stock", checkStock);
 
 /**
  * @swagger

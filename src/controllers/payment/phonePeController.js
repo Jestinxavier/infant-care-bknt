@@ -16,13 +16,27 @@ const initPhonePePayment = async (req, res) => {
 
     const transactionId = `T${Date.now()}${orderId.toString().slice(-12)}`;
 
+    // Find the order to ensure we have the correct MongoDB _id and human-readable orderId
+    const order = await Order.findOne({
+      $or: [
+        { _id: orderId.length === 24 ? orderId : null },
+        { orderId: orderId }
+      ].filter(Boolean)
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    const displayOrderId = order.orderId || order._id;
+
     // Payload for PhonePe V1 API
     const payload = {
       merchantId: phonePeConfig.merchantId,
       merchantTransactionId: transactionId,
       merchantUserId: userId,
       amount: Math.round(amount * 100), // paise
-      redirectUrl: `${phonePeConfig.redirectUrl}?orderId=${orderId}`,
+      redirectUrl: `${process.env.API_URL || 'http://localhost:5001/api/v1'}/payments/phonepe/redirect?orderId=${orderId}&transactionId=${transactionId}`,
       redirectMode: 'REDIRECT',
       callbackUrl: phonePeConfig.callbackUrl,
       paymentInstrument: { type: 'PAY_PAGE' }
@@ -57,7 +71,7 @@ const initPhonePePayment = async (req, res) => {
 
       // Upsert payment record
       await Payment.findOneAndUpdate(
-        { orderId: orderId },
+        { orderId: order._id },
         {
           transactionId: transactionId,
           status: 'pending',
@@ -199,6 +213,64 @@ const checkPaymentStatus = async (req, res) => {
 };
 
 /**
+ * Handle PhonePe Redirect (GET)
+ * This is where PhonePe sends the user back.
+ */
+const phonePeRedirect = async (req, res) => {
+  try {
+    const { orderId, transactionId } = req.query;
+
+    if (!transactionId || !orderId) {
+      return res.redirect(`${process.env.FRONTEND_URL}/order-confirmation?status=0`);
+    }
+
+    // Check status with PhonePe
+    const endpoint = `${phonePeConfig.endpoints.status}/${phonePeConfig.merchantId}/${transactionId}`;
+    const xVerify = generateXVerify('', endpoint);
+
+    const response = await axios.get(
+      `${phonePeConfig.baseUrl}${endpoint}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-VERIFY': xVerify,
+          'X-MERCHANT-ID': phonePeConfig.merchantId,
+          'accept': 'application/json'
+        }
+      }
+    );
+
+    const order = await Order.findOne({
+      $or: [
+        { _id: orderId.length === 24 ? orderId : null },
+        { orderId: orderId }
+      ].filter(Boolean)
+    });
+
+    const displayOrderId = order ? (order.orderId || order._id) : orderId;
+    let status = 0;
+
+    if (response.data && response.data.success) {
+      const { code } = response.data;
+      if (code === 'PAYMENT_SUCCESS') {
+        status = 1;
+        // Optionally update database here too if callback hasn't arrived
+        if (order) {
+          await Order.findByIdAndUpdate(order._id, { paymentStatus: 'paid' });
+          await Payment.findOneAndUpdate({ transactionId }, { status: 'success' });
+        }
+      }
+    }
+
+    return res.redirect(`${process.env.FRONTEND_URL}/order-confirmation?status=${status}&order-id=${displayOrderId}`);
+
+  } catch (error) {
+    console.error("❌ PhonePe Redirect Error:", error.message);
+    return res.redirect(`${process.env.FRONTEND_URL}/order-confirmation?status=0`);
+  }
+};
+
+/**
  * Initiate Refund (V1 Manual Flow)
  */
 const initiatePhonePeRefund = async (req, res) => {
@@ -257,6 +329,7 @@ const getPhonePeRefundStatus = async (req, res) => {
 module.exports = {
   initPhonePePayment,
   phonePeCallback,
+  phonePeRedirect,
   checkPaymentStatus,
   initiatePhonePeRefund,
   getPhonePeRefundStatus
