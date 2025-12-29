@@ -1,12 +1,12 @@
-export const TEST_MODE = true;
-export const TEST_OTP = "123456";
+const TEST_MODE = true;
+const TEST_OTP = "123456";
 
 // required cookies
-export const CART_ID = "cart_id";
-export const ACCESS_TOKEN = "access_token";
-export const REFRESH_TOKEN = "refresh_token";
+const CART_ID = "cart_id";
+const ACCESS_TOKEN = "access_token";
+const REFRESH_TOKEN = "refresh_token";
 
-export const PRODUCTS = [
+const PRODUCTS = [
   {
     title: "Premium Organic Cotton Infant Jumpsuit",
     description:
@@ -735,3 +735,12 @@ export const PRODUCTS = [
     status: "published",
   },
 ];
+
+module.exports = {
+  TEST_MODE,
+  TEST_OTP,
+  CART_ID,
+  ACCESS_TOKEN,
+  REFRESH_TOKEN,
+  PRODUCTS
+};

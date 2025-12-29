@@ -29,8 +29,8 @@ const variantOptionSchema = new mongoose.Schema(
 const variantSchema = new mongoose.Schema(
   {
     id: { type: String, required: true },
-    url_key: { type: String, required: true }, // Unique URL key for this variant
-    sku: { type: String, required: true, unique: true, sparse: true },
+    url_key: { type: String }, // Made optional in schema, controller will generate
+    sku: { type: String, unique: true, sparse: true },
     // Support both formats: direct fields and nested objects
     price: { type: Number, min: 0 }, // Direct price (for backward compatibility)
     discountPrice: { type: Number, min: 0 },
@@ -165,7 +165,7 @@ const productSchema = new mongoose.Schema(
 
     // Legacy fields (for backward compatibility)
     name: { type: String }, // Auto-synced from title
-    tags: String,
+    tags: [String],
     basePrice: Number,
 
     // SEO fields
