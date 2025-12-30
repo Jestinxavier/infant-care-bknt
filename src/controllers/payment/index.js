@@ -1,6 +1,7 @@
 const {
   initPhonePePayment,
   phonePeCallback,
+  phonePeRedirect,
   checkPaymentStatus,
   initiatePhonePeRefund,
   getPhonePeRefundStatus
@@ -17,6 +18,7 @@ module.exports = {
   // PhonePe
   initPhonePePayment,
   phonePeCallback,
+  phonePeRedirect,
   checkPaymentStatus,
   initiatePhonePeRefund,
   getPhonePeRefundStatus,

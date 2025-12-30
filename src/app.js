@@ -6,49 +6,60 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 const app = express();
 // ✅ CORS setup - Allow localhost from any port + production origins
+
+console.log(process.env.FRONTEND_URL, " 😂");
+console.log(process.env.DASHBOARD_URL, " 😂 ");
 const allowedOrigins = [
-  // "https://infantscare.in", // Production domain
-  // "https://infant-care-dashboard.vercel.app", // Dashboard domain
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
-].filter(Boolean); // Remove undefined values
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:3000",
+  "http://localhost:3001",
+]
+  .filter(Boolean)
+  .map((url) => url.trim().replace(/\/$/, ""));
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
+const corsOptions = {
+  origin(origin, callback) {
+    // In development or if it's a known localhost/whitelisted origin, allow it
+    if (!origin || process.env.NODE_ENV === "development") {
+      return callback(null, true);
+    }
 
-      if (
-        origin.startsWith("http://localhost:") ||
-        origin.startsWith("http://127.0.0.1:")
-      ) {
-        return callback(null, true);
-      }
+    const normalizedOrigin = origin.trim().replace(/\/$/, "");
+    const isLocalhost =
+      normalizedOrigin.startsWith("http://localhost:") ||
+      normalizedOrigin.startsWith("http://127.0.0.1:") ||
+      normalizedOrigin === "http://localhost" ||
+      normalizedOrigin === "http://127.0.0.1";
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+    if (isLocalhost || allowedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
 
-      if (process.env.NODE_ENV === "development") {
-        return callback(null, true);
-      }
+    console.error(`❌ CORS blocked: ${origin}`);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin",
+    "x-cart-id",
+    "X-Client-Type",
+    "X-Platform",
+    "Access-Control-Allow-Origin",
+  ],
+  exposedHeaders: ["set-cookie"],
+  optionsSuccessStatus: 204,
+};
 
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "x-cart-id",
-      "X-Client-Type",
-      "Access-Control-Allow-Origin",
-    ],
-    exposedHeaders: ["set-cookie"],
-    optionsSuccessStatus: 204,
-  })
-);
+app.use(cors(corsOptions));
 
 // Cookie Parser Middleware
 app.use(cookieParser());
@@ -135,5 +146,9 @@ app.get("/", (req, res) =>
     "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5001/api-docs</a>"
   )
 );
+
+const checkOrderStatus =
+  require("./controllers/payment/phonepeSDK").checkOrderStatus;
+app.get("/order-confirmation", checkOrderStatus);
 
 module.exports = app;

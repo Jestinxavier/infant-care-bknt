@@ -7,6 +7,7 @@ const Cart = require("../../models/Cart");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { consumeCoupon } = require("../../utils/couponValidation");
 const crypto = require("crypto");
+const phonepeSDK = require("../../controllers/payment/phonepeSDK");
 
 const generateOrderId = () =>
   crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -274,9 +275,18 @@ const createOrder = async (req, res) => {
     }
 
     // Step 7: Create order with pricing snapshot
+    if (!finalAddressId || !shippingAddressData) {
+      return res
+        .status(400)
+        .json({ message: "Address ID or new address is required" });
+    }
+
+    // Step 3: Create Order
+    const orderId = generateOrderId();
+
     const order = new Order({
       userId,
-      orderId: generateOrderId(),
+      orderId,
       items: orderItems,
       subtotal,
       shippingCost: shippingAmount,
@@ -285,8 +295,8 @@ const createOrder = async (req, res) => {
       totalAmount,
       addressId: finalAddressId,
       shippingAddress: shippingAddressData,
-      paymentMethod: paymentMethod || PAYMENT_METHODS.COD,
-      status: "created",
+      paymentMethod: paymentMethod,
+      status: "pending",
       pricingSnapshot: {
         itemsSubtotal: subtotal,
         productDiscount: discountAmount,
@@ -328,29 +338,33 @@ const createOrder = async (req, res) => {
       `✅ Order ${order.orderId} created successfully in transaction`
     );
 
-    // === POST-COMMIT: Payment Gateway Init ===
+    // Step 10: Return response based on payment method
     if (paymentMethod === PAYMENT_METHODS.PHONEPE) {
       try {
-        // TODO: Implement PhonePe init
-        // const paymentInit = await initPhonePe(order._id, totalAmount);
-        return res.status(201).json({
-          success: true,
-          message: "Order created successfully",
-          order,
-          payment,
-          requiresPayment: true,
-          paymentMethod: PAYMENT_METHODS.PHONEPE,
-          // paymentUrl: paymentInit.url
+        const response = await phonepeSDK.initiatePayment({
+          orderId,
+          amount: totalAmount * 100,
         });
-      } catch (paymentError) {
-        console.error("PhonePe init failed:", paymentError);
-        return res.status(201).json({
-          success: true,
-          order,
-          payment,
-          paymentInitFailed: true,
-          message:
-            "Order created, but payment initiation failed. Retry from orders page.",
+        if (response?.redirectUrl) {
+          return res.status(200).json({
+            success: true,
+            message: "Redirecting to PhonePe payment gateway",
+            paymentMode: "phonepe",
+            ...response,
+          });
+        } else {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to generate redirection url",
+            error: "Redirect URL missing from SDK response",
+          });
+        }
+      } catch (error) {
+        console.error("❌ Error initiating PhonePe payment:", error);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to initiate PhonePe payment",
+          error: error.message,
         });
       }
     }
@@ -360,9 +374,8 @@ const createOrder = async (req, res) => {
         // TODO: Implement Razorpay init
         return res.status(201).json({
           success: true,
-          message: "Order created successfully",
-          order,
-          payment,
+          message:
+            "Order placed successfully. Please initiate Razorpay payment.",
           requiresPayment: true,
           paymentMethod: PAYMENT_METHODS.RAZORPAY,
         });
@@ -370,11 +383,9 @@ const createOrder = async (req, res) => {
         console.error("Razorpay init failed:", paymentError);
         return res.status(201).json({
           success: true,
-          order,
-          payment,
           paymentInitFailed: true,
           message:
-            "Order created, but payment initiation failed. Retry from orders page.",
+            "Order created, but payment initiation failed. Please try again.",
         });
       }
     }
@@ -382,9 +393,7 @@ const createOrder = async (req, res) => {
     // COD or other methods
     return res.status(201).json({
       success: true,
-      message: "Order created successfully",
-      order,
-      payment,
+      message: "Order placed successfully",
     });
   } catch (error) {
     await session.abortTransaction();

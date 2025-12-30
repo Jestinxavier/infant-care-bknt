@@ -3,14 +3,17 @@ const router = express.Router();
 const {
   initPhonePePayment,
   phonePeCallback,
+  phonePeRedirect,
   checkPaymentStatus,
   createRazorpayOrder,
   verifyRazorpayPayment,
   razorpayWebhook,
   getPaymentDetails,
   initiatePhonePeRefund,
-  getPhonePeRefundStatus
+  getPhonePeRefundStatus,
 } = require("../controllers/payment");
+
+const phonepeSDK = require("../controllers/payment/phonepeSDK");
 
 /**
  * @swagger
@@ -112,6 +115,9 @@ router.post("/phonepe/init", initPhonePePayment);
  */
 // POST /api/v1/payments/phonepe/callback - PhonePe callback handler
 router.post("/phonepe/callback", phonePeCallback);
+
+// GET /api/v1/payments/phonepe/redirect - PhonePe redirect handler
+router.get("/phonepe/redirect", phonePeRedirect);
 
 /**
  * @swagger
@@ -217,6 +223,8 @@ router.post("/phonepe/refund", initiatePhonePeRefund);
  *         description: Refund status retrieved successfully
  */
 router.get("/phonepe/refund/status/:refundId", getPhonePeRefundStatus);
+
+router.post("/phonepeSdk/checkout", phonepeSDK.initiatePayment);
 
 // ============================================
 // Razorpay Payment Routes
