@@ -4,6 +4,12 @@ const Address = require("../../models/Address");
 const Payment = require("../../models/Payment");
 const Product = require("../../models/Product");
 const Cart = require("../../models/Cart");
+const phonepeSDK = require("../../controllers/payment/phonepeSDK");
+const crypto = require("crypto");
+
+const generateOrderId = () => {
+  return crypto.randomBytes(4).toString("hex").toUpperCase();
+};
 
 const createOrder = async (req, res) => {
   try {
@@ -127,14 +133,11 @@ const createOrder = async (req, res) => {
     }
 
     // Step 3: Create Order
-    const crypto = require("crypto");
-    const generateOrderId = () => {
-      return crypto.randomBytes(4).toString("hex").toUpperCase();
-    };
+    const orderId = generateOrderId();
 
     const order = new Order({
       userId,
-      orderId: generateOrderId(),
+      orderId,
       items: orderItems,
       subtotal,
       shippingCost: shippingAmount,
@@ -142,7 +145,7 @@ const createOrder = async (req, res) => {
       totalAmount,
       addressId: finalAddressId,
       shippingAddress: shippingAddressData,
-      paymentMethod: paymentMethod || "COD",
+      paymentMethod: paymentMethod,
     });
 
     await order.save();
@@ -184,24 +187,39 @@ const createOrder = async (req, res) => {
 
     // Step 6: Return response based on payment method
     if (paymentMethod === "PhonePe") {
-      return res.status(201).json({
-        success: true,
-        message:
-          "✅ Order created successfully. Please initiate PhonePe payment.",
-        order,
-        payment,
-        requiresPayment: true,
-        paymentMethod: "PhonePe",
-      });
+      try {
+        const response = await phonepeSDK.initiatePayment({
+          orderId,
+          amount: totalAmount * 100,
+        });
+        if (response?.redirectUrl) {
+          return res.status(200).json({
+            success: true,
+            message: "Redirecting to PhonePe payment gateway",
+            paymentMode: "phonepe",
+            ...response,
+          });
+        } else {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to generate redirection url",
+            error: "Redirect URL missing from SDK response",
+          });
+        }
+      } catch (error) {
+        console.error("❌ Error initiating PhonePe payment:", error);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to initiate PhonePe payment",
+          error: error.message,
+        });
+      }
     }
 
     if (paymentMethod === "Razorpay") {
       return res.status(201).json({
         success: true,
-        message:
-          "✅ Order created successfully. Please initiate Razorpay payment.",
-        order,
-        payment,
+        message: "Order placed successfully. Please initiate Razorpay payment.",
         requiresPayment: true,
         paymentMethod: "Razorpay",
       });
@@ -210,9 +228,7 @@ const createOrder = async (req, res) => {
     // For COD or other methods
     res.status(201).json({
       success: true,
-      message: "✅ Order created successfully",
-      order,
-      payment,
+      message: "Order placed successfully",
     });
   } catch (err) {
     console.error("❌ Error creating order:", err);

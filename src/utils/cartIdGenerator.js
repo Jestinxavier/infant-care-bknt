@@ -20,7 +20,7 @@ const generateCartId = () => {
  */
 const isValidCartId = (cartId) => {
   if (!cartId || typeof cartId !== "string") return false;
-  return /^cart_[a-z0-9]{21}$/.test(cartId);
+  return /^cart_[a-zA-Z0-9]{21}$/.test(cartId);
 };
 
 module.exports = {

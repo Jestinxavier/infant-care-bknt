@@ -20,9 +20,6 @@
   ],
   "author": "",
   "license": "ISC",
-  "engines": {
-    "node": ">=18.x"
-  },
   "dependencies": {
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
@@ -39,7 +36,7 @@
     "mongoose": "^8.18.3",
     "multer": "^1.4.5-lts.1",
     "multer-storage-cloudinary": "^4.0.0",
-    "nanoid": "^5.1.6",
+    "nanoid": "^3.3.11",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.9",
     "openapi-types": "^7.0.0",
@@ -54,6 +51,9 @@
     "mongodb-memory-server": "^11.0.1",
     "nodemon": "^3.1.10",
     "supertest": "^7.1.4"
+  },
+  "engines": {
+    "node": "22.21.1"
   },
   "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c"
 }

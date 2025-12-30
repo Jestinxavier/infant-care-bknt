@@ -10,8 +10,10 @@ const {
   razorpayWebhook,
   getPaymentDetails,
   initiatePhonePeRefund,
-  getPhonePeRefundStatus
+  getPhonePeRefundStatus,
 } = require("../controllers/payment");
+
+const phonepeSDK = require("../controllers/payment/phonepeSDK");
 
 /**
  * @swagger
@@ -221,6 +223,8 @@ router.post("/phonepe/refund", initiatePhonePeRefund);
  *         description: Refund status retrieved successfully
  */
 router.get("/phonepe/refund/status/:refundId", getPhonePeRefundStatus);
+
+router.post("/phonepeSdk/checkout", phonepeSDK.initiatePayment);
 
 // ============================================
 // Razorpay Payment Routes

@@ -17,7 +17,9 @@ const allowedOrigins = [
   "http://localhost:5175",
   "http://localhost:3000",
   "http://localhost:3001",
-].filter(Boolean).map(url => url.trim().replace(/\/$/, ""));
+]
+  .filter(Boolean)
+  .map((url) => url.trim().replace(/\/$/, ""));
 
 const corsOptions = {
   origin(origin, callback) {
@@ -144,5 +146,9 @@ app.get("/", (req, res) =>
     "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5001/api-docs</a>"
   )
 );
+
+const checkOrderStatus =
+  require("./controllers/payment/phonepeSDK").checkOrderStatus;
+app.get("/order-confirmation", checkOrderStatus);
 
 module.exports = app;
