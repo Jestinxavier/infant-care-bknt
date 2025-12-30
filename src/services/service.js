@@ -8,6 +8,7 @@ const {
   sendOTPEmail,
   sendWelcomeEmail,
 } = require("./emailService");
+const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../resources/constants");
 
 /**
  * Step 1: Request OTP - Only email needed
@@ -22,7 +23,7 @@ exports.requestOTP = async ({ email }) => {
 
   // Generate OTP
   const otp = generateOTP();
-  const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  const otpExpires = new Date(Date.now() + OTP_EXPIRY_MS);
 
   // Delete any existing OTP request for this email
   await PendingUser.deleteMany({ email });
@@ -49,7 +50,7 @@ exports.requestOTP = async ({ email }) => {
     success: true,
     message: "OTP sent to your email. Please verify to complete registration.",
     email: email,
-    expiresIn: "10 minutes",
+    expiresIn: TOKEN_EXPIRY.OTP,
   };
 };
 
@@ -250,7 +251,7 @@ exports.resendOTP = async (email) => {
 
   // Generate new OTP
   const otp = generateOTP();
-  const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+  const otpExpires = new Date(Date.now() + OTP_EXPIRY_MS);
 
   pendingUser.otp = otp;
   pendingUser.otpExpires = otpExpires;
@@ -266,6 +267,6 @@ exports.resendOTP = async (email) => {
   return {
     success: true,
     message: "New OTP sent to your email",
-    expiresIn: "10 minutes",
+    expiresIn: TOKEN_EXPIRY.OTP,
   };
 };

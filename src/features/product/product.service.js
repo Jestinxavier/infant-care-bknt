@@ -74,7 +74,7 @@ class ProductService {
         },
       },
 
-      // Lookup category by categoryCode
+      // Lookup category by categoryCode (more efficient than ObjectId lookup)
       {
         $lookup: {
           from: "categories",
@@ -85,7 +85,12 @@ class ProductService {
       },
       {
         $addFields: {
-          categoryName: { $arrayElemAt: ["$categoryInfo.name", 0] },
+          categoryName: {
+            $ifNull: [
+              { $arrayElemAt: ["$categoryInfo.name", 0] },
+              "$categoryName", // Fallback to existing categoryName field
+            ],
+          },
         },
       },
 

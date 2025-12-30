@@ -128,6 +128,7 @@ const createProduct = async (req, res) => {
     // Handle category - can be ObjectId or category name
     let categoryId = category;
     let categoryName = null;
+    let categoryCode = null;
 
     if (!mongoose.Types.ObjectId.isValid(category)) {
       // Try exact match first
@@ -155,6 +156,7 @@ const createProduct = async (req, res) => {
       if (foundCategory) {
         categoryId = foundCategory._id;
         categoryName = foundCategory.name;
+        categoryCode = foundCategory.code;
       } else {
         console.error(`Category lookup failed for: "${category}"`);
         return res.status(400).json({
@@ -171,6 +173,7 @@ const createProduct = async (req, res) => {
         });
       }
       categoryName = foundCategory.name;
+      categoryCode = foundCategory.code;
     }
 
     // Generate url_key if not provided
@@ -359,16 +362,13 @@ const createProduct = async (req, res) => {
       legacyVariantsArray = legacyVariants;
     }
 
-    // Parse tags if it's a string
-    let parsedTags = [];
+    // Tags - keep as single string (comma-separated if multiple)
+    let parsedTags = "";
     if (tags) {
       if (typeof tags === "string") {
-        parsedTags = tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean);
+        parsedTags = tags.trim(); // Keep as string
       } else if (Array.isArray(tags)) {
-        parsedTags = tags;
+        parsedTags = tags.join(",").trim(); // Convert array to comma-separated string
       }
     }
 
@@ -441,6 +441,7 @@ const createProduct = async (req, res) => {
       shortDescription: shortDescription || null,
       category: categoryId,
       categoryName: categoryName,
+      categoryCode: categoryCode,
       url_key: productUrlKey,
       status: normalizedStatus,
       sku: sku || null,

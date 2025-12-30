@@ -165,7 +165,7 @@ const productSchema = new mongoose.Schema(
 
     // Legacy fields (for backward compatibility)
     name: { type: String }, // Auto-synced from title
-    tags: String,
+    tags: String, // Single string value (e.g., 'new-arrival')
     basePrice: Number,
 
     // SEO fields

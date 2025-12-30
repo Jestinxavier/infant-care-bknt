@@ -3,8 +3,9 @@ const { cloudinary } = require("../../config/cloudinary");
 
 const createCategory = async (req, res) => {
   try {
-    const { name, code, displayOrder, parentCategory, removeImage } = req.body;
-    const imageFile = req.file; // Uploaded image file
+    const { name, code, displayOrder, parentCategory, removeImage, image } =
+      req.body;
+    const imageFile = req.file; // Uploaded image file (if using multer)
 
     if (!name || name.trim() === "") {
       return res.status(400).json({
@@ -51,9 +52,11 @@ const createCategory = async (req, res) => {
       categoryData.parentCategory = parentCategory;
     }
 
-    // Handle image upload
+    // Handle image - either from file upload or URL string
     if (imageFile) {
-      categoryData.image = imageFile.path; // Cloudinary URL
+      categoryData.image = imageFile.path; // Cloudinary URL from multer
+    } else if (image && !removeImage) {
+      categoryData.image = image; // Direct URL from FormData
     }
 
     const category = await Category.create(categoryData);

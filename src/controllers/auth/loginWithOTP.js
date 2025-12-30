@@ -1,8 +1,12 @@
 const User = require("../../models/user");
 const PendingUser = require("../../models/PendingUser");
 const Token = require("../../models/token");
-const { generateAccessToken, generateRefreshToken } = require("../../utils/token");
+const {
+  generateAccessToken,
+  generateRefreshToken,
+} = require("../../utils/token");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
+const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../../resources/constants");
 
 /**
  * Request OTP for login (existing user)
@@ -31,7 +35,8 @@ const requestLoginOTP = async (req, res) => {
     if (!user.isEmailVerified) {
       return res.status(400).json({
         success: false,
-        message: "Please verify your email first. Check your inbox for verification link.",
+        message:
+          "Please verify your email first. Check your inbox for verification link.",
       });
     }
 
@@ -40,7 +45,7 @@ const requestLoginOTP = async (req, res) => {
 
     // Generate OTP
     const otp = generateOTP();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpires = new Date(Date.now() + OTP_EXPIRY_MS);
 
     // Delete any existing OTP request for this email
     await PendingUser.deleteMany({ email: user.email });
@@ -70,7 +75,7 @@ const requestLoginOTP = async (req, res) => {
       success: true,
       message: "OTP sent to your email. Please verify to login.",
       email: user.email,
-      expiresIn: "10 minutes",
+      expiresIn: TOKEN_EXPIRY.OTP,
     });
   } catch (err) {
     console.error("❌ Error requesting login OTP:", err);
@@ -114,7 +119,8 @@ const verifyLoginOTP = async (req, res) => {
     if (!pendingOTP) {
       return res.status(400).json({
         success: false,
-        message: "No OTP request found for this email. Please request a new OTP.",
+        message:
+          "No OTP request found for this email. Please request a new OTP.",
       });
     }
 
@@ -193,4 +199,3 @@ const verifyLoginOTP = async (req, res) => {
 };
 
 module.exports = { requestLoginOTP, verifyLoginOTP };
-

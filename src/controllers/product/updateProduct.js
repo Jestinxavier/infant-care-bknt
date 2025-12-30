@@ -77,6 +77,7 @@ const updateProduct = async (req, res) => {
     if (category) {
       let categoryId = category;
       let categoryName = null;
+      let categoryCode = null;
 
       if (!mongoose.Types.ObjectId.isValid(category)) {
         const foundCategory = await Category.findOne({
@@ -86,17 +87,20 @@ const updateProduct = async (req, res) => {
         if (foundCategory) {
           categoryId = foundCategory._id;
           categoryName = foundCategory.name;
+          categoryCode = foundCategory.code;
         }
       } else {
         const foundCategory = await Category.findById(category);
         if (foundCategory && foundCategory.isActive) {
           categoryName = foundCategory.name;
+          categoryCode = foundCategory.code;
         }
       }
 
       if (categoryId) {
         product.category = categoryId;
         if (categoryName) product.categoryName = categoryName;
+        if (categoryCode) product.categoryCode = categoryCode;
       }
     }
 
