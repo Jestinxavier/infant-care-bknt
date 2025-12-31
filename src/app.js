@@ -83,6 +83,8 @@ const homepageRoutes = require("./routes/homepageRoutes");
 const footerRoutes = require("./routes/footerRoutes");
 // Old CMS routes (keeping for backward compatibility if needed)
 // const cmsRoutes = require("./routes/cmsRoutes");
+const faqRoutes = require("./routes/faqRoutes");
+const faqCategoryRoutes = require("./routes/faqCategoryRoutes");
 
 // New feature-based CMS routes
 const cmsAdminRoutes = require("./features/cms/cms.admin.routes");
@@ -109,6 +111,7 @@ app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/health", healthRoutes);
 app.use("/api/v1/homepage", homepageRoutes);
 app.use("/api/v1/footer", footerRoutes);
+app.use("/api/v1/faqs", faqRoutes);
 // CMS product routes (lightweight for widgets) - Must be before general /cms route
 app.use("/api/v1/cms/products", cmsProductRoutes);
 // Public CMS routes (for frontend)
@@ -122,6 +125,9 @@ app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsAdminRoutes);
 // Media routes under admin
 const mediaRoutes = require("./routes/mediaRoutes");
 app.use(`/api/v1${ADMIN_PREFIX}/media`, mediaRoutes);
+
+// FAQ Category Management (Admin only)
+app.use(`/api/v1${ADMIN_PREFIX}/faq-categories`, faqCategoryRoutes);
 
 // CSV temp image routes under admin
 const csvImageRoutes = require("./routes/csvImageRoutes");

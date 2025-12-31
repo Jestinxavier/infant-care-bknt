@@ -2,6 +2,7 @@ const Order = require("../../models/Order");
 const User = require("../../models/user");
 const mongoose = require("mongoose");
 const emailService = require("../../services/emailService");
+const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 
 /**
  * Admin: Get all orders (not filtered by user)
@@ -9,7 +10,7 @@ const emailService = require("../../services/emailService");
  */
 const getAllOrders = async (req, res) => {
   try {
-    const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
+    const requestData = req.method === "POST" ? req.body || {} : req.query;
 
     const {
       page = 1,
@@ -19,6 +20,8 @@ const getAllOrders = async (req, res) => {
       sortBy = "createdAt",
       sortOrder = -1,
       search,
+      from, // ISO date string (YYYY-MM-DD)
+      to, // ISO date string (YYYY-MM-DD)
     } = requestData;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -27,6 +30,53 @@ const getAllOrders = async (req, res) => {
 
     // Build filter
     let filter = {};
+
+    // ===== ROLE-BASED DATE RESTRICTIONS =====
+    const userRole = req.user?.role; // from auth middleware
+    const now = new Date();
+    const restrictionDaysAgo = new Date(now);
+    restrictionDaysAgo.setUTCDate(
+      now.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS
+    );
+    restrictionDaysAgo.setUTCHours(0, 0, 0, 0); // Start of day in UTC
+
+    // For admin/moderator: enforce date restriction
+    if (userRole === "admin" || userRole === "moderator") {
+      filter.createdAt = { $gte: restrictionDaysAgo };
+
+      // If custom date range provided, validate it doesn't exceed limit
+      if (from) {
+        const fromDate = new Date(from);
+        fromDate.setUTCHours(0, 0, 0, 0);
+
+        if (fromDate < restrictionDaysAgo) {
+          return res.status(403).json({
+            success: false,
+            errorCode: "DATE_RESTRICTED",
+            message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+            maxDate: restrictionDaysAgo.toISOString().split("T")[0],
+          });
+        }
+      }
+    }
+
+    // ===== DATE RANGE FILTERING =====
+    // Backend normalization: from (00:00:00.000Z) to (23:59:59.999Z)
+    if (from || to) {
+      filter.createdAt = filter.createdAt || {};
+
+      if (from) {
+        const fromDate = new Date(from);
+        fromDate.setUTCHours(0, 0, 0, 0); // Start of day
+        filter.createdAt.$gte = fromDate;
+      }
+
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setUTCHours(23, 59, 59, 999); // End of day
+        filter.createdAt.$lte = toDate;
+      }
+    }
 
     if (status) {
       filter.orderStatus = status;
@@ -48,23 +98,25 @@ const getAllOrders = async (req, res) => {
         $or: [
           { username: searchRegex },
           { email: searchRegex },
-          { phone: searchRegex }
-        ]
+          { phone: searchRegex },
+        ],
       }).select("_id");
 
-      const matchingUserIds = matchingUsers.map(u => u._id);
+      const matchingUserIds = matchingUsers.map((u) => u._id);
 
       // 2. Build Order Search Queries
       const searchFilters = [
         { orderId: sanitizedRegex }, // Search by Order ID (matches "123" or "#123")
         { userId: { $in: matchingUserIds } }, // Search by Customer (User ID)
         { "shippingAddress.phone": searchRegex }, // Search by Phone in Shipping Address
-        { "shippingAddress.fullName": searchRegex } // Search by Name in Shipping Address
+        { "shippingAddress.fullName": searchRegex }, // Search by Name in Shipping Address
       ];
 
       // Check if valid ObjectId (using sanitized search in case user pasted #ID)
       if (mongoose.Types.ObjectId.isValid(sanitizedSearch)) {
-        searchFilters.push({ _id: new mongoose.Types.ObjectId(sanitizedSearch) });
+        searchFilters.push({
+          _id: new mongoose.Types.ObjectId(sanitizedSearch),
+        });
       }
 
       filter.$or = searchFilters;
@@ -83,10 +135,13 @@ const getAllOrders = async (req, res) => {
         path: "items.variantId",
         populate: {
           path: "productId",
-          select: "name title images"
-        }
+          select: "name title images",
+        },
       })
-      .populate("addressId", "fullName phone houseName street landmark city state pincode country")
+      .populate(
+        "addressId",
+        "fullName phone houseName street landmark city state pincode country"
+      )
       .populate("userId", "username email phone")
       .sort(sort)
       .skip(skip)
@@ -94,15 +149,17 @@ const getAllOrders = async (req, res) => {
       .lean();
 
     // Format orders for admin dashboard
-    const formattedOrders = orders.map(order => ({
+    const formattedOrders = orders.map((order) => ({
       _id: order._id?.toString(),
       orderId: order.orderId || order._id?.toString(),
       userId: order.userId?._id?.toString() || order.userId,
-      user: order.userId ? {
-        username: order.userId.username,
-        email: order.userId.email,
-        phone: order.userId.phone,
-      } : null,
+      user: order.userId
+        ? {
+            username: order.userId.username,
+            email: order.userId.email,
+            phone: order.userId.phone,
+          }
+        : null,
       customerName: order.userId?.username || order.userId?.email || "Guest",
       customerEmail: order.userId?.email,
       customerPhone: order.userId?.phone,
@@ -114,10 +171,11 @@ const getAllOrders = async (req, res) => {
       subtotal: order.subtotal,
       shippingCost: order.shippingCost,
       discount: order.discount,
-      items: order.items.map(item => ({
+      items: order.items.map((item) => ({
         variantId: item.variantId?._id?.toString(),
         productId: item.variantId?.productId?._id?.toString(),
-        productName: item.variantId?.productId?.name || item.variantId?.productId?.title,
+        productName:
+          item.variantId?.productId?.name || item.variantId?.productId?.title,
         productImage: item.variantId?.productId?.images?.[0],
         quantity: item.quantity,
         price: item.price,
@@ -169,8 +227,8 @@ const getOrderById = async (req, res) => {
       query = {
         $or: [
           { _id: orderId },
-          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }
-        ]
+          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+        ],
       };
     } else {
       query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
@@ -179,7 +237,7 @@ const getOrderById = async (req, res) => {
     const order = await Order.findOne(query)
       .populate({
         path: "items.productId",
-        select: "name title images description attributes options"
+        select: "name title images description attributes options",
       })
       .populate("addressId")
       .populate("addressId")
@@ -237,8 +295,8 @@ const updateOrderStatus = async (req, res) => {
       query = {
         $or: [
           { _id: orderId },
-          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }
-        ]
+          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+        ],
       };
     } else {
       // Just search by custom ID (case insensitive)
@@ -259,26 +317,43 @@ const updateOrderStatus = async (req, res) => {
 
     // Status Update Logic
     if (status) {
-      const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"];
+      const validStatuses = [
+        "pending",
+        "confirmed",
+        "processing",
+        "shipped",
+        "delivered",
+        "cancelled",
+      ];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({
           success: false,
-          message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+          message: `Invalid status. Must be one of: ${validStatuses.join(
+            ", "
+          )}`,
         });
       }
 
       // Validation: If status is changing to 'shipped' or 'delivered', require Partner and Tracking
-      if ((status === 'shipped' || status === 'delivered') && status !== currentOrder.orderStatus) {
+      if (
+        (status === "shipped" || status === "delivered") &&
+        status !== currentOrder.orderStatus
+      ) {
         // Check incoming update OR existing value on order
-        // Handle 'manual' case if frontend sends it, though we prefer ID. 
+        // Handle 'manual' case if frontend sends it, though we prefer ID.
         // If value is null, it's invalid.
-        const partner = req.body.deliveryPartner !== undefined ? req.body.deliveryPartner : currentOrder.deliveryPartner;
-        const tracking = trackingId !== undefined ? trackingId : currentOrder.trackingId;
+        const partner =
+          req.body.deliveryPartner !== undefined
+            ? req.body.deliveryPartner
+            : currentOrder.deliveryPartner;
+        const tracking =
+          trackingId !== undefined ? trackingId : currentOrder.trackingId;
 
         if (!partner || !tracking) {
           return res.status(400).json({
             success: false,
-            message: "Delivery Partner and Tracking ID are required when marking order as Shipped or Delivered."
+            message:
+              "Delivery Partner and Tracking ID are required when marking order as Shipped or Delivered.",
           });
         }
       }
@@ -297,18 +372,25 @@ const updateOrderStatus = async (req, res) => {
       // If it's a valid ObjectId or null, assign it.
       if (req.body.deliveryPartner === "manual") {
         // Try to find the seeded "Other / Manual" partner
-        const manualPartner = await mongoose.model("DeliveryPartner").findOne({ name: { $regex: /manual/i } });
+        const manualPartner = await mongoose
+          .model("DeliveryPartner")
+          .findOne({ name: { $regex: /manual/i } });
         if (manualPartner) {
           updateFields.deliveryPartner = manualPartner._id;
         } else {
-          return res.status(400).json({ success: false, message: "Manual delivery partner not found in database." });
+          return res.status(400).json({
+            success: false,
+            message: "Manual delivery partner not found in database.",
+          });
         }
       } else {
         updateFields.deliveryPartner = req.body.deliveryPartner || null;
       }
     }
 
-    if (req.body.fulfillmentAdditionalInfo !== undefined) updateFields.fulfillmentAdditionalInfo = req.body.fulfillmentAdditionalInfo;
+    if (req.body.fulfillmentAdditionalInfo !== undefined)
+      updateFields.fulfillmentAdditionalInfo =
+        req.body.fulfillmentAdditionalInfo;
 
     // Status History Logic
     if (status && status !== currentOrder.orderStatus) {
@@ -317,7 +399,7 @@ const updateOrderStatus = async (req, res) => {
         status: status,
         timestamp: new Date(),
         note: `Status updated to ${status}`,
-        updatedBy: req.user?._id
+        updatedBy: req.user?._id,
       });
       updateFields.statusHistory = history;
     }
@@ -356,7 +438,11 @@ const updateOrderStatus = async (req, res) => {
     });
 
     // Send shipment email if status changed to shipped
-    if (status === "shipped" && currentOrder.orderStatus !== "shipped" && order.userId) {
+    if (
+      status === "shipped" &&
+      currentOrder.orderStatus !== "shipped" &&
+      order.userId
+    ) {
       emailService.sendShipmentEmail(order.userId, order);
     }
   } catch (err) {
@@ -374,4 +460,3 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
 };
-
