@@ -49,7 +49,7 @@ const validateCoupon = async (couponCode, cartSubtotal, userId) => {
   }
 
   // Soft check for usage limit (not atomic)
-  if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+  if (coupon.usageLimit && coupon.usageCount >= coupon.usageLimit) {
     return {
       valid: false,
       error: "USAGE_LIMIT_REACHED",
@@ -109,11 +109,11 @@ const consumeCoupon = async (
       minCartValue: { $lte: cartSubtotal },
       $or: [
         { usageLimit: null }, // Unlimited coupons
-        { $expr: { $lt: ["$usedCount", "$usageLimit"] } }, // Still has quota
+        { $expr: { $lt: ["$usageCount", "$usageLimit"] } }, // Still has quota
       ],
     },
     {
-      $inc: { usedCount: 1 },
+      $inc: { usageCount: 1 },
     },
     queryOptions
   );
@@ -151,7 +151,7 @@ const consumeCoupon = async (
         message: `Minimum cart value of ₹${coupon.minCartValue} required`,
       };
     }
-    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+    if (coupon.usageLimit && coupon.usageCount >= coupon.usageLimit) {
       return {
         success: false,
         error: "COUPON_EXHAUSTED",
