@@ -20,26 +20,64 @@ const startCheckout = async (req, res) => {
       });
     }
 
-    // 1. Try to find user's existing cart (excluding ordered/abandoned)
-    let cart = await Cart.findOne({
-      userId,
-      status: { $in: ["active", "checkout"] },
-    });
+    // 1. FIRST: Try to find the cart by cartId (prioritize the cart from cookie/header)
+    // This ensures we use the cart with the coupon applied
+    let cart = null;
 
-    // 2. If not found, look for anonymous cart to CLAIM
-    if (!cart && cartId) {
-      const anonymousCart = await Cart.findOne({ cartId, userId: null });
-      if (anonymousCart) {
-        console.log(`� Claiming anonymous cart ${cartId} for user ${userId}`);
-        anonymousCart.userId = userId;
-        cart = await anonymousCart.save();
+    console.log(
+      `🔍 startCheckout: userId=${userId}, bodyCartId=${bodyCartId}, cookieCartId=${req.cookies?.cartId}, using cartId=${cartId}`
+    );
+
+    if (cartId) {
+      cart = await Cart.findOne({
+        cartId,
+        status: { $in: ["active", "checkout"] },
+      });
+
+      console.log(
+        `🔍 Cart lookup by cartId "${cartId}":`,
+        cart
+          ? `found (userId=${cart.userId}, coupon=${JSON.stringify(
+              cart.coupon
+            )})`
+          : "NOT FOUND"
+      );
+
+      if (cart) {
+        // If cart exists but belongs to no user OR this user, claim/use it
+        if (!cart.userId || cart.userId.toString() === userId.toString()) {
+          if (!cart.userId) {
+            console.log(`🏷 Claiming cart ${cartId} for user ${userId}`);
+            cart.userId = userId;
+            await cart.save();
+          }
+          console.log(`✅ Using cart from cartId: ${cartId}`);
+        } else {
+          // Cart belongs to different user - don't use it
+          console.log(
+            `⚠️ Cart ${cartId} belongs to different user, will find user's own cart`
+          );
+          cart = null;
+        }
+      }
+    }
+
+    // 2. If no cart found by cartId, look for user's existing cart
+    if (!cart) {
+      cart = await Cart.findOne({
+        userId,
+        status: { $in: ["active", "checkout"] },
+      });
+
+      if (cart) {
+        console.log(`📦 Found user's existing cart: ${cart.cartId}`);
       }
     }
 
     // 3. If STILL not found, CREATE a new cart for the user
     if (!cart) {
       console.log(
-        `🆕 Creating new cart for user ${userId} (No existing or anonymous cart found)`
+        `🆕 Creating new cart for user ${userId} (No existing cart found)`
       );
       cart = await Cart.create({
         userId,

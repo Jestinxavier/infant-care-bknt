@@ -44,7 +44,6 @@ const getOrderById = async (req, res) => {
         path: "items.productId",
         select: "name description images category",
       })
-      .populate("addressId")
       .populate("deliveryPartner");
 
     if (!order) {
@@ -60,45 +59,37 @@ const getOrderById = async (req, res) => {
       orderId: order.orderId || order._id.toString(),
       date: order.placedAt || order.createdAt,
       status: order.orderStatus,
-      paymentStatus: order.paymentStatus,
-      paymentMethod: order.paymentMethod,
-      totalAmount: order.totalAmount,
-      subtotal: order.subtotal,
-      shippingCost: order.shippingCost,
-      discount: order.discount,
       trackingId: order.trackingId,
       deliveryNote: order.deliveryNote,
       deliveryPartner: order.deliveryPartner,
       fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
       statusHistory: order.statusHistory,
+      totalQuantity: order?.totalQuantity,
+      payment: { status: order?.paymentStatus, method: order?.paymentMethod },
+      priceObj: {
+        grandTotal: order?.totalAmount,
+        subtotal: order?.subtotal,
+        shippingCost: order?.shippingCost,
+        discount: order?.discount,
+      },
       items: await Promise.all(
-        order.items.map(async (item) => {
-          // robust product resolution
-          const product =
-            item.productId && item.productId._id
-              ? item.productId
-              : item.variantId?.productId;
-
+        order?.items?.map(async (item) => {
           // Check if this item was already reviewed in this order
           const existingReview = await Review.findOne({
             userId,
-            orderId,
-            productId: product?._id,
-            variantId: item.variantId?._id || item.variantId,
+            orderId: order._id,
+            productId: item.productId?._id,
+            variantId: item.variantId,
           });
 
           return {
-            variantId: item.variantId?._id || item.variantId,
-            productId: product?._id,
-            productName: product?.name || item.name || "Unknown Item",
-            productDescription: product?.description,
-            productImage: product?.images?.[0] || item.imageUrl,
-            productCategory: product?.category,
-            variantColor: item.variantColor,
-            variantAge: item.variantAge,
-            quantity: item.quantity,
-            price: item.price,
-            total: item.price * item.quantity,
+            variantId: item?.variantId,
+            productId: item?.productId?._id,
+            productName: item?.variantName ?? item?.name,
+            quantity: item?.quantity,
+            productImage: item?.variantImage ?? item?.image,
+            price: item?.price,
+            variantAttributes: item?.variantAttributes,
             isReviewed: !!existingReview,
             review: existingReview
               ? {
@@ -113,7 +104,7 @@ const getOrderById = async (req, res) => {
           };
         })
       ),
-      itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
+      itemCount: order.items.reduce((sum, item) => sum + item?.quantity, 0),
       address: order.shippingAddress || order.addressId,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,

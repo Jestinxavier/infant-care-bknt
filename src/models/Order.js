@@ -37,6 +37,10 @@ const orderItemSchema = new mongoose.Schema(
     variantSku: { type: String },
     variantImage: { type: String },
     variantUrlKey: { type: String },
+    variantAttributes: {
+      type: Map,
+      of: String,
+    },
   },
   { _id: false }
 );

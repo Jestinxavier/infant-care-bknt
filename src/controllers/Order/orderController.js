@@ -23,7 +23,8 @@ const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
 
   try {
-    const { userId, items, addressId, newAddress, paymentMethod } = req.body;
+    const { userId, items, addressId, newAddress, paymentMethod, cartId } =
+      req.body;
 
     // === VALIDATION ===
     if (!userId || !items || items.length === 0) {
@@ -57,8 +58,15 @@ const createOrder = async (req, res) => {
     session.startTransaction();
 
     // Step 1: Load and validate cart (must be in checkout status)
+    // Note: startCheckout finds/locks cart by userId, so we query the same way
     const cart = await Cart.findOne({ userId, status: "checkout" }).session(
       session
+    );
+
+    console.log(
+      `🛒 Looking for checkout cart for user: ${userId}`,
+      `Found: ${cart ? cart.cartId : "null"}`,
+      `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`
     );
 
     if (!cart) {
@@ -130,8 +138,21 @@ const createOrder = async (req, res) => {
       } else {
         regularPrice = product.pricing?.price || product.price || 0;
         offerPrice = product.pricing?.discountPrice || regularPrice;
+        offerPrice = product.pricing?.discountPrice || regularPrice;
         stock = product.stockObj?.available ?? product.stock ?? 0;
       }
+
+      // Find matching item in cart to get attributes
+      const cartItem = cart.items.find((ci) => {
+        const ciPid = ci.productId.toString();
+        const iPid = item.productId;
+        const ciVid = ci.variantId;
+        const iVid = item.variantId;
+
+        return ciPid === iPid && (ciVid === iVid || (!ciVid && !iVid));
+      });
+
+      const variantAttributes = cartItem ? cartItem.attributesSnapshot : null;
 
       // Validate stock BEFORE atomic update
       if (stock < item.quantity) {
@@ -173,6 +194,7 @@ const createOrder = async (req, res) => {
         variantUrlKey: variantData
           ? variantData.url_key || product.url_key
           : null,
+        variantAttributes: variantAttributes,
       });
 
       stockUpdates.push({
@@ -188,8 +210,12 @@ const createOrder = async (req, res) => {
         const result = await Product.findOneAndUpdate(
           {
             _id: update.productId,
-            "variants.id": update.variantId,
-            "variants.$.stockObj.available": { $gte: update.quantity },
+            variants: {
+              $elemMatch: {
+                id: update.variantId,
+                "stockObj.available": { $gte: update.quantity },
+              },
+            },
           },
           {
             $inc: {
@@ -201,11 +227,25 @@ const createOrder = async (req, res) => {
         );
 
         if (!result) {
+          // Fetch product info for better error logging (include variants for variant SKU)
+          const productInfo = await Product.findById(update.productId)
+            .select("name sku variants")
+            .session(session);
+          const variantInfo = productInfo?.variants?.find(
+            (v) => v.id === update.variantId
+          );
           throw {
             code: "OUT_OF_STOCK",
             productId: update.productId,
+            productName: productInfo?.name,
+            productSku: productInfo?.sku,
             variantId: update.variantId,
-            message: "Stock exhausted during checkout (race condition)",
+            variantSku: variantInfo?.sku,
+            message: `Stock exhausted for "${
+              productInfo?.name || update.productId
+            }" variant ${
+              variantInfo?.sku || update.variantId
+            } (race condition)`,
           };
         }
       } else {
@@ -224,10 +264,18 @@ const createOrder = async (req, res) => {
         );
 
         if (!result) {
+          // Fetch product info for better error logging
+          const productInfo = await Product.findById(update.productId)
+            .select("name sku")
+            .session(session);
           throw {
             code: "OUT_OF_STOCK",
             productId: update.productId,
-            message: "Stock exhausted during checkout (race condition)",
+            productName: productInfo?.name,
+            productSku: productInfo?.sku,
+            message: `Stock exhausted for "${
+              productInfo?.name || update.productId
+            }" (race condition)`,
           };
         }
       }
@@ -253,13 +301,22 @@ const createOrder = async (req, res) => {
     let couponDiscount = 0;
     let appliedCoupon = null;
 
+    // Debug: Log cart coupon data
+    console.log(`🎟️ Cart coupon checking:`, JSON.stringify(cart.coupon));
+
     if (cart.coupon && cart.coupon.code) {
+      console.log(
+        `🎟️ Attempting to consume coupon ${cart.coupon.code} with value ${totalAfterDiscount} (userId: ${userId})`
+      );
+
       const consumption = await consumeCoupon(
         cart.coupon.code,
         totalAfterDiscount,
         userId,
         session
       );
+
+      console.log(`🎟️ Consumption result:`, JSON.stringify(consumption));
 
       if (!consumption.success) {
         throw {
@@ -359,13 +416,15 @@ const createOrder = async (req, res) => {
 
     await payment.save({ session });
 
-    // Step 9: Mark cart as ordered
+    // Step 9: Keep cart in checkout (NOT ordered yet - only on payment success)
+    // Cart will be marked "ordered" by webhook on successful payment
+    // Cart will be reverted to "active" on payment failure
     await Cart.findByIdAndUpdate(
       cart._id,
       {
-        status: "ordered",
+        status: "checkout", // Keep in checkout, not ordered
         orderId: order._id,
-        completedAt: new Date(),
+        // completedAt will be set on payment success
       },
       { session }
     );
@@ -497,7 +556,10 @@ const createOrder = async (req, res) => {
         errorCode: "OUT_OF_STOCK",
         message: error.message || "Insufficient stock",
         productId: error.productId,
+        productName: error.productName,
+        productSku: error.productSku,
         variantId: error.variantId,
+        variantSku: error.variantSku,
       });
     }
 

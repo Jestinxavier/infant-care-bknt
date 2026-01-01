@@ -6,6 +6,8 @@ const { phonePeConfig } = require("../../config/phonepeConfig");
 const Order = require("../../models/Order");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
+const Cart = require("../../models/Cart");
+const Product = require("../../models/Product");
 
 const client = StandardCheckoutClient.getInstance(
   phonePeConfig.credentials.clientId,
@@ -82,19 +84,78 @@ const checkOrderStatus = async (req, res) => {
 
     // 3. Fetch order status from PhonePe
     const response = await client.getOrderStatus(orderId);
+
     if (response.state === "COMPLETED") {
-      await Order.findOneAndUpdate(
+      const updatedOrder = await Order.findOneAndUpdate(
         { orderId },
-        { paymentStatus: "paid", paymentMethod: PAYMENT_METHODS.PHONEPE }
+        { paymentStatus: "paid", paymentMethod: PAYMENT_METHODS.PHONEPE },
+        { new: true }
       );
+
+      // Mark cart as ordered ONLY on successful payment
+      await Cart.findOneAndUpdate(
+        { orderId: updatedOrder._id },
+        {
+          status: "ordered",
+          completedAt: new Date(),
+        }
+      );
+      console.log(
+        `✅ Payment successful for order ${orderId}, cart marked as ordered`
+      );
+
       return res.redirect(
         `${process.env.FRONTEND_URL}/order-confirmation?status=success&orderId=${orderId}`
       );
     } else if (response.state === "FAILED") {
-      await Order.findOneAndUpdate(
+      const updatedOrder = await Order.findOneAndUpdate(
         { orderId },
-        { paymentStatus: "failed", paymentMethod: PAYMENT_METHODS.PHONEPE }
+        {
+          paymentStatus: "failed",
+          status: "cancelled",
+          paymentMethod: PAYMENT_METHODS.PHONEPE,
+        },
+        { new: true }
       );
+
+      // Revert cart to active for retry
+      await Cart.findOneAndUpdate(
+        { orderId: updatedOrder._id },
+        {
+          status: "active",
+          orderId: null,
+          completedAt: null,
+        }
+      );
+
+      // Release stock for each item
+      for (const item of updatedOrder.items) {
+        if (item.variantId) {
+          await Product.findOneAndUpdate(
+            { _id: item.productId, "variants.id": item.variantId },
+            {
+              $inc: {
+                "variants.$.stockObj.available": item.quantity,
+                "variants.$.stock": item.quantity,
+              },
+            }
+          );
+        } else {
+          await Product.findOneAndUpdate(
+            { _id: item.productId },
+            {
+              $inc: {
+                "stockObj.available": item.quantity,
+                stock: item.quantity,
+              },
+            }
+          );
+        }
+      }
+      console.log(
+        `⚠️ Payment failed for order ${orderId}, cart reverted to active, stock released`
+      );
+
       return res.redirect(
         `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${orderId}`
       );
@@ -147,13 +208,68 @@ const phonepeWebhook = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // 5. Update order state
+    // 5. Update order state AND cart state
     if (state === "COMPLETED") {
       order.paymentStatus = "paid";
       order.paymentMethod = PAYMENT_METHODS.PHONEPE;
       order.phonepeTransactionId = transactionId;
+
+      // Mark cart as ordered ONLY on successful payment
+      const Cart = require("../../models/Cart");
+      await Cart.findOneAndUpdate(
+        { orderId: order._id },
+        {
+          status: "ordered",
+          completedAt: new Date(),
+        }
+      );
+      console.log(
+        `✅ Payment successful for order ${orderId}, cart marked as ordered`
+      );
     } else if (state === "FAILED") {
       order.paymentStatus = "failed";
+      order.status = "cancelled";
+
+      // Revert cart to active for retry
+      const Cart = require("../../models/Cart");
+      const Product = require("../../models/Product");
+
+      await Cart.findOneAndUpdate(
+        { orderId: order._id },
+        {
+          status: "active",
+          orderId: null,
+          completedAt: null,
+        }
+      );
+
+      // Release stock for each item
+      for (const item of order.items) {
+        if (item.variantId) {
+          await Product.findOneAndUpdate(
+            { _id: item.productId, "variants.id": item.variantId },
+            {
+              $inc: {
+                "variants.$.stockObj.available": item.quantity,
+                "variants.$.stock": item.quantity,
+              },
+            }
+          );
+        } else {
+          await Product.findOneAndUpdate(
+            { _id: item.productId },
+            {
+              $inc: {
+                "stockObj.available": item.quantity,
+                stock: item.quantity,
+              },
+            }
+          );
+        }
+      }
+      console.log(
+        `⚠️ Payment failed for order ${orderId}, cart reverted to active, stock released`
+      );
     } else if (state === "PENDING") {
       order.paymentStatus = "pending";
     }

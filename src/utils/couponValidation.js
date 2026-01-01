@@ -109,7 +109,7 @@ const consumeCoupon = async (
       minCartValue: { $lte: cartSubtotal },
       $or: [
         { usageLimit: null }, // Unlimited coupons
-        { usedCount: { $lt: "$usageLimit" } }, // Still has quota
+        { $expr: { $lt: ["$usedCount", "$usageLimit"] } }, // Still has quota
       ],
     },
     {
