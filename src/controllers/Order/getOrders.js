@@ -35,7 +35,7 @@ const getOrders = async (req, res) => {
       })
       .populate(
         "addressId",
-        "fullName phone houseName street landmark city state pincode country nickname"
+        "fullName phone houseName street landmark city state pincode country addressType"
       )
       .populate("deliveryPartner")
       .sort({ createdAt: -1 }) // Most recent first

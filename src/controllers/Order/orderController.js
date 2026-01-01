@@ -4,7 +4,10 @@ const Address = require("../../models/Address");
 const Payment = require("../../models/Payment");
 const Product = require("../../models/Product");
 const Cart = require("../../models/Cart");
-const { PAYMENT_METHODS } = require("../../../resources/constants");
+const {
+  PAYMENT_METHODS,
+  CHECKOUT_SESSION_MS,
+} = require("../../../resources/constants");
 const { consumeCoupon } = require("../../utils/couponValidation");
 const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
@@ -39,7 +42,7 @@ const createOrder = async (req, res) => {
 
     if (existingOrder) {
       // Check if order is recent (within 5 min)
-      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const fiveMinAgo = new Date(Date.now() - CHECKOUT_SESSION_MS);
       if (existingOrder.createdAt > fiveMinAgo) {
         return res.status(200).json({
           success: true,
@@ -54,7 +57,9 @@ const createOrder = async (req, res) => {
     session.startTransaction();
 
     // Step 1: Load and validate cart (must be in checkout status)
-    const cart = await Cart.findOne({ userId }).session(session);
+    const cart = await Cart.findOne({ userId, status: "checkout" }).session(
+      session
+    );
 
     if (!cart) {
       await session.abortTransaction();
@@ -88,6 +93,7 @@ const createOrder = async (req, res) => {
     // Step 2: Validate stock & build order items
     let subtotal = 0;
     let totalAfterDiscount = 0;
+    let totalQuantity = 0;
     const orderItems = [];
     const stockUpdates = [];
 
@@ -143,12 +149,30 @@ const createOrder = async (req, res) => {
 
       subtotal += regularPrice * itemQuantity;
       totalAfterDiscount += offerPrice * itemQuantity;
+      totalQuantity += itemQuantity;
 
       orderItems.push({
         productId: product._id,
         variantId: item.variantId || null,
         quantity: itemQuantity,
         price: offerPrice,
+        regularPrice: regularPrice,
+
+        // Product Snapshot
+        name: product.name || product.title,
+        sku: product.sku,
+        image: product.images?.[0] || "",
+        urlKey: product.url_key,
+
+        // Variant Snapshot
+        variantName: variantData ? variantData.name || variantData.label : null,
+        variantSku: variantData ? variantData.sku : null,
+        variantImage: variantData
+          ? variantData.images?.[0] || product.images?.[0]
+          : null,
+        variantUrlKey: variantData
+          ? variantData.url_key || product.url_key
+          : null,
       });
 
       stockUpdates.push({
@@ -210,8 +234,20 @@ const createOrder = async (req, res) => {
     }
 
     // Step 4: Calculate pricing
+    const SiteSetting = require("../../models/SiteSetting");
+    const settings = await SiteSetting.find({ scope: "cart" });
+    let freeThreshold = 1000;
+    let shippingCost = 60;
+
+    settings.forEach((s) => {
+      if (s.key === "cart.shipping.freeThreshold")
+        freeThreshold = Number(s.value);
+      if (s.key === "cart.shipping.flat") shippingCost = Number(s.value);
+    });
+
     const discountAmount = subtotal - totalAfterDiscount;
-    const shippingAmount = totalAfterDiscount >= 1000 ? 0 : 60;
+    const shippingAmount =
+      totalAfterDiscount >= freeThreshold ? 0 : shippingCost;
 
     // Step 5: Atomic coupon consumption
     let couponDiscount = 0;
@@ -287,13 +323,16 @@ const createOrder = async (req, res) => {
     const order = new Order({
       userId,
       orderId,
+      orderId,
       items: orderItems,
+      totalQuantity,
       subtotal,
       shippingCost: shippingAmount,
       discount: discountAmount + couponDiscount,
       coupon: appliedCoupon,
       totalAmount,
-      addressId: finalAddressId,
+      totalAmount,
+      // addressId removed
       shippingAddress: shippingAddressData,
       paymentMethod: paymentMethod,
       status: "pending",
@@ -343,7 +382,7 @@ const createOrder = async (req, res) => {
       try {
         const response = await phonepeSDK.initiatePayment({
           orderId,
-          amount: totalAmount * 100,
+          amount: Math.round(totalAmount * 100),
         });
         if (response?.redirectUrl) {
           return res.status(200).json({
@@ -353,18 +392,70 @@ const createOrder = async (req, res) => {
             ...response,
           });
         } else {
-          return res.status(500).json({
-            success: false,
-            message: "Failed to generate redirection url",
-            error: "Redirect URL missing from SDK response",
-          });
+          throw new Error("Redirect URL missing from SDK response");
         }
       } catch (error) {
         console.error("❌ Error initiating PhonePe payment:", error);
+
+        // === CLEANUP LONE ORDER (Case 3: Payment Init Failed) ===
+        // Since transaction is already committed, we must manually undo changes.
+        try {
+          console.log(`⚠️ Cleaning up failed order ${order.orderId}...`);
+
+          // 1. Cancel the order
+          await Order.findByIdAndUpdate(order._id, {
+            status: "cancelled",
+            paymentStatus: "failed",
+            "statusHistory.0.note":
+              "Payment initiation failed - Auto-cancelled",
+          });
+
+          // 2. Release Stock
+          for (const update of stockUpdates) {
+            if (update.variantId) {
+              await Product.findOneAndUpdate(
+                { _id: update.productId, "variants.id": update.variantId },
+                {
+                  $inc: {
+                    "variants.$.stockObj.available": update.quantity,
+                    "variants.$.stock": update.quantity,
+                  },
+                }
+              );
+            } else {
+              await Product.findOneAndUpdate(
+                { _id: update.productId },
+                {
+                  $inc: {
+                    "stockObj.available": update.quantity,
+                    stock: update.quantity,
+                  },
+                }
+              );
+            }
+          }
+
+          // 3. Revert Cart (Make it active again for retry)
+          await Cart.findByIdAndUpdate(cart._id, {
+            status: "active",
+            orderId: null,
+            completedAt: null,
+          });
+
+          console.log(`✅ Cleanup successful for order ${order.orderId}`);
+        } catch (cleanupError) {
+          console.error(
+            "🔥 CRITICAL: Failed to cleanup order after payment error:",
+            cleanupError
+          );
+          // Alert admin/sentry here
+        }
+
         return res.status(500).json({
           success: false,
-          message: "Failed to initiate PhonePe payment",
+          message: "Failed to initiate payment. Order cancelled.",
           error: error.message,
+          orderCancelled: true,
         });
       }
     }

@@ -11,6 +11,7 @@ const {
   createOptionsHash,
   validateVariantData,
 } = require("../../utils/variantValidator");
+const { processVariantOptions } = require("../../utils/variantNameFormatter");
 
 const createProduct = async (req, res) => {
   try {
@@ -325,14 +326,20 @@ const createProduct = async (req, res) => {
         // ✅ Generate unique URL key for variant
         let variantUrlKey = v.url_key;
         if (!variantUrlKey) {
-          const colorCode = (v.attributes?.color || v.color || "").toLowerCase();
-          const sizeCode = (v.attributes?.size || v.attributes?.age || v.age || "").toLowerCase();
-          const baseSlug = `${productUrlKey}${colorCode ? "-" + colorCode : ""}${sizeCode ? "-" + sizeCode : ""}`;
+          const colorCode = (
+            v.attributes?.color ||
+            v.color ||
+            ""
+          ).toLowerCase();
+          const sizeCode = (v.attributes?.size || "").toLowerCase();
+          const baseSlug = `${productUrlKey}${
+            colorCode ? "-" + colorCode : ""
+          }${sizeCode ? "-" + sizeCode : ""}`;
           variantUrlKey = `${baseSlug}-${v.sku || index}`;
         }
 
         return {
-          id: v.id || `variant-${Date.now()}-${index}`,
+          id: v.id || `variant-${crypto.randomUUID()}`,
           sku: v.sku,
           url_key: variantUrlKey,
           // Keep direct fields for backward compatibility
@@ -456,51 +463,52 @@ const createProduct = async (req, res) => {
       status: normalizedStatus,
       sku: sku || null,
       // Strip hex values from variantOptions.values - uiMeta handles hex separately
+      // Also capitalize variant option names and add "M" suffix for size patterns
       variantOptions: variantOptions
-        ? variantOptions.map((opt) => ({
-          ...opt,
-          values: (opt.values || []).map(({ hex, ...rest }) => rest),
-        }))
+        ? processVariantOptions(variantOptions).map((opt) => ({
+            ...opt,
+            values: (opt.values || []).map(({ hex, ...rest }) => rest),
+          }))
         : [],
       variants: processedVariants,
       optionsLocked: optionsLocked, // ✅ NEW: Lock if variants exist
       details: details
         ? details.map((section) => {
-          const cleanedSection = {
-            title: section.title,
-            type: section.type,
-          };
+            const cleanedSection = {
+              title: section.title,
+              type: section.type,
+            };
 
-          // Only include description for description-type sections and if not empty
-          if (section.type === "description" && section.description) {
-            cleanedSection.description = section.description;
-          }
-
-          // Clean fields based on their structure
-          cleanedSection.fields = (section.fields || []).map((field) => {
-            // If field has 'type' property (list/badge), only include type and data
-            if (
-              field.type &&
-              (field.type === "list" || field.type === "badge")
-            ) {
-              return {
-                type: field.type,
-                data: field.data || [],
-              };
+            // Only include description for description-type sections and if not empty
+            if (section.type === "description" && section.description) {
+              cleanedSection.description = section.description;
             }
-            // Otherwise it's a label-value pair, only include label and value
-            else if (field.label !== undefined && field.value !== undefined) {
-              return {
-                label: field.label,
-                value: field.value,
-              };
-            }
-            // Fallback: return as-is
-            return field;
-          });
 
-          return cleanedSection;
-        })
+            // Clean fields based on their structure
+            cleanedSection.fields = (section.fields || []).map((field) => {
+              // If field has 'type' property (list/badge), only include type and data
+              if (
+                field.type &&
+                (field.type === "list" || field.type === "badge")
+              ) {
+                return {
+                  type: field.type,
+                  data: field.data || [],
+                };
+              }
+              // Otherwise it's a label-value pair, only include label and value
+              else if (field.label !== undefined && field.value !== undefined) {
+                return {
+                  label: field.label,
+                  value: field.value,
+                };
+              }
+              // Fallback: return as-is
+              return field;
+            });
+
+            return cleanedSection;
+          })
         : [],
       pricing: pricing || null, // Parent-level pricing
       stockObj: stockObj || null, // Parent-level stock
@@ -516,29 +524,7 @@ const createProduct = async (req, res) => {
 
     const product = await Product.create(productData);
 
-    // Create legacy variants if provided (for backward compatibility)
-    if (legacyVariantsArray.length > 0) {
-      const variantData = legacyVariantsArray.map((v) => {
-        const images =
-          req.files && req.files.length > 0
-            ? req.files
-              .filter((f) => f.fieldname.includes(v.sku || v.age))
-              .map((f) => f.path)
-            : [];
-
-        return {
-          productId: product._id,
-          color: v.color,
-          age: v.age,
-          price: v.price,
-          stock: v.stock,
-          sku: v.sku,
-          images: images,
-        };
-      });
-
-      await Variant.insertMany(variantData);
-    }
+    // Legacy variant creation removed - all variants are now embedded in Product document
 
     // Mark all images as final (remove temp tags)
     try {

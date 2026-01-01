@@ -1,7 +1,7 @@
 /**
  * Parse query parameters from new URL structure
  * Handles: ?page=1&price=554,999&color=blue,green&age=0-3,newborn&inStock=false&sort=price_low
- * 
+ *
  * @param {Object} query - Express req.query object
  * @returns {Object} Parsed filter object
  */
@@ -15,7 +15,11 @@ const parseQueryFilters = (query) => {
   // Parse price range: price=554,999 -> minPrice=554, maxPrice=999
   if (query.price) {
     const priceParts = query.price.split(",").map((p) => parseFloat(p.trim()));
-    if (priceParts.length === 2 && !isNaN(priceParts[0]) && !isNaN(priceParts[1])) {
+    if (
+      priceParts.length === 2 &&
+      !isNaN(priceParts[0]) &&
+      !isNaN(priceParts[1])
+    ) {
       filters.minPrice = Math.min(priceParts[0], priceParts[1]);
       filters.maxPrice = Math.max(priceParts[0], priceParts[1]);
     }
@@ -36,24 +40,20 @@ const parseQueryFilters = (query) => {
     }
   }
 
-  // Parse age/size: age=0-3,newborn -> ['0-3', 'newborn']
-  const ageParam = query.age || query.size;
-  if (ageParam) {
-    if (Array.isArray(ageParam)) {
-      filters.age = ageParam;
-      filters.size = ageParam;
-    } else if (typeof ageParam === "string" && ageParam.includes(",")) {
-      filters.age = ageParam.split(",").map((a) => a.trim());
-      filters.size = filters.age;
+  // Size filter (replaces legacy 'age' parameter)
+  const sizeParam = query.size || query.s;
+  if (sizeParam) {
+    if (typeof sizeParam === "string" && sizeParam.includes(",")) {
+      filters.size = sizeParam.split(",").map((s) => s.trim());
     } else {
-      filters.age = [ageParam.trim()];
-      filters.size = filters.age;
+      filters.size = [sizeParam.trim()];
     }
   }
 
   // Parse inStock: inStock=false -> 'false'
   if (query.inStock !== undefined) {
-    filters.inStock = query.inStock === "true" || query.inStock === true ? "true" : "false";
+    filters.inStock =
+      query.inStock === "true" || query.inStock === true ? "true" : "false";
   }
 
   // Keep other filters as-is
@@ -67,4 +67,3 @@ const parseQueryFilters = (query) => {
 };
 
 module.exports = { parseQueryFilters };
-

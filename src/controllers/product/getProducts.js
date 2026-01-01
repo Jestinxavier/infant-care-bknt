@@ -23,7 +23,7 @@ const getAllProducts = async (req, res) => {
       limit = filters.limit,
       // Filters - prioritize parsed filters over raw query params
       color = filters.color,
-      size = filters.size || filters.age,
+      size = filters.size, // Removed legacy 'age' fallback
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
       inStock = filters.inStock || requestData.inStock,
@@ -224,7 +224,7 @@ const getProductByUrlKey = async (req, res) => {
         images: v.images || [],
         options: {
           color: v.color,
-          age: v.age,
+          // age removed - use 'size' in modern variants
         },
       }));
     }

@@ -19,7 +19,7 @@ const generateVariantUrlKey = (productUrlKey, variantAttrs) => {
       : variantAttrs || {};
 
   const color = attrs.color;
-  const size = attrs.size || attrs.age;
+  const size = attrs.size; // Removed legacy 'age' fallback
 
   if (color) {
     parts.push(generateSlug(color));
@@ -52,7 +52,7 @@ const getVariantsByCategory = async (req, res) => {
       page = filters.page,
       limit = filters.limit,
       // Additional filters
-      size = filters.size || filters.age,
+      size = filters.size, // Removed legacy 'age' fallback
       brand = filters.brand,
       material = filters.material,
       pattern = filters.pattern,
@@ -142,32 +142,32 @@ const getVariantsByCategory = async (req, res) => {
             }
           }
 
-          // Size/Age filter (supports array of sizes) with null checks
-          if (size || filters?.age) {
+          // Size filter (supports array of sizes) with null checks
+          if (size) {
             const variantSize =
-              variantAttrs?.size ||
-              variantAttrs?.age ||
-              variantAttrs?.get?.("size") ||
-              variantAttrs?.get?.("age");
-            const ageParam = size || filters?.age;
+              variantAttrs?.size || variantAttrs?.get?.("size");
+            const sizeParam = size;
             const normalize = (str) => (str || "").replace(/[–—]/g, "-").trim();
 
-            let ages = [];
-            if (Array.isArray(ageParam)) {
-              ages = ageParam.map((a) => normalize(String(a)));
-            } else if (typeof ageParam === "string" && ageParam.includes(",")) {
-              ages = ageParam.split(",").map(normalize);
-            } else if (ageParam) {
-              ages = [normalize(String(ageParam))];
+            let sizes = [];
+            if (Array.isArray(sizeParam)) {
+              sizes = sizeParam.map((s) => normalize(String(s)));
+            } else if (
+              typeof sizeParam === "string" &&
+              sizeParam.includes(",")
+            ) {
+              sizes = sizeParam.split(",").map(normalize);
+            } else if (sizeParam) {
+              sizes = [normalize(String(sizeParam))];
             }
 
             if (
-              ages.length > 0 &&
-              !ages.some((age) => {
+              sizes.length > 0 &&
+              !sizes.some((sz) => {
                 const variantSizeNormalized = normalize(variantSize || "");
                 return (
-                  variantSizeNormalized === age ||
-                  new RegExp(`^${age.replace("-", "[-–—]")}$`, "i").test(
+                  variantSizeNormalized === sz ||
+                  new RegExp(`^${sz.replace("-", "[-–—]")}$`, "i").test(
                     variantSizeNormalized
                   )
                 );
@@ -190,12 +190,14 @@ const getVariantsByCategory = async (req, res) => {
           // Price filter - use effective price (discountPrice if available, otherwise price) with null checks
           if (minPrice || maxPrice) {
             const variantPrice = variant?.pricing?.price || variant?.price || 0;
-            const variantDiscountPrice = variant?.pricing?.discountPrice || variant?.discountPrice;
+            const variantDiscountPrice =
+              variant?.pricing?.discountPrice || variant?.discountPrice;
             // Use effective price (discountPrice if available, otherwise regular price)
-            const effectivePrice = variantDiscountPrice && variantDiscountPrice > 0 
-              ? variantDiscountPrice 
-              : (variantPrice || 0);
-            
+            const effectivePrice =
+              variantDiscountPrice && variantDiscountPrice > 0
+                ? variantDiscountPrice
+                : variantPrice || 0;
+
             if (minPrice && effectivePrice < parseFloat(String(minPrice))) {
               includeVariant = false;
             }
@@ -224,7 +226,9 @@ const getVariantsByCategory = async (req, res) => {
               variant?.pricing?.discountPrice || variant?.discountPrice;
 
             allVariantItems.push({
-              _id: variant?.id || (product?._id?.toString() || "") + "-" + (variant?.id || ""),
+              _id:
+                variant?.id ||
+                (product?._id?.toString() || "") + "-" + (variant?.id || ""),
               url_key: variantUrlKey || product?.url_key || "",
               title: product?.title || product?.name || "",
               price: variantPrice || 0,
@@ -242,8 +246,10 @@ const getVariantsByCategory = async (req, res) => {
               },
               category:
                 product?.category?.slug ||
-                product?.categoryName?.toLowerCase().replace(/\s+/g, "-") || "",
-              categoryName: product?.category?.name || product?.categoryName || "",
+                product?.categoryName?.toLowerCase().replace(/\s+/g, "-") ||
+                "",
+              categoryName:
+                product?.category?.name || product?.categoryName || "",
               averageRating: product?.averageRating || 0,
               totalReviews: product?.totalReviews || 0,
               attributes: variantAttrs || {},
@@ -251,7 +257,7 @@ const getVariantsByCategory = async (req, res) => {
           }
         }
 
-          // If product has variants but none are inStock, add parent product
+        // If product has variants but none are inStock, add parent product
         if (product.variants && product.variants.length > 0) {
           const hasInStockVariant = product.variants.some((v) => {
             const stock =
@@ -272,9 +278,12 @@ const getVariantsByCategory = async (req, res) => {
               .map((v) => {
                 if (!v) return 0;
                 const vPrice = v.pricing?.price || v.price || 0;
-                const vDiscountPrice = v.pricing?.discountPrice || v.discountPrice;
+                const vDiscountPrice =
+                  v.pricing?.discountPrice || v.discountPrice;
                 // Use effective price (discountPrice if available, otherwise regular price)
-                return vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
+                return vDiscountPrice && vDiscountPrice > 0
+                  ? vDiscountPrice
+                  : vPrice;
               })
               .filter((p) => p > 0);
             const minVariantPrice =
@@ -286,8 +295,12 @@ const getVariantsByCategory = async (req, res) => {
               const variantWithMinPrice = product.variants.find((v) => {
                 if (!v) return false;
                 const vPrice = v.pricing?.price || v.price || 0;
-                const vDiscountPrice = v.pricing?.discountPrice || v.discountPrice;
-                const effectivePrice = vDiscountPrice && vDiscountPrice > 0 ? vDiscountPrice : vPrice;
+                const vDiscountPrice =
+                  v.pricing?.discountPrice || v.discountPrice;
+                const effectivePrice =
+                  vDiscountPrice && vDiscountPrice > 0
+                    ? vDiscountPrice
+                    : vPrice;
                 return effectivePrice === minVariantPrice;
               });
               if (variantWithMinPrice) {
@@ -310,7 +323,9 @@ const getVariantsByCategory = async (req, res) => {
               parentPrice === product?.price
             ) {
               parentDiscountPrice =
-                product?.pricing?.discountPrice || product?.discountPrice || null;
+                product?.pricing?.discountPrice ||
+                product?.discountPrice ||
+                null;
             }
 
             // Apply price filter to parent product (use filterMinPrice/filterMaxPrice to avoid conflict with local minPrice variable)
@@ -318,14 +333,21 @@ const getVariantsByCategory = async (req, res) => {
             const filterMinPrice = filters?.minPrice;
             const filterMaxPrice = filters?.maxPrice;
             if (filterMinPrice || filterMaxPrice) {
-              const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0 
-                ? parentDiscountPrice 
-                : (parentPrice || 0);
-              
-              if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+              const effectivePrice =
+                parentDiscountPrice && parentDiscountPrice > 0
+                  ? parentDiscountPrice
+                  : parentPrice || 0;
+
+              if (
+                filterMinPrice &&
+                effectivePrice < parseFloat(String(filterMinPrice))
+              ) {
                 includeParent = false;
               }
-              if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+              if (
+                filterMaxPrice &&
+                effectivePrice > parseFloat(String(filterMaxPrice))
+              ) {
                 includeParent = false;
               }
             }
@@ -347,8 +369,10 @@ const getVariantsByCategory = async (req, res) => {
                 },
                 category:
                   product?.category?.slug ||
-                  product?.categoryName?.toLowerCase().replace(/\s+/g, "-") || "",
-                categoryName: product?.category?.name || product?.categoryName || "",
+                  product?.categoryName?.toLowerCase().replace(/\s+/g, "-") ||
+                  "",
+                categoryName:
+                  product?.category?.name || product?.categoryName || "",
                 averageRating: product?.averageRating || 0,
                 totalReviews: product?.totalReviews || 0,
                 attributes: {},
@@ -368,14 +392,21 @@ const getVariantsByCategory = async (req, res) => {
           const filterMinPrice = filters?.minPrice;
           const filterMaxPrice = filters?.maxPrice;
           if (filterMinPrice || filterMaxPrice) {
-            const effectivePrice = parentDiscountPrice && parentDiscountPrice > 0 
-              ? parentDiscountPrice 
-              : (parentPrice || 0);
-            
-            if (filterMinPrice && effectivePrice < parseFloat(String(filterMinPrice))) {
+            const effectivePrice =
+              parentDiscountPrice && parentDiscountPrice > 0
+                ? parentDiscountPrice
+                : parentPrice || 0;
+
+            if (
+              filterMinPrice &&
+              effectivePrice < parseFloat(String(filterMinPrice))
+            ) {
               includeParent = false;
             }
-            if (filterMaxPrice && effectivePrice > parseFloat(String(filterMaxPrice))) {
+            if (
+              filterMaxPrice &&
+              effectivePrice > parseFloat(String(filterMaxPrice))
+            ) {
               includeParent = false;
             }
           }
@@ -398,8 +429,10 @@ const getVariantsByCategory = async (req, res) => {
               },
               category:
                 product?.category?.slug ||
-                product?.categoryName?.toLowerCase().replace(/\s+/g, "-") || "",
-              categoryName: product?.category?.name || product?.categoryName || "",
+                product?.categoryName?.toLowerCase().replace(/\s+/g, "-") ||
+                "",
+              categoryName:
+                product?.category?.name || product?.categoryName || "",
               averageRating: product?.averageRating || 0,
               totalReviews: product?.totalReviews || 0,
               attributes: {},

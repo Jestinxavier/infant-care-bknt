@@ -1,5 +1,6 @@
 // models/Order.js
 const mongoose = require("mongoose");
+const { PAYMENT_METHODS } = require("../../resources/constants");
 
 const orderItemSchema = new mongoose.Schema(
   {
@@ -19,8 +20,23 @@ const orderItemSchema = new mongoose.Schema(
     },
     price: {
       type: Number,
-      required: true,
+      required: true, // Sold Price (after product discount)
     },
+    regularPrice: {
+      type: Number,
+      default: 0, // MRP / Original Price
+    },
+    // Product Snapshot Details
+    name: { type: String, required: true },
+    sku: { type: String },
+    image: { type: String },
+    urlKey: { type: String },
+
+    // Variant Snapshot Details (if applicable)
+    variantName: { type: String },
+    variantSku: { type: String },
+    variantImage: { type: String },
+    variantUrlKey: { type: String },
   },
   { _id: false }
 );
@@ -37,6 +53,11 @@ const orderSchema = new mongoose.Schema(
       unique: true,
     },
     items: [orderItemSchema],
+    totalQuantity: {
+      // Total count of items
+      type: Number,
+      required: true,
+    },
     totalAmount: {
       type: Number,
       required: true,
@@ -58,11 +79,7 @@ const orderSchema = new mongoose.Schema(
       couponId: mongoose.Schema.Types.ObjectId,
       discountAmount: Number,
     },
-    addressId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Address",
-      required: false,
-    },
+    // addressId removed as per request (full address stored in shippingAddress)
     shippingAddress: {
       name: String,
       fullName: String,
@@ -75,7 +92,6 @@ const orderSchema = new mongoose.Schema(
       city: String,
       state: String,
       district: String,
-      postalCode: String,
       pincode: String,
       country: String,
     },
@@ -99,8 +115,8 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["COD", "Razorpay", "Stripe", "PhonePe"],
-      default: "COD",
+      enum: Object.values(PAYMENT_METHODS),
+      default: PAYMENT_METHODS.PHONEPE,
     },
     placedAt: {
       type: Date,

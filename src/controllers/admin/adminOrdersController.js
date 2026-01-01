@@ -40,8 +40,8 @@ const getAllOrders = async (req, res) => {
     );
     restrictionDaysAgo.setUTCHours(0, 0, 0, 0); // Start of day in UTC
 
-    // For admin/moderator: enforce date restriction
-    if (userRole === "admin" || userRole === "moderator") {
+    // For admin: enforce date restriction
+    if (userRole === "admin") {
       filter.createdAt = { $gte: restrictionDaysAgo };
 
       // If custom date range provided, validate it doesn't exceed limit

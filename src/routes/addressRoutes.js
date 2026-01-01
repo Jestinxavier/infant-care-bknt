@@ -69,10 +69,6 @@ const {
  *               pincode:
  *                 type: string
  *                 example: '400001'
- *               postalCode:
- *                 type: string
- *                 example: '400001'
- *                 description: Postal code (kept for backward compatibility, use pincode instead)
  *               country:
  *                 type: string
  *                 example: India
@@ -80,7 +76,7 @@ const {
  *               isDefault:
  *                 type: boolean
  *                 example: false
- *               nickname:
+ *               addressType:
  *                 type: string
  *                 example: Home
  *                 description: Nickname for the address (e.g., Home, Office, Front Home)
@@ -205,10 +201,6 @@ router.post("/", getAddresses);
  *               pincode:
  *                 type: string
  *                 example: '110001'
- *               postalCode:
- *                 type: string
- *                 example: '110001'
- *                 description: Postal code (kept for backward compatibility, use pincode instead)
  *               country:
  *                 type: string
  *                 example: India
@@ -216,7 +208,7 @@ router.post("/", getAddresses);
  *               isDefault:
  *                 type: boolean
  *                 example: false
- *               nickname:
+ *               addressType:
  *                 type: string
  *                 example: Office
  *                 description: Nickname for the address (e.g., Home, Office, Front Home)

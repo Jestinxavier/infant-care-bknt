@@ -10,7 +10,7 @@
 // ============================================================================
 
 /**
- * Number of days that admin/moderator roles are restricted to viewing orders
+ * Number of days that admin role is restricted to viewing orders
  * Super-admin role has no such restriction
  */
 const ORDER_DATE_RESTRICTION_DAYS = 3;

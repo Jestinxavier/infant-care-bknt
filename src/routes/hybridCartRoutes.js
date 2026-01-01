@@ -4,7 +4,6 @@ const router = express.Router();
 const { validateCart } = require("../middleware/validateCart");
 const {
   createCart,
-  setCookie,
   getCart,
   addItem,
   updateItem,
@@ -45,29 +44,6 @@ router.post("/create", createCart);
 
 /**
  * @swagger
- * /api/v1/cart/set-cookie:
- *   post:
- *     summary: Set HTTP-only cookie for client-generated cartId
- *     tags: [Cart]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - cartId
- *             properties:
- *               cartId:
- *                 type: string
- *     responses:
- *       200:
- *         description: Cookie set successfully
- */
-router.post("/set-cookie", setCookie);
-
-/**
- * @swagger
  * /api/v1/cart/get:
  *   post:
  *     summary: Get full cart by cookie/cartId
@@ -75,8 +51,17 @@ router.post("/set-cookie", setCookie);
  *     responses:
  *       200:
  *         description: Cart retrieved successfully
+ *   head:
+ *     summary: Validate if cart exists (lightweight)
+ *     tags: [Cart]
+ *     responses:
+ *       200:
+ *         description: Cart exists
+ *       404:
+ *         description: Cart not found
  */
 router.post("/get", validateCart, getCart);
+router.head("/get", validateCart, getCart);
 
 /**
  * @swagger

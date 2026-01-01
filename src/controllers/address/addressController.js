@@ -2,23 +2,23 @@ const Address = require("../../models/Address");
 
 const createAddress = async (req, res) => {
   try {
-    const { 
-      userId, 
-      fullName, 
-      phone, 
+    const {
+      userId,
+      fullName,
+      phone,
       houseName,
       street,
       landmark,
       addressLine1, // Keep for backward compatibility
       addressLine2, // Keep for backward compatibility
-      city, 
+      city,
       state,
       district,
       postalCode,
       pincode, // Keep for backward compatibility
       country = "India", // Default to India
       isDefault,
-      nickname = "Home" // Default nickname
+      addressType = "Home", // Default addressType
     } = req.body;
 
     // Use street if provided, otherwise fallback to addressLine1
@@ -37,18 +37,12 @@ const createAddress = async (req, res) => {
         phone: phone,
         $and: [
           {
-            $or: [
-              { postalCode: finalPincode },
-              { pincode: finalPincode }
-            ]
+            $or: [{ postalCode: finalPincode }, { pincode: finalPincode }],
           },
           {
-            $or: [
-              { street: finalStreet },
-              { addressLine1: finalStreet }
-            ]
-          }
-        ]
+            $or: [{ street: finalStreet }, { addressLine1: finalStreet }],
+          },
+        ],
       });
     }
 
@@ -68,7 +62,7 @@ const createAddress = async (req, res) => {
         success: true,
         message: "✅ Address already exists",
         address: duplicateAddress,
-        isDuplicate: true
+        isDuplicate: true,
       });
     }
 
@@ -92,11 +86,11 @@ const createAddress = async (req, res) => {
       city,
       state,
       district,
-      postalCode: finalPincode,
+      district,
       pincode: finalPincode, // Keep for backward compatibility
       country: country || "India", // Default to India
       isDefault: isDefault || false,
-      nickname: nickname || "Home"
+      addressType: addressType || "Home",
     });
 
     await address.save();
@@ -104,14 +98,14 @@ const createAddress = async (req, res) => {
     res.status(201).json({
       success: true,
       message: "✅ Address saved successfully",
-      address
+      address,
     });
   } catch (err) {
     console.error("❌ Error saving address:", err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message 
+      error: err.message,
     });
   }
 };

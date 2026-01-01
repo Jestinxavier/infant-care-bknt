@@ -1,4 +1,5 @@
 const User = require("../models/user");
+const { ADMIN_ROLES } = require("../../resources/constants");
 
 /**
  * Middleware to require admin role for admin routes
@@ -7,31 +8,28 @@ const User = require("../models/user");
 const requireAdmin = async (req, res, next) => {
   try {
     const userId = req.user?.id;
-    
+
     if (!userId) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: "Unauthorized - No user ID found" 
+        message: "Unauthorized - No user ID found",
       });
     }
 
     // Fetch user from database to check role
     const user = await User.findById(userId).select("role email username");
-    
+
     if (!user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: "User not found" 
+        message: "User not found",
       });
     }
-
-    // Check if user has admin role
-    // Support both "admin" and "super-admin" roles (if super-admin exists in your system)
-    const allowedRoles = ["admin", "super-admin"];
-    if (!allowedRoles.includes(user.role)) {
-      return res.status(403).json({ 
+    // Check if user has admin role using centralized constants
+    if (!ADMIN_ROLES.includes(user.role)) {
+      return res.status(403).json({
         success: false,
-        message: "Access denied. Admin or Super Admin role required." 
+        message: "Access denied. Admin role required.",
       });
     }
 
@@ -46,13 +44,12 @@ const requireAdmin = async (req, res, next) => {
     next();
   } catch (error) {
     console.error("❌ Admin middleware error:", error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: error.message 
+      error: error.message,
     });
   }
 };
 
 module.exports = requireAdmin;
-

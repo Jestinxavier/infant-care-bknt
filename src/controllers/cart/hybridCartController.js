@@ -1,5 +1,5 @@
 // controllers/cart/hybridCartController.js
-const { CART_ID } = require("../../../resources/constants");
+const { CART_ID, SHIPPING_COST } = require("../../../resources/constants");
 const Cart = require("../../models/Cart");
 const Product = require("../../models/Product");
 const Coupon = require("../../models/Coupon");
@@ -10,18 +10,38 @@ const {
 } = require("../../utils/cartIdGenerator");
 const { formatCartResponse } = require("../../utils/formatCartResponse");
 
+const SiteSetting = require("../../models/SiteSetting");
+
+/**
+ * Get cart settings from DB
+ */
+const getCartSettings = async () => {
+  const settings = await SiteSetting.find({ scope: "cart" });
+  const config = {
+    freeThreshold: SHIPPING_COST.FREE_THRESHOLD, // Default
+    shippingCost: SHIPPING_COST.SHIPPING_COST, // Default
+  };
+
+  settings.forEach((s) => {
+    if (s.key === "cart.shipping.freeThreshold")
+      config.freeThreshold = Number(s.value);
+    if (s.key === "cart.shipping.flat") config.shippingCost = Number(s.value);
+  });
+
+  return config;
+};
+
 /**
  * Calculate shipping estimate
- * Free shipping if cart total >= 1000, otherwise 60
  */
-const calculateShipping = (subtotal) => {
-  return subtotal >= 1000 ? 0 : 60;
+const calculateShipping = (subtotal, settings) => {
+  return subtotal >= settings.freeThreshold ? 0 : settings.shippingCost;
 };
 
 /**
  * Calculate cart totals (subtotal, tax, shipping, total)
  */
-const calculateTotals = (items) => {
+const calculateTotals = async (items) => {
   console.log(
     "🔍 calculateTotals called with items:",
     JSON.stringify(items, null, 2)
@@ -43,7 +63,9 @@ const calculateTotals = (items) => {
     return sum + price * item.quantity;
   }, 0);
 
-  const shippingEstimate = calculateShipping(totalAfterDiscount);
+  const settings = await getCartSettings();
+  const shippingEstimate = calculateShipping(totalAfterDiscount, settings);
+
   // Note: logic is basic here; Cart model checks coupon discount on save
   const total = totalAfterDiscount + shippingEstimate;
 
@@ -229,12 +251,22 @@ const setCookie = async (req, res) => {
 
 /**
  * POST /api/v1/cart/get
- * Get full cart by cookie/cartId
+ * HEAD /api/v1/cart/get (for validation)
+ * Get full cart by cookie/cartId or validate cart existence
  */
 const getCart = async (req, res) => {
   try {
     const cart = req.cart;
 
+    // Handle HEAD request for lightweight cart validation
+    if (req.method === "HEAD") {
+      if (!cart) {
+        return res.status(404).end();
+      }
+      return res.status(200).end();
+    }
+
+    // Handle POST request for full cart data
     if (!cart) {
       return res.status(200).json({
         success: true,
@@ -243,7 +275,8 @@ const getCart = async (req, res) => {
     }
 
     // Recalculate totals to ensure they're up-to-date
-    const totals = calculateTotals(cart.items);
+    // Recalculate totals to ensure they're up-to-date
+    const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
@@ -352,7 +385,8 @@ const addItem = async (req, res) => {
     await cartDoc.addItem(itemData);
 
     // Recalculate totals
-    const totals = calculateTotals(cartDoc.items);
+    // Recalculate totals
+    const totals = await calculateTotals(cartDoc.items);
     cartDoc.subtotal = totals.subtotal;
     cartDoc.tax = totals.tax;
     cartDoc.shippingEstimate = totals.shippingEstimate;
@@ -425,7 +459,8 @@ const updateItem = async (req, res) => {
     }
 
     // Recalculate totals
-    const totals = calculateTotals(cart.items);
+    // Recalculate totals
+    const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
@@ -480,7 +515,8 @@ const removeItem = async (req, res) => {
     cart.items.pull(itemId);
 
     // Recalculate totals
-    const totals = calculateTotals(cart.items);
+    // Recalculate totals
+    const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
@@ -1202,7 +1238,6 @@ const getAvailableCoupons = async (req, res) => {
 
 module.exports = {
   createCart,
-  setCookie,
   getCart,
   addItem,
   updateItem,

@@ -6,6 +6,7 @@ const {
   extractImagePublicIds,
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
+const { processVariantOptions } = require("../../utils/variantNameFormatter");
 
 const updateProduct = async (req, res) => {
   try {
@@ -142,10 +143,13 @@ const updateProduct = async (req, res) => {
       }
 
       // Strip hex values from values - uiMeta handles hex separately
-      const cleanedVariantOptions = variantOptions.map((opt) => ({
-        ...opt,
-        values: (opt.values || []).map(({ hex, ...rest }) => rest),
-      }));
+      // Also capitalize variant option names and add "M" suffix for size patterns
+      const cleanedVariantOptions = processVariantOptions(variantOptions).map(
+        (opt) => ({
+          ...opt,
+          values: (opt.values || []).map(({ hex, ...rest }) => rest),
+        })
+      );
 
       product.variantOptions = cleanedVariantOptions;
     }
@@ -250,7 +254,7 @@ const updateProduct = async (req, res) => {
         }
 
         return {
-          id: v.id || `variant-${Date.now()}-${index}`,
+          id: v.id || `variant-${crypto.randomUUID()}`,
           url_key: variantUrlKey, // Store url_key in variant
           sku: v.sku,
           // Keep direct fields for backward compatibility

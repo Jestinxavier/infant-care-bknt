@@ -85,6 +85,7 @@ const footerRoutes = require("./routes/footerRoutes");
 // const cmsRoutes = require("./routes/cmsRoutes");
 const faqRoutes = require("./routes/faqRoutes");
 const faqCategoryRoutes = require("./routes/faqCategoryRoutes");
+const siteSettingsRoutes = require("./routes/siteSettingsRoutes");
 
 // New feature-based CMS routes
 const cmsAdminRoutes = require("./features/cms/cms.admin.routes");
@@ -112,6 +113,8 @@ app.use("/api/v1/health", healthRoutes);
 app.use("/api/v1/homepage", homepageRoutes);
 app.use("/api/v1/footer", footerRoutes);
 app.use("/api/v1/faqs", faqRoutes);
+app.use("/api/v1/stock-notify", require("./routes/stockNotificationRoutes"));
+app.use("/api/v1/settings", siteSettingsRoutes); // Public settings endpoint
 // CMS product routes (lightweight for widgets) - Must be before general /cms route
 app.use("/api/v1/cms/products", cmsProductRoutes);
 // Public CMS routes (for frontend)
@@ -128,6 +131,9 @@ app.use(`/api/v1${ADMIN_PREFIX}/media`, mediaRoutes);
 
 // FAQ Category Management (Admin only)
 app.use(`/api/v1${ADMIN_PREFIX}/faq-categories`, faqCategoryRoutes);
+
+// Site Settings Management (Admin only)
+app.use(`/api/v1${ADMIN_PREFIX}/settings`, siteSettingsRoutes);
 
 // CSV temp image routes under admin
 const csvImageRoutes = require("./routes/csvImageRoutes");
@@ -153,8 +159,10 @@ app.get("/", (req, res) =>
   )
 );
 
-const checkOrderStatus =
-  require("./controllers/payment/phonepeSDK").checkOrderStatus;
+const {
+  checkOrderStatus,
+  phonepeWebhook,
+} = require("./controllers/payment/phonepeSDK");
 app.get("/order-confirmation", checkOrderStatus);
-
+app.post("/api/webhooks/phonepe", express.json(), phonepeWebhook);
 module.exports = app;

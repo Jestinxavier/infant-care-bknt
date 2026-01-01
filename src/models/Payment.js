@@ -1,12 +1,25 @@
 // models/Payment.js
 const mongoose = require("mongoose");
+const { PAYMENT_METHODS } = require("../../resources/constants");
 
 const paymentSchema = new mongoose.Schema({
-  orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", required: true },
+  orderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Order",
+    required: true,
+  },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   amount: { type: Number, required: true },
-  method: { type: String, enum: ["COD", "Razorpay", "Stripe", "Wallet", "PhonePe"], required: true },
-  status: { type: String, enum: ["pending", "success", "failed"], default: "pending" },
+  method: {
+    type: String,
+    enum: Object.values(PAYMENT_METHODS),
+    required: true,
+  },
+  status: {
+    type: String,
+    enum: ["pending", "success", "failed", "initiated"],
+    default: "pending",
+  },
   transactionId: { type: String }, // from gateway if online
 
   // PhonePe fields
@@ -20,7 +33,7 @@ const paymentSchema = new mongoose.Schema({
   razorpaySignature: { type: String }, // Razorpay signature
   razorpayResponse: { type: Object }, // Store Razorpay response data
 
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
 module.exports = mongoose.model("Payment", paymentSchema);
