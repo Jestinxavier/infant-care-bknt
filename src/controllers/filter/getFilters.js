@@ -11,46 +11,44 @@ const getFilters = async (req, res) => {
   try {
     // Support both URL path param (/filter/:slug) and query param (/filter/all?category=xxx)
     const slug = req.params.slug;
-    const categoryFromQuery = req.query.category;
+    const { parseQueryFilters } = require("../../utils/parseQueryFilters");
+    const parsedFilters = parseQueryFilters(req.query);
 
-    // Use query param if slug is 'all', otherwise use slug from path
-    const category = (slug === "all" ? categoryFromQuery : slug) || "all";
+    // Use query param and slug to get all selected category codes
+    const categoryFromQuery = parsedFilters.category;
+    let selectedCategoryCodes = [];
 
-    // Build filter to get products for this category
-    let productFilter = { status: "published" }; // Only filter published products
+    if (slug && slug !== "all") {
+      selectedCategoryCodes.push(slug);
+    }
 
-    console.log("🔍 Filter API called with:", {
-      slug,
-      categoryFromQuery,
-      category,
-    });
+    if (categoryFromQuery) {
+      if (Array.isArray(categoryFromQuery)) {
+        selectedCategoryCodes.push(...categoryFromQuery);
+      } else {
+        selectedCategoryCodes.push(categoryFromQuery);
+      }
+    }
 
-    if (category && category !== "all") {
-      // Find category by code (slug format in DB is /category/{code}, but API receives just the code)
-      const categoryDoc = await Category.findOne({
-        code: category,
+    // Remove duplicates and 'all'
+    selectedCategoryCodes = [...new Set(selectedCategoryCodes)].filter(c => c && c !== "all");
+
+    // Build filter to get products for these categories (for filter generation)
+    let productFilter = { status: "published" };
+    let categoryDocs = [];
+
+    if (selectedCategoryCodes.length > 0) {
+      categoryDocs = await Category.find({
+        $or: [
+          { code: { $in: selectedCategoryCodes } },
+          { slug: { $in: selectedCategoryCodes } }
+        ],
         isActive: true,
       });
 
-      console.log(
-        "📁 Category lookup result:",
-        categoryDoc
-          ? {
-              id: categoryDoc._id,
-              name: categoryDoc.name,
-              code: categoryDoc.code,
-            }
-          : "NOT FOUND"
-      );
-
-      if (!categoryDoc) {
-        return res.status(404).json({
-          success: false,
-          message: "Category not found",
-        });
+      if (categoryDocs.length > 0) {
+        productFilter.category = { $in: categoryDocs.map(d => d._id) };
       }
-
-      productFilter.category = categoryDoc._id;
     }
 
     console.log("🛒 Product filter:", productFilter);
@@ -64,8 +62,7 @@ const getFilters = async (req, res) => {
     if (products.length > 0) {
       products.forEach((p, i) => {
         console.log(
-          `  Product ${i + 1}: ${p.title || p.name}, Variants: ${
-            p.variants?.length || 0
+          `  Product ${i + 1}: ${p.title || p.name}, Variants: ${p.variants?.length || 0
           }`
         );
       });
@@ -102,8 +99,8 @@ const getFilters = async (req, res) => {
               ? Object.fromEntries(variant.attributes)
               : variant.attributes
             : variant.options instanceof Map
-            ? Object.fromEntries(variant.options)
-            : variant.options || {};
+              ? Object.fromEntries(variant.options)
+              : variant.options || {};
 
           const variantColor = variantAttrs.color;
           const variantSize = variantAttrs.size || variantAttrs.age;
@@ -141,9 +138,9 @@ const getFilters = async (req, res) => {
           // Split by comma if multiple tags, otherwise use as-is
           const tagList = tagValue.includes(",")
             ? tagValue
-                .split(",")
-                .map((t) => t.trim())
-                .filter(Boolean)
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean)
             : [tagValue.trim()];
           tagList.forEach((tag) => {
             if (tag.length > 0) {
@@ -193,6 +190,76 @@ const getFilters = async (req, res) => {
         max: prices.length > 0 ? Math.max(...prices) : 0,
       },
     };
+
+    // To allow multi-select, identify parent categories that match other filters (price, color, etc.)
+    const categoryBaseFilter = { ...productFilter };
+    delete categoryBaseFilter.category;
+    delete categoryBaseFilter.subCategories;
+
+    const [productCatIds, productSubCatIds] = await Promise.all([
+      Product.distinct("category", categoryBaseFilter),
+      Product.distinct("subCategories", categoryBaseFilter)
+    ]);
+
+    const allRefCatIds = new Set([...productCatIds.map(id => id.toString()), ...productSubCatIds.map(id => id.toString())]);
+
+    // To show parents, we need parents of both category and subCategories found
+    const parentCategoryIdsSet = new Set();
+
+    if (allRefCatIds.size > 0) {
+      const referencedCats = await Category.find({ _id: { $in: Array.from(allRefCatIds) } }).lean();
+      referencedCats.forEach(cat => {
+        if (cat.parentCategory) {
+          parentCategoryIdsSet.add(cat.parentCategory.toString());
+        } else {
+          parentCategoryIdsSet.add(cat._id.toString());
+        }
+      });
+    }
+
+    // Now find only the PARENT categories from the relevant set
+    const relevantParents = await Category.find({
+      _id: { $in: Array.from(parentCategoryIdsSet) },
+      isActive: true,
+      parentCategory: null
+    }).sort({ displayOrder: 1 }).lean();
+
+    if (relevantParents.length > 0) {
+      rawFilters.categories = relevantParents.map(cat => ({
+        value: cat.code,
+        label: cat.name
+      }));
+    }
+
+    // Show subcategories if any parent categories are selected (via slug or query)
+    if (selectedCategoryCodes.length > 0) {
+      // Find the parent categories that are currently selected
+      const selectedParents = await Category.find({
+        $or: [
+          { code: { $in: selectedCategoryCodes } },
+          { slug: { $in: selectedCategoryCodes } }
+        ],
+        isActive: true,
+        parentCategory: null // Only look for parent categories here
+      }).lean();
+
+      if (selectedParents.length > 0) {
+        const parentIds = selectedParents.map(p => p._id);
+
+        // Find all active subcategories for these parents
+        const activeSubcategories = await Category.find({
+          parentCategory: { $in: parentIds },
+          isActive: true
+        }).sort({ displayOrder: 1 }).lean();
+
+        if (activeSubcategories.length > 0) {
+          rawFilters.subCategories = activeSubcategories.map(cat => ({
+            value: cat.code,
+            label: cat.name
+          }));
+        }
+      }
+    }
 
     // Transform to FilterConfig format
     const filters = generateFilterConfig(rawFilters);

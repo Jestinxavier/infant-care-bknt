@@ -115,6 +115,12 @@ const productSchema = new mongoose.Schema(
     },
     categoryName: { type: String }, // Store category name for convenience
     categoryCode: { type: String, index: true }, // Store category code (e.g., 'baby-clothes')
+    subCategories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+      },
+    ],
 
     // URL and status
     url_key: {

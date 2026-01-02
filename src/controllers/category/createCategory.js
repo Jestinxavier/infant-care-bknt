@@ -49,6 +49,14 @@ const createCategory = async (req, res) => {
           message: "Parent category not found",
         });
       }
+
+      // Check if parent already has a parent (limit to 2 levels)
+      if (parent.parentCategory) {
+        return res.status(400).json({
+          success: false,
+          message: "Categories can only be nested up to two levels deep",
+        });
+      }
       categoryData.parentCategory = parentCategory;
     }
 

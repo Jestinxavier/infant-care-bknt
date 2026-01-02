@@ -31,6 +31,7 @@ const updateProduct = async (req, res) => {
       tags,
       metaTitle,
       metaDescription,
+      subCategories,
       // Legacy fields
       name,
     } = req.body;
@@ -164,6 +165,19 @@ const updateProduct = async (req, res) => {
     if (metaTitle !== undefined) product.metaTitle = metaTitle;
     if (metaDescription !== undefined)
       product.metaDescription = metaDescription;
+
+    // Update subcategories
+    if (subCategories !== undefined) {
+      if (typeof subCategories === "string") {
+        try {
+          product.subCategories = JSON.parse(subCategories);
+        } catch (e) {
+          console.error("Error parsing subCategories JSON:", e);
+        }
+      } else if (Array.isArray(subCategories)) {
+        product.subCategories = subCategories;
+      }
+    }
 
     // Update product-level images
     if (req.body.images !== undefined) {

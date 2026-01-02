@@ -48,19 +48,25 @@ const seedCategories = async () => {
     console.log("✅ Connected to MongoDB");
 
     console.log("\n📦 Seeding categories...");
-    
+
     let createdCount = 0;
     let skippedCount = 0;
 
     for (const categoryData of defaultCategories) {
       const existingCategory = await Category.findOne({ name: categoryData.name });
-      
+
       if (existingCategory) {
         console.log(`⏭️  Skipping "${categoryData.name}" - already exists`);
         skippedCount++;
       } else {
+        const code = categoryData.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "");
+
         await Category.create({
           name: categoryData.name,
+          code: code,
           displayOrder: categoryData.displayOrder,
           isActive: true
         });

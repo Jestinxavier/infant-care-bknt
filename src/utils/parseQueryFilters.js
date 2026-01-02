@@ -56,8 +56,32 @@ const parseQueryFilters = (query) => {
       query.inStock === "true" || query.inStock === true ? "true" : "false";
   }
 
+  if (query.subCategories) {
+    if (Array.isArray(query.subCategories)) {
+      filters.subCategories = query.subCategories;
+    } else if (
+      typeof query.subCategories === "string" &&
+      query.subCategories.includes(",")
+    ) {
+      filters.subCategories = query.subCategories.split(",").map((s) => s.trim());
+    } else {
+      filters.subCategories = [query.subCategories.trim()];
+    }
+  }
+
   // Keep other filters as-is
-  if (query.category) filters.category = query.category;
+  if (query.category) {
+    if (Array.isArray(query.category)) {
+      filters.category = query.category;
+    } else if (
+      typeof query.category === "string" &&
+      query.category.includes(",")
+    ) {
+      filters.category = query.category.split(",").map((c) => c.trim());
+    } else {
+      filters.category = query.category.trim();
+    }
+  }
   if (query.brand) filters.brand = query.brand;
   if (query.material) filters.material = query.material;
   if (query.pattern) filters.pattern = query.pattern;

@@ -14,6 +14,26 @@ const { formatLabel } = require("./formatLabel");
 const generateFilterConfig = (rawFilters) => {
   const filterConfigs = [];
 
+  // Categories (optional)
+  if (rawFilters.categories && rawFilters.categories.length > 0) {
+    filterConfigs.push({
+      key: "category",
+      label: "Category",
+      type: "checkbox",
+      options: rawFilters.categories
+    });
+  }
+
+  // Subcategories (optional)
+  if (rawFilters.subCategories && rawFilters.subCategories.length > 0) {
+    filterConfigs.push({
+      key: "subCategories",
+      label: "Subcategories",
+      type: "checkbox",
+      options: rawFilters.subCategories
+    });
+  }
+
   // Price Range Slider
   if (rawFilters.priceRange && typeof rawFilters.priceRange === "object") {
     const { min, max } = rawFilters.priceRange;

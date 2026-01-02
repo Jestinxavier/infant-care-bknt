@@ -122,6 +122,25 @@ const updateCategory = async (req, res) => {
             message: "Parent category not found",
           });
         }
+
+        // Check if proposed parent is already a subcategory
+        if (parent.parentCategory) {
+          return res.status(400).json({
+            success: false,
+            message: "Categories can only be nested up to two levels deep",
+          });
+        }
+
+        // Check if THIS category already has subcategories
+        const children = await Category.findOne({ parentCategory: categoryId });
+        if (children) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Cannot assign a parent to a category that already has subcategories",
+          });
+        }
+
         category.parentCategory = parentCategory;
       }
     }
