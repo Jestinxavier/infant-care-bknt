@@ -108,6 +108,8 @@ const phonepeWebhook = async (req, res) => {
 
     const { type, payload } = callbackResponse;
 
+    console.log("---------callbackResponse--------", callbackResponse, req);
+
     /* ---------------------------------------------------- */
     /* 3. Extract YOUR order id (not PhonePe orderId)        */
     /* ---------------------------------------------------- */
