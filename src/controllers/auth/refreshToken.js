@@ -1,4 +1,5 @@
 const authService = require("../../services/service");
+const { ACCESS_TOKEN_LIFETIME_MS } = require("../../../resources/constants");
 
 const refreshToken = async (req, res) => {
   try {
@@ -32,7 +33,7 @@ const refreshToken = async (req, res) => {
       return res.status(401).json({
         message: "No refresh token provided",
         clientType,
-        availableCookies: Object.keys(allCookies)
+        availableCookies: Object.keys(allCookies),
       });
     }
 
@@ -41,7 +42,8 @@ const refreshToken = async (req, res) => {
 
     res.json({
       accessToken: newAccessToken,
-      clientType
+      accessTokenLifetimeMs: ACCESS_TOKEN_LIFETIME_MS,
+      clientType,
     });
   } catch (err) {
     console.error("❌ Refresh token error:", err.message);

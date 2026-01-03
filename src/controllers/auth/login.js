@@ -1,4 +1,5 @@
 const authService = require("../../services/service");
+const { ACCESS_TOKEN_LIFETIME_MS } = require("../../../resources/constants");
 
 const login = async (req, res) => {
   try {
@@ -19,8 +20,8 @@ const login = async (req, res) => {
 
     res.cookie(cookieName, refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // HTTPS only in production
-      sameSite: "Strict",
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "Strict" : "Lax", // Lax for dev cross-origin
       path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
@@ -34,6 +35,7 @@ const login = async (req, res) => {
       message: "Login successful",
       accessToken,
       refreshToken, // Include refreshToken in response for client-side storage
+      accessTokenLifetimeMs: ACCESS_TOKEN_LIFETIME_MS, // For client-side refresh scheduling
       user, // Include user info in response
     });
   } catch (err) {

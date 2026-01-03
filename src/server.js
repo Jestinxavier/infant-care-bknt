@@ -7,7 +7,7 @@ const path = require("path");
 // Load .env from project root
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 // Debugging line
 console.log("Environment:", process.env.NODE_ENV);

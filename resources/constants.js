@@ -18,6 +18,10 @@ const TOKEN_EXPIRY = {
   OTP: "10m", // OTP expiry time
 };
 
+// Access token lifetime in milliseconds (14 min - 1 min buffer before 15m expiry)
+// Used by frontend/dashboard to set refresh interval
+const ACCESS_TOKEN_LIFETIME_MS = 14 * 60 * 1000;
+
 // OTP expiry in milliseconds (for Date calculations)
 const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -59,6 +63,7 @@ module.exports = {
   REFRESH_TOKEN,
   PAYMENT_METHODS,
   TOKEN_EXPIRY,
+  ACCESS_TOKEN_LIFETIME_MS,
   OTP_EXPIRY_MS,
   SHIPPING_COST,
   CHECKOUT_SESSION_MS,
