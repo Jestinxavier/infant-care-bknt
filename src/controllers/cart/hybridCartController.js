@@ -319,6 +319,12 @@ const getCart = async (req, res) => {
 const addItem = async (req, res) => {
   try {
     const cart = req.cart;
+    if (cart && cart.status !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Cart modification not allowed during checkout",
+      });
+    }
     const { item } = req.body;
 
     if (!item || !item.productId) {
@@ -439,6 +445,12 @@ const addItem = async (req, res) => {
 const updateItem = async (req, res) => {
   try {
     const cart = req.cart;
+    if (cart && cart.status !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Cart modification not allowed during checkout",
+      });
+    }
     const { itemId, changes } = req.body;
 
     if (!cart) {
@@ -446,6 +458,18 @@ const updateItem = async (req, res) => {
         success: false,
         message: "Cart not found",
       });
+    }
+
+    // Safe Claim: If cart is unowned and user is logged in, claim it
+    const userId = req.user?.id;
+    if (!cart.userId && userId) {
+      const otherCart = await Cart.findOne({
+        userId,
+        cartId: { $ne: cart.cartId },
+      });
+      if (!otherCart) {
+        cart.userId = userId;
+      }
     }
 
     if (!itemId) {
@@ -512,6 +536,12 @@ const updateItem = async (req, res) => {
 const removeItem = async (req, res) => {
   try {
     const cart = req.cart;
+    if (cart && cart.status !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Cart modification not allowed during checkout",
+      });
+    }
     const { itemId } = req.body;
 
     if (!cart) {
@@ -519,6 +549,18 @@ const removeItem = async (req, res) => {
         success: false,
         message: "Cart not found",
       });
+    }
+
+    // Safe Claim: If cart is unowned and user is logged in, claim it
+    const userId = req.user?.id;
+    if (!cart.userId && userId) {
+      const otherCart = await Cart.findOne({
+        userId,
+        cartId: { $ne: cart.cartId },
+      });
+      if (!otherCart) {
+        cart.userId = userId;
+      }
     }
 
     if (!itemId) {
@@ -568,6 +610,12 @@ const removeItem = async (req, res) => {
 const clearCart = async (req, res) => {
   try {
     const cart = req.cart;
+    if (cart && cart.status !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Cart modification not allowed during checkout",
+      });
+    }
 
     if (!cart) {
       return res.status(404).json({
@@ -870,21 +918,24 @@ const getSummary = async (req, res) => {
     });
   }
 };
-
 /**
  * POST /api/v1/cart/merge
  * Merge guest cart into user cart on login
- */
-/**
- * POST /api/v1/cart/merge
- * Merge guest cart into user cart on login
- * Logic:
- * 1. If User has existing cart -> Merge Guest items into User Cart -> Delete Guest Cart
- * 2. If User has NO existing cart -> Assign Guest Cart to User
+ *
+ * CASES:
+ * A: Both guestCart AND userCart exist → Merge guest INTO user, delete guest
+ * B: Only userCart exists → Restore userCart (set cookie)
+ * C: Only guestCart exists → Assign guestCart to user
+ * D: Neither exists → Return null
+ *
+ * RULES:
+ * - User cart ALWAYS has priority
+ * - Guest cart items merge INTO user cart
+ * - Duplicate items: SUM quantities
+ * - After merge: delete guest cart, cookie → user cart
  */
 const mergeCart = async (req, res) => {
   try {
-    const guestCart = req.cart;
     const userId = req.user?.id;
 
     if (!userId) {
@@ -894,61 +945,61 @@ const mergeCart = async (req, res) => {
       });
     }
 
-    if (!guestCart) {
-      return res.status(200).json({
-        success: true,
-        message: "No guest cart to merge",
-        cart: null,
-      });
-    }
+    // Step 1: Get guest cart from middleware (populated from cookie/header)
+    const guestCart = req.cart; // null if no cookie or cart not found
 
-    // Check if the cart is already assigned to a user
-    if (guestCart.userId) {
-      if (guestCart.userId.toString() === userId.toString()) {
-        const formatted = formatCartResponse(guestCart);
-        return res.status(200).json({
-          success: true,
-          cart: formatted,
-          message: "Cart already assigned to user",
-        });
-      } else {
-        return res.status(200).json({
-          success: true,
-          message: "Cart belongs to another user - cannot merge",
-          cart: null,
-        });
-      }
-    }
-
-    // Check if user already has an existing cart (excluding the current guest cart)
+    // Step 2: Find user's existing active cart (different from guest cart)
     const userCart = await Cart.findOne({
       userId,
-      cartId: { $ne: guestCart.cartId },
+      status: "active",
+      // Exclude guestCart if it exists (avoid finding same cart)
+      ...(guestCart ? { cartId: { $ne: guestCart.cartId } } : {}),
     });
 
-    if (userCart) {
-      // SCENARIO 1: User has an existing cart -> MERGE
-      console.log(
-        `🔄 Merging guest cart ${guestCart.cartId} into user cart ${userCart.cartId}`
-      );
+    // Helper to set cart cookie
+    const setCartCookie = (cartId) => {
+      res.cookie(CART_ID, cartId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+    };
 
-      // Merge items from guest cart
+    // ═══════════════════════════════════════════════════════════════════
+    // CASE A: Both carts exist → MERGE guest INTO user
+    // ═══════════════════════════════════════════════════════════════════
+    if (guestCart && userCart) {
+      // Merge items with deduplication
       for (const guestItem of guestCart.items) {
-        await userCart.addItem({
-          productId: guestItem.productId,
-          variantId: guestItem.variantId,
-          quantity: guestItem.quantity,
-          priceSnapshot: guestItem.priceSnapshot,
-          discountPriceSnapshot: guestItem.discountPriceSnapshot,
-          titleSnapshot: guestItem.titleSnapshot,
-          imageSnapshot: guestItem.imageSnapshot,
-          skuSnapshot: guestItem.skuSnapshot,
-          attributesSnapshot: guestItem.attributesSnapshot,
-        });
+        const existingIndex = userCart.items.findIndex(
+          (item) =>
+            item.productId.toString() === guestItem.productId.toString() &&
+            item.variantId === guestItem.variantId
+        );
+
+        if (existingIndex !== -1) {
+          // DUPLICATE: SUM quantities
+          userCart.items[existingIndex].quantity += guestItem.quantity;
+        } else {
+          // NEW ITEM: Add to user cart
+          userCart.items.push({
+            productId: guestItem.productId,
+            variantId: guestItem.variantId,
+            quantity: guestItem.quantity,
+            priceSnapshot: guestItem.priceSnapshot,
+            discountPriceSnapshot: guestItem.discountPriceSnapshot,
+            titleSnapshot: guestItem.titleSnapshot,
+            imageSnapshot: guestItem.imageSnapshot,
+            skuSnapshot: guestItem.skuSnapshot,
+            attributesSnapshot: guestItem.attributesSnapshot,
+          });
+        }
       }
 
-      // Recalculate totals for user cart
-      const totals = calculateTotals(userCart.items);
+      // Recalculate totals
+      const totals = await calculateTotals(userCart.items);
       userCart.subtotal = totals.subtotal;
       userCart.tax = totals.tax;
       userCart.shippingEstimate = totals.shippingEstimate;
@@ -959,42 +1010,77 @@ const mergeCart = async (req, res) => {
       await Cart.deleteOne({ cartId: guestCart.cartId });
 
       // Update cookie to user cart
-      const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        path: "/",
-      };
-      res.cookie(CART_ID, userCart.cartId, cookieOptions);
+      setCartCookie(userCart.cartId);
 
       const formatted = formatCartResponse(userCart);
-
       return res.status(200).json({
         success: true,
         cart: formatted,
         message: "Cart merged successfully",
       });
-    } else {
-      // SCENARIO 2: User has NO existing cart -> ASSIGN
-      console.log(
-        `👤 Assigning guest cart ${guestCart.cartId} to user ${userId}`
-      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CASE B: Only userCart exists → RESTORE (set cookie)
+    // ═══════════════════════════════════════════════════════════════════
+    if (userCart && !guestCart) {
+      setCartCookie(userCart.cartId);
+
+      const formatted = formatCartResponse(userCart);
+      return res.status(200).json({
+        success: true,
+        cart: formatted,
+        message: "Cart restored successfully",
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CASE C: Only guestCart exists → ASSIGN to user
+    // ═══════════════════════════════════════════════════════════════════
+    if (guestCart && !userCart) {
+      // Check if guest cart is already owned by another user
+      if (
+        guestCart.userId &&
+        guestCart.userId.toString() !== userId.toString()
+      ) {
+        return res.status(200).json({
+          success: true,
+          message: "Cart belongs to another user",
+          cart: null,
+        });
+      }
+
+      // Check if already assigned to this user
+      if (guestCart.userId?.toString() === userId.toString()) {
+        const formatted = formatCartResponse(guestCart);
+        return res.status(200).json({
+          success: true,
+          cart: formatted,
+          message: "Cart already assigned to user",
+        });
+      }
 
       guestCart.userId = userId;
-      // Totals remain the same, just saving the association
       await guestCart.save();
 
-      // Cookie remains valid (points to the same cartId)
+      // Cookie already points to this cart, no need to update
 
       const formatted = formatCartResponse(guestCart);
-
       return res.status(200).json({
         success: true,
         cart: formatted,
         message: "Cart assigned to user successfully",
       });
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CASE D: Neither exists → Nothing to do
+    // ═══════════════════════════════════════════════════════════════════
+    return res.status(200).json({
+      success: true,
+      message: "No cart to merge or restore",
+      cart: null,
+    });
   } catch (error) {
     console.error("❌ Error merging cart:", error);
     res.status(500).json({
@@ -1012,6 +1098,12 @@ const mergeCart = async (req, res) => {
 const applyCoupon = async (req, res) => {
   try {
     const cart = req.cart;
+    if (cart && cart.status !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Cart modification not allowed during checkout",
+      });
+    }
     const { code } = req.body;
 
     if (!cart) {
@@ -1159,6 +1251,12 @@ const applyCoupon = async (req, res) => {
 const removeCoupon = async (req, res) => {
   try {
     const cart = req.cart;
+    if (cart && cart.status !== "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Cart modification not allowed during checkout",
+      });
+    }
 
     if (!cart) {
       return res.status(404).json({

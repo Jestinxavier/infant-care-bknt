@@ -4,15 +4,8 @@ const {
   phonePeRedirect,
   checkPaymentStatus,
   initiatePhonePeRefund,
-  getPhonePeRefundStatus
-} = require('./phonePeController');
-
-const {
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-  razorpayWebhook,
-  getPaymentDetails
-} = require('./razorpayController');
+  getPhonePeRefundStatus,
+} = require("./phonePeController");
 
 module.exports = {
   // PhonePe
@@ -22,10 +15,4 @@ module.exports = {
   checkPaymentStatus,
   initiatePhonePeRefund,
   getPhonePeRefundStatus,
-
-  // Razorpay
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-  razorpayWebhook,
-  getPaymentDetails,
 };

@@ -1,6 +1,9 @@
 const Cart = require("../../models/Cart");
 const crypto = require("crypto");
-const { CHECKOUT_SESSION_MS } = require("../../../resources/constants");
+const {
+  CHECKOUT_SESSION_MS,
+  CART_ID,
+} = require("../../../resources/constants");
 
 /**
  * Start Checkout - Lock cart for atomic order creation
@@ -9,8 +12,8 @@ const { CHECKOUT_SESSION_MS } = require("../../../resources/constants");
 const startCheckout = async (req, res) => {
   try {
     const { userId, cartId: bodyCartId } = req.body;
-    // Get cartId from body or cookies (CART_ID constant usually "cartId")
-    const cartId = bodyCartId || req.cookies?.cartId;
+    // Get cartId from body or cookies (use CART_ID constant = "cart_id")
+    const cartId = bodyCartId || req.cookies?.[CART_ID];
 
     if (!userId) {
       return res.status(400).json({
@@ -25,7 +28,7 @@ const startCheckout = async (req, res) => {
     let cart = null;
 
     console.log(
-      `🔍 startCheckout: userId=${userId}, bodyCartId=${bodyCartId}, cookieCartId=${req.cookies?.cartId}, using cartId=${cartId}`
+      `🔍 startCheckout: userId=${userId}, bodyCartId=${bodyCartId}, cookieCartId=${req.cookies?.[CART_ID]}, using cartId=${cartId}`
     );
 
     if (cartId) {

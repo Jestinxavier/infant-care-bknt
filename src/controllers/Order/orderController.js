@@ -35,6 +35,14 @@ const createOrder = async (req, res) => {
       });
     }
 
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "INVALID_USER_ID",
+        message: "Invalid User ID format",
+      });
+    }
+
     // === IDEMPOTENCY CHECK (Key-Based) ===
     const idempotencyKey = req.headers["idempotency-key"];
 
@@ -391,7 +399,7 @@ const createOrder = async (req, res) => {
     const orderId = generateOrderId();
 
     const order = new Order({
-      userId,
+      userId: new mongoose.Types.ObjectId(userId),
       orderId,
       idempotencyKey, // Store idempotency key with order
       cartId: cart.cartId, // Store cartId for webhook reference
@@ -533,27 +541,6 @@ const createOrder = async (req, res) => {
           message: "Failed to initiate payment. Order cancelled.",
           error: error.message,
           orderCancelled: true,
-        });
-      }
-    }
-
-    if (paymentMethod === PAYMENT_METHODS.RAZORPAY) {
-      try {
-        // TODO: Implement Razorpay init
-        return res.status(201).json({
-          success: true,
-          message:
-            "Order placed successfully. Please initiate Razorpay payment.",
-          requiresPayment: true,
-          paymentMethod: PAYMENT_METHODS.RAZORPAY,
-        });
-      } catch (paymentError) {
-        console.error("Razorpay init failed:", paymentError);
-        return res.status(201).json({
-          success: true,
-          paymentInitFailed: true,
-          message:
-            "Order created, but payment initiation failed. Please try again.",
         });
       }
     }

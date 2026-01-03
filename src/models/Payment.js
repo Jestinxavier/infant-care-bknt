@@ -27,12 +27,6 @@ const paymentSchema = new mongoose.Schema({
   phonepeResponse: { type: Object }, // Store PhonePe response data
   phonepeRefundResponse: { type: Object }, // Store PhonePe refund data
 
-  // Razorpay fields
-  razorpayOrderId: { type: String }, // Razorpay order ID
-  razorpayPaymentId: { type: String }, // Razorpay payment ID
-  razorpaySignature: { type: String }, // Razorpay signature
-  razorpayResponse: { type: Object }, // Store Razorpay response data
-
   createdAt: { type: Date, default: Date.now },
 });
 

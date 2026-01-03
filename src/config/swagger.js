@@ -180,7 +180,7 @@ const options = {
             },
             paymentMethod: {
               type: "string",
-              enum: ["COD", "Razorpay", "Stripe", "PhonePe"],
+              enum: ["COD", "PhonePe"],
               example: "PhonePe",
             },
           },
@@ -301,7 +301,7 @@ const options = {
             },
             method: {
               type: "string",
-              enum: ["COD", "Razorpay", "Stripe", "Wallet", "PhonePe"],
+              enum: ["COD", "PhonePe"],
               example: "PhonePe",
             },
             status: {

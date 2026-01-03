@@ -149,7 +149,7 @@ const verifyToken = require("../middlewares/authMiddleware");
  *                     example: India
  *               paymentMethod:
  *                 type: string
- *                 enum: [COD, Razorpay, Stripe, PhonePe]
+ *                 enum: [COD, PhonePe]
  *                 example: COD
  *               shippingCost:
  *                 type: number

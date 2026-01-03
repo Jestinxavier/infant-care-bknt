@@ -21,6 +21,7 @@ const {
 } = require("../controllers/cart/hybridCartController");
 const startCheckout = require("../controllers/cart/startCheckout");
 const verifyToken = require("../middlewares/authMiddleware");
+const { optionalVerifyToken } = require("../middlewares/authMiddleware");
 
 /**
  * @swagger
@@ -60,8 +61,8 @@ router.post("/create", createCart);
  *       404:
  *         description: Cart not found
  */
-router.post("/get", validateCart, getCart);
-router.head("/get", validateCart, getCart);
+router.post("/get", optionalVerifyToken, validateCart, getCart);
+router.head("/get", optionalVerifyToken, validateCart, getCart);
 
 /**
  * @swagger
@@ -93,7 +94,7 @@ router.head("/get", validateCart, getCart);
  *       200:
  *         description: Item added successfully
  */
-router.post("/add-item", validateCart, addItem);
+router.post("/add-item", optionalVerifyToken, validateCart, addItem);
 
 /**
  * @swagger
@@ -122,7 +123,7 @@ router.post("/add-item", validateCart, addItem);
  *       200:
  *         description: Item updated successfully
  */
-router.patch("/update-item", validateCart, updateItem);
+router.patch("/update-item", optionalVerifyToken, validateCart, updateItem);
 
 /**
  * @swagger
@@ -145,7 +146,7 @@ router.patch("/update-item", validateCart, updateItem);
  *       200:
  *         description: Item removed successfully
  */
-router.delete("/remove-item", validateCart, removeItem);
+router.delete("/remove-item", optionalVerifyToken, validateCart, removeItem);
 
 /**
  * @swagger
@@ -157,7 +158,7 @@ router.delete("/remove-item", validateCart, removeItem);
  *       200:
  *         description: Cart cleared successfully
  */
-router.post("/clear", validateCart, clearCart);
+router.post("/clear", optionalVerifyToken, validateCart, clearCart);
 
 /**
  * @swagger
@@ -184,8 +185,8 @@ router.post("/clear", validateCart, clearCart);
  *       200:
  *         description: Count retrieved successfully
  */
-router.get("/count", validateCart, getCount);
-router.post("/count", validateCart, getCount);
+router.get("/count", optionalVerifyToken, validateCart, getCount);
+router.post("/count", optionalVerifyToken, validateCart, getCount);
 
 /**
  * @swagger
@@ -203,8 +204,8 @@ router.post("/count", validateCart, getCount);
  *       200:
  *         description: Items retrieved successfully
  */
-router.get("/items", validateCart, getItems);
-router.post("/items", validateCart, getItems);
+router.get("/items", optionalVerifyToken, validateCart, getItems);
+router.post("/items", optionalVerifyToken, validateCart, getItems);
 
 /**
  * @swagger
@@ -222,8 +223,18 @@ router.post("/items", validateCart, getItems);
  *       200:
  *         description: Price summary retrieved successfully
  */
-router.get("/price-summary", validateCart, getPriceSummary);
-router.post("/price-summary", validateCart, getPriceSummary);
+router.get(
+  "/price-summary",
+  optionalVerifyToken,
+  validateCart,
+  getPriceSummary
+);
+router.post(
+  "/price-summary",
+  optionalVerifyToken,
+  validateCart,
+  getPriceSummary
+);
 
 /**
  * @swagger
@@ -241,8 +252,8 @@ router.post("/price-summary", validateCart, getPriceSummary);
  *       200:
  *         description: Product data retrieved successfully
  */
-router.get("/product-data", validateCart, getProductData);
-router.post("/product-data", validateCart, getProductData);
+router.get("/product-data", optionalVerifyToken, validateCart, getProductData);
+router.post("/product-data", optionalVerifyToken, validateCart, getProductData);
 
 /**
  * @swagger
@@ -260,8 +271,8 @@ router.post("/product-data", validateCart, getProductData);
  *       200:
  *         description: Summary retrieved successfully
  */
-router.get("/summary", validateCart, getSummary);
-router.post("/summary", validateCart, getSummary);
+router.get("/summary", optionalVerifyToken, validateCart, getSummary);
+router.post("/summary", optionalVerifyToken, validateCart, getSummary);
 
 /**
  * @swagger
@@ -300,7 +311,7 @@ router.post("/merge", verifyToken, validateCart, mergeCart);
  *       400:
  *         description: Invalid coupon or requirements not met
  */
-router.post("/apply-coupon", validateCart, applyCoupon);
+router.post("/apply-coupon", optionalVerifyToken, validateCart, applyCoupon);
 
 /**
  * @swagger
@@ -312,7 +323,12 @@ router.post("/apply-coupon", validateCart, applyCoupon);
  *       200:
  *         description: Coupon removed successfully
  */
-router.delete("/remove-coupon", validateCart, removeCoupon);
+router.delete(
+  "/remove-coupon",
+  optionalVerifyToken,
+  validateCart,
+  removeCoupon
+);
 
 /**
  * @swagger

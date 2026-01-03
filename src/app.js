@@ -51,6 +51,7 @@ const corsOptions = {
     "Accept",
     "Origin",
     "x-cart-id",
+    "x-guest-cart-id",
     "X-Client-Type",
     "X-Platform",
     "Access-Control-Allow-Origin",
@@ -164,6 +165,15 @@ const {
   checkOrderStatus,
   phonepeWebhook,
 } = require("./controllers/payment/phonepeSDK");
+
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    },
+  })
+);
+
 app.get("/order-confirmation", checkOrderStatus);
 app.post(
   "/api/webhooks/phonepe",

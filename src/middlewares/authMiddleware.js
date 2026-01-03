@@ -17,4 +17,32 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+/**
+ * Optional auth middleware - populates req.user if valid token exists,
+ * but doesn't require authentication. Allows both guests and logged-in users.
+ */
+const optionalVerifyToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) {
+    req.user = null;
+    return next();
+  }
+
+  const token = authHeader.split(" ")[1]; // Bearer <token>
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded; // attach user info to request
+  } catch (err) {
+    // Token invalid - just continue as guest
+    req.user = null;
+  }
+  next();
+};
+
 module.exports = verifyToken;
+module.exports.optionalVerifyToken = optionalVerifyToken;

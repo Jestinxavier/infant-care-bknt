@@ -11,20 +11,12 @@ const Product = require("../../models/Product");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
 
-/* ------------------------------------------------------------------ */
-/* Client initialization                                              */
-/* ------------------------------------------------------------------ */
-
 const client = StandardCheckoutClient.getInstance(
   phonePeConfig.credentials.clientId,
   phonePeConfig.credentials.clientSecret,
   phonePeConfig.credentials.clientVersion,
   phonePeConfig.env
 );
-
-/* ------------------------------------------------------------------ */
-/* PAYMENT INITIATION (SDK ONLY – NO STATE MUTATION)                   */
-/* ------------------------------------------------------------------ */
 
 const initiatePayment = async ({ orderId, amount }) => {
   try {
@@ -65,10 +57,6 @@ const initiatePayment = async ({ orderId, amount }) => {
   }
 };
 
-/* ------------------------------------------------------------------ */
-/* REDIRECT HANDLER (READ-ONLY – UI ONLY)                              */
-/* ------------------------------------------------------------------ */
-
 const checkOrderStatus = async (req, res) => {
   try {
     const { token } = req.query;
@@ -98,104 +86,136 @@ const checkOrderStatus = async (req, res) => {
   }
 };
 
-/* ------------------------------------------------------------------ */
-/* PHONEPE WEBHOOK (SINGLE SOURCE OF TRUTH)                            */
-/* ------------------------------------------------------------------ */
-
 const phonepeWebhook = async (req, res) => {
   try {
+    /* ---------------------------------------------------- */
+    /* 1. Basic safety checks                               */
+    /* ---------------------------------------------------- */
     const authorizationHeader = req.headers["authorization"];
-    if (!authorizationHeader) {
-      return res.status(400).send("MISSING AUTH HEADER");
+    if (!authorizationHeader || !req.rawBody) {
+      return res.status(400).send("INVALID CALLBACK");
     }
 
-    const bodyString = req.rawBody;
-
+    /* ---------------------------------------------------- */
+    /* 2. Validate callback authenticity (MANDATORY)        */
+    /* ---------------------------------------------------- */
     const callbackResponse = client.validateCallback(
       phonePeConfig.credentials.username,
       phonePeConfig.credentials.password,
       authorizationHeader,
-      bodyString
+      req.rawBody
     );
 
-    const { orderId, state, transactionId } = callbackResponse.payload;
+    const { type, payload } = callbackResponse;
 
-    const order = await Order.findOne({ orderId });
-    if (!order) return res.status(200).send("OK");
+    /* ---------------------------------------------------- */
+    /* 3. Extract YOUR order id (not PhonePe orderId)        */
+    /* ---------------------------------------------------- */
+    const merchantOrderId = payload.originalMerchantOrderId;
+    if (!merchantOrderId) {
+      return res.status(200).send("OK");
+    }
 
-    /* Idempotency guard */
+    const order = await Order.findOne({ orderId: merchantOrderId });
+    if (!order) {
+      return res.status(200).send("OK");
+    }
+
+    /* ---------------------------------------------------- */
+    /* 4. Idempotency guard                                  */
+    /* ---------------------------------------------------- */
     if (order.paymentStatus === "paid") {
       return res.status(200).send("OK");
     }
 
-    if (state === "COMPLETED") {
-      await Order.updateOne(
-        { orderId, paymentStatus: { $ne: "paid" } },
-        {
-          $set: {
-            paymentStatus: "paid",
-            paymentMethod: PAYMENT_METHODS.PHONEPE,
-            phonepeTransactionId: transactionId,
-          },
-        }
-      );
+    /* ---------------------------------------------------- */
+    /* 5. Handle events based on CALLBACK TYPE               */
+    /* ---------------------------------------------------- */
+    switch (type) {
+      case "CHECKOUT_ORDER_COMPLETED": {
+        const paymentAttempt = payload.paymentDetails?.[0];
 
-      await Cart.findOneAndUpdate(
-        { orderId: order._id },
-        { status: "ordered", completedAt: new Date() }
-      );
+        await Order.updateOne(
+          { orderId: merchantOrderId },
+          {
+            $set: {
+              paymentStatus: "paid",
+              paymentMethod: PAYMENT_METHODS.PHONEPE,
+              phonepeTransactionId: paymentAttempt?.transactionId || null,
+            },
+          }
+        );
 
-      console.log(`✅ Payment completed for order ${orderId}`);
-    }
+        await Cart.findOneAndUpdate(
+          { orderId: merchantOrderId },
+          {
+            status: "ordered",
+            completedAt: new Date(),
+          }
+        );
 
-    if (state === "FAILED") {
-      await Order.updateOne(
-        { orderId, paymentStatus: { $ne: "paid" } },
-        { $set: { paymentStatus: "failed", status: "cancelled" } }
-      );
-
-      await Cart.findOneAndUpdate(
-        { orderId: order._id },
-        { status: "active", orderId: null, completedAt: null }
-      );
-
-      for (const item of order.items) {
-        if (item.variantId) {
-          await Product.updateOne(
-            { _id: item.productId, "variants.id": item.variantId },
-            {
-              $inc: {
-                "variants.$.stockObj.available": item.quantity,
-                "variants.$.stock": item.quantity,
-              },
-            }
-          );
-        } else {
-          await Product.updateOne(
-            { _id: item.productId },
-            {
-              $inc: {
-                "stockObj.available": item.quantity,
-                stock: item.quantity,
-              },
-            }
-          );
-        }
+        console.log(`✅ PhonePe payment completed: ${merchantOrderId}`);
+        break;
       }
 
-      console.log(`⚠️ Payment failed for order ${orderId}`);
+      case "CHECKOUT_ORDER_FAILED": {
+        await Order.updateOne(
+          { orderId: merchantOrderId },
+          {
+            $set: {
+              paymentStatus: "failed",
+              status: "cancelled",
+            },
+          }
+        );
+
+        await Cart.findOneAndUpdate(
+          { orderId: merchantOrderId },
+          {
+            status: "active",
+            orderId: null,
+            completedAt: null,
+          }
+        );
+
+        /* Restore stock */
+        for (const item of order.items) {
+          if (item.variantId) {
+            await Product.updateOne(
+              { _id: item.productId, "variants.id": item.variantId },
+              {
+                $inc: {
+                  "variants.$.stockObj.available": item.quantity,
+                  "variants.$.stock": item.quantity,
+                },
+              }
+            );
+          } else {
+            await Product.updateOne(
+              { _id: item.productId },
+              {
+                $inc: {
+                  "stockObj.available": item.quantity,
+                  stock: item.quantity,
+                },
+              }
+            );
+          }
+        }
+
+        console.log(`❌ PhonePe payment failed: ${merchantOrderId}`);
+        break;
+      }
+
+      /* Ignore other events like refunds here */
+      default:
+        break;
     }
 
-    if (state === "PENDING") {
-      await Order.updateOne(
-        { orderId, paymentStatus: { $ne: "paid" } },
-        { $set: { paymentStatus: "pending" } }
-      );
-    }
-
+    /* ---------------------------------------------------- */
     return res.status(200).send("OK");
   } catch (err) {
-    console.error("PhonePe webhook error", err);
+    console.error("PhonePe webhook error:", err);
     return res.status(400).send("INVALID CALLBACK");
   }
 };

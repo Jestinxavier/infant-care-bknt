@@ -1,5 +1,4 @@
 const authService = require("../../services/service");
-const Cart = require("../../models/Cart");
 
 const logout = async (req, res) => {
   try {
@@ -7,12 +6,6 @@ const logout = async (req, res) => {
     const userId = req.user?.id; // Get userId from authenticated request
 
     await authService.logoutUser(token);
-
-    // Clear user's cart from database when logging out
-    if (userId) {
-      await Cart.deleteMany({ userId });
-      console.log(`🗑️  Cleared cart for user ${userId} on logout`);
-    }
 
     // Clear both cookies to be safe
     res.clearCookie("refresh_token", {

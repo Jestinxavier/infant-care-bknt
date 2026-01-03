@@ -20,9 +20,31 @@ const validateCart = async (req, res, next) => {
     // Get cartId from header or cookie
     const cartIdFromHeader = req.headers["x-cart-id"];
     const cartIdFromCookie = req.cookies?.[CART_ID];
-    const cartId = cartIdFromHeader || cartIdFromCookie;
+    let cartId = cartIdFromHeader || cartIdFromCookie;
 
-    // If no cartId provided, let controller handle (may create new cart)
+    // If no cartId provided but user is logged in, try to restore their cart
+    if (!cartId && req.user?.id) {
+      const userCart = await Cart.findOne({
+        userId: req.user.id,
+        status: "active",
+      });
+
+      if (userCart) {
+        // Restore cart by setting cookie
+        res.cookie(CART_ID, userCart.cartId, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          maxAge: 30 * 24 * 60 * 60 * 1000,
+          path: "/",
+        });
+        req.cart = userCart;
+        req.cartId = userCart.cartId;
+        return next();
+      }
+    }
+
+    // If no cartId provided and no user cart found, let controller handle
     if (!cartId) {
       req.cart = null;
       req.cartId = null;
@@ -60,13 +82,10 @@ const validateCart = async (req, res, next) => {
       return next();
     }
 
-    // Check if cart is in checkout (pending payment)
-    if (cart.status === "checkout") {
-      // Hide cart from frontend to prevent modification, but KEEP cookie for recovery
-      req.cart = null;
-      req.cartId = null;
-      return next();
-    }
+    // Checking 'checkout' status:
+    // Previously we hid the cart here, but that prevents reading items/summary during checkout.
+    // Instead, we allow the cart to pass through, but modification controllers (addItem, etc.)
+    // must check if status === 'active'.
 
     // Check expiry
     if (cart.expiresAt && new Date(cart.expiresAt) < new Date()) {
