@@ -30,7 +30,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: ["user", "admin", "super-admin", "developer"],
       default: "user",
     },
     // Email Verification Fields (OTP-based)
@@ -71,13 +71,15 @@ const userSchema = new mongoose.Schema(
 userSchema.pre("save", async function (next) {
   // Only hash if password is modified
   if (!this.isModified("password")) return next();
-  
+
   // Check if password is already hashed (bcrypt hashes start with $2a$, $2b$, or $2y$ and are 60 chars)
   if (this.password && this.password.match(/^\$2[ayb]\$.{56}$/)) {
-    console.warn("⚠️  Password appears to already be hashed, skipping hash to prevent double-hashing");
+    console.warn(
+      "⚠️  Password appears to already be hashed, skipping hash to prevent double-hashing"
+    );
     return next();
   }
-  
+
   // Hash the password
   this.password = await bcrypt.hash(this.password, 10);
   next();
@@ -86,7 +88,9 @@ userSchema.pre("save", async function (next) {
 // Method to compare password
 userSchema.methods.comparePassword = async function (password) {
   if (!password || !this.password) {
-    console.error("❌ Password comparison failed: Missing password or stored password");
+    console.error(
+      "❌ Password comparison failed: Missing password or stored password"
+    );
     return false;
   }
 
@@ -96,8 +100,13 @@ userSchema.methods.comparePassword = async function (password) {
     try {
       const result = await bcrypt.compare(password, this.password);
       if (!result) {
-        console.error("❌ Password comparison failed: bcrypt.compare returned false");
-        console.error("   Stored hash:", this.password.substring(0, 20) + "...");
+        console.error(
+          "❌ Password comparison failed: bcrypt.compare returned false"
+        );
+        console.error(
+          "   Stored hash:",
+          this.password.substring(0, 20) + "..."
+        );
       }
       return result;
     } catch (error) {
@@ -113,7 +122,9 @@ userSchema.methods.comparePassword = async function (password) {
       await this.save();
       return true;
     }
-    console.error("❌ Password comparison failed: Plain-text password mismatch");
+    console.error(
+      "❌ Password comparison failed: Plain-text password mismatch"
+    );
     return false;
   }
 };

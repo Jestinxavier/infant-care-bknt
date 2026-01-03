@@ -27,15 +27,7 @@ const login = async (req, res) => {
 
     // Also set standard cookie for compatibility if needed, or stick to one.
     // Setting both might be confusing but safe if backend checks both.
-    if (isDashboard) {
-      res.cookie("refresh_token", refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Strict",
-        path: "/",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-    }
+    // Cookie is set securely. Client will likely use the response body tokens for headers.
 
     res.json({
       success: true,

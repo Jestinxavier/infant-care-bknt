@@ -42,20 +42,10 @@ const calculateShipping = (subtotal, settings) => {
  * Calculate cart totals (subtotal, tax, shipping, total)
  */
 const calculateTotals = async (items) => {
-  console.log(
-    "🔍 calculateTotals called with items:",
-    JSON.stringify(items, null, 2)
-  );
-
   // Calculate subtotal from REGULAR prices (before discount)
   const subtotal = items.reduce((sum, item) => {
-    console.log(
-      `  Item: ${item.titleSnapshot}, priceSnapshot: ${item.priceSnapshot}, quantity: ${item.quantity}`
-    );
     return sum + item.priceSnapshot * item.quantity;
   }, 0);
-
-  console.log("✅ Subtotal (from regular prices):", subtotal);
 
   // Calculate total using OFFER prices (after discount)
   const totalAfterDiscount = items.reduce((sum, item) => {
@@ -286,17 +276,10 @@ const getCart = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images",
+      select: "title url_key images stockObj variants",
     });
 
     const formatted = formatCartResponse(cart);
-
-    console.log(
-      "📤 Returning cart with subtotal:",
-      formatted.subtotal,
-      "total:",
-      formatted.total
-    );
 
     res.status(200).json({
       success: true,
@@ -334,53 +317,50 @@ const addItem = async (req, res) => {
       });
     }
 
-    // Create cart if it doesn't exist (ATOMIC)
+    // Create cart if it doesn't exist
     let cartDoc = cart;
     if (!cartDoc) {
-      const cartId = req.cartId || generateCartId();
       const userId = req.user?.id || null;
 
-      // Atomic upsert: find or create cart in one operation
-      cartDoc = await Cart.findOneAndUpdate(
-        { cartId }, // Find by cartId
-        {
-          $setOnInsert: {
-            userId,
-            items: [],
-            status: "active",
-            subtotal: 0,
-            tax: 0,
-            shippingEstimate: 0,
-            total: 0,
-          },
-        },
-        { upsert: true, new: true } // Create if not exists, return new doc
-      );
+      // For logged-in users: FIRST check for existing cart in DB
+      if (userId) {
+        const existingUserCart = await Cart.findOne({
+          userId,
+          status: "active",
+        });
+        if (existingUserCart) {
+          // Restore user's existing cart
+          cartDoc = existingUserCart;
+          res.cookie(CART_ID, existingUserCart.cartId, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            path: "/",
+          });
+        }
+      }
 
-      // Set cookie if new cart was created
-      if (!req.cartId) {
-        const cookieOptions = {
+      // If still no cart (guest OR user with no existing cart), create new
+      if (!cartDoc) {
+        const cartId = generateCartId();
+        cartDoc = await Cart.create({
+          cartId,
+          userId,
+          items: [],
+          status: "active",
+          subtotal: 0,
+          tax: 0,
+          shippingEstimate: 0,
+          total: 0,
+        });
+        res.cookie(CART_ID, cartId, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict",
           maxAge: 30 * 24 * 60 * 60 * 1000,
           path: "/",
-        };
-        res.cookie(CART_ID, cartId, cookieOptions);
-      }
-    } else {
-      // Safe Claim: If cart is unowned and user is logged in
-      const userId = req.user?.id;
-      if (!cartDoc.userId && userId) {
-        // Check if user has another cart
-        const otherCart = await Cart.findOne({
-          userId,
-          cartId: { $ne: cartDoc.cartId },
         });
-        if (!otherCart) {
-          cartDoc.userId = userId;
-          // save() happens later after adding item
-        }
       }
     }
 
@@ -419,7 +399,7 @@ const addItem = async (req, res) => {
     // Ensure product data is populated for the response
     await cartDoc.populate({
       path: "items.productId",
-      select: "title url_key images",
+      select: "title url_key images stockObj variants",
     });
 
     const formatted = formatCartResponse(cartDoc);
@@ -460,18 +440,6 @@ const updateItem = async (req, res) => {
       });
     }
 
-    // Safe Claim: If cart is unowned and user is logged in, claim it
-    const userId = req.user?.id;
-    if (!cart.userId && userId) {
-      const otherCart = await Cart.findOne({
-        userId,
-        cartId: { $ne: cart.cartId },
-      });
-      if (!otherCart) {
-        cart.userId = userId;
-      }
-    }
-
     if (!itemId) {
       return res.status(400).json({
         success: false,
@@ -499,7 +467,6 @@ const updateItem = async (req, res) => {
     }
 
     // Recalculate totals
-    // Recalculate totals
     const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
@@ -510,7 +477,7 @@ const updateItem = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images",
+      select: "title url_key images stockObj variants",
     });
 
     const formatted = formatCartResponse(cart);
@@ -551,18 +518,6 @@ const removeItem = async (req, res) => {
       });
     }
 
-    // Safe Claim: If cart is unowned and user is logged in, claim it
-    const userId = req.user?.id;
-    if (!cart.userId && userId) {
-      const otherCart = await Cart.findOne({
-        userId,
-        cartId: { $ne: cart.cartId },
-      });
-      if (!otherCart) {
-        cart.userId = userId;
-      }
-    }
-
     if (!itemId) {
       return res.status(400).json({
         success: false,
@@ -572,7 +527,6 @@ const removeItem = async (req, res) => {
 
     cart.items.pull(itemId);
 
-    // Recalculate totals
     // Recalculate totals
     const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
@@ -584,7 +538,7 @@ const removeItem = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images",
+      select: "title url_key images stockObj variants",
     });
 
     const formatted = formatCartResponse(cart);
@@ -699,7 +653,7 @@ const getItems = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images",
+      select: "title url_key images stockObj variants",
     });
 
     const formatted = formatCartResponse(cart);
@@ -761,7 +715,7 @@ const getPriceSummary = async (req, res) => {
     if (!cart.items[0]?.productId?.title) {
       await cart.populate({
         path: "items.productId",
-        select: "title url_key images",
+        select: "title url_key images stockObj variants",
       });
     }
 
@@ -896,7 +850,7 @@ const getSummary = async (req, res) => {
     if (!cart.items[0]?.productId?.title) {
       await cart.populate({
         path: "items.productId",
-        select: "title url_key images",
+        select: "title url_key images stockObj variants",
       });
     }
 

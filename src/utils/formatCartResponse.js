@@ -7,8 +7,28 @@
 const formatCartResponse = (cart) => {
   if (!cart) return null;
 
-  // Format items - item._id is the embedded document ID (needed for updates/deletes)
+  // Format items
   const formattedItems = cart.items.map((item) => {
+    // Calculate stock
+    let stock = 0;
+    if (item.productId && item.productId._id) {
+      if (item.variantId && Array.isArray(item.productId.variants)) {
+        const variant = item.productId.variants.find(
+          (v) => v.id === item.variantId
+        );
+        if (variant) {
+          stock = variant.stockObj?.available ?? variant.stock ?? 0;
+        }
+      } else {
+        // Simple Product Stock - Try direct access, then _doc (for Mongoose docs), then fallback to 0
+        const product = item.productId;
+        stock =
+          product?.stockObj?.available ??
+          product?._doc?.stockObj?.available ??
+          0;
+      }
+    }
+
     const itemObj = {
       _id: item._id.toString(), // Item ID (embedded document ID, needed for updates)
       productId: item.productId?._id
@@ -16,6 +36,7 @@ const formatCartResponse = (cart) => {
         : item.productId.toString(),
       variantId: item.variantId || null,
       quantity: item.quantity,
+      stock,
       priceSnapshot: item.priceSnapshot,
       discountPriceSnapshot: item.discountPriceSnapshot || null,
       titleSnapshot: item.titleSnapshot,
