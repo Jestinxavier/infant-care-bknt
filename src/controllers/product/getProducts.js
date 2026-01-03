@@ -45,6 +45,7 @@ const getAllProducts = async (req, res) => {
       sortOrder: "desc", // Default, could be extracted from sortBy
       color,
       size,
+      subCategories: filters.subCategories,
       search: requestData.search || requestData.q,
     };
 
@@ -52,33 +53,63 @@ const getAllProducts = async (req, res) => {
     // because service expects ObjectId for category filter
     if (category && category !== "all") {
       const Category = require("../../models/Category");
-      // Try to find by code first, then slug
-      // (New system uses 'code', old might use 'slug')
-      let categoryDoc = await Category.findOne({
-        $or: [{ code: category }, { slug: category }],
+      const categoriesToResolve = Array.isArray(category) ? category : [category];
+
+      const resolvedDocs = await Category.find({
+        $or: [
+          { code: { $in: categoriesToResolve } },
+          { slug: { $in: categoriesToResolve } },
+          { _id: { $in: categoriesToResolve.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+        ],
         isActive: true,
       });
 
-      if (categoryDoc) {
-        serviceFilters.category = categoryDoc._id.toString();
-        // We also need categoryTitle for response
-        res.locals.categoryTitle = categoryDoc.name;
-      } else {
-        // If 24 char hex, assume it's an ID
-        if (/^[0-9a-fA-F]{24}$/.test(category)) {
-          serviceFilters.category = category;
-          // Title defaults to "All Products" or we'd fetch it...
-          // Let's settle for "Propducts" if ID provided.
+      if (resolvedDocs.length > 0) {
+        const parentIds = resolvedDocs.map(d => d._id);
+
+        // Also find all child categories for these parents
+        const Category = require("../../models/Category");
+        const childDocs = await Category.find({
+          parentCategory: { $in: parentIds },
+          isActive: true
+        });
+
+        const allCategoryIds = [
+          ...parentIds,
+          ...childDocs.map(d => d._id)
+        ];
+
+        serviceFilters.category = allCategoryIds.map((id) => id.toString());
+        if (resolvedDocs.length === 1) {
+          res.locals.categoryTitle = resolvedDocs[0].name;
         } else {
-          // Category not found
-          return res.status(200).json({
-            success: true,
-            categoryTitle: "Category not found",
-            items: [],
-            pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
-          });
+          res.locals.categoryTitle = "Multiple Categories";
         }
+      } else {
+        return res.status(200).json({
+          success: true,
+          categoryTitle: "Category not found",
+          items: [],
+          pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+        });
       }
+    }
+
+    // Resolve subCategories codes to IDs
+    if (serviceFilters.subCategories) {
+      const Category = require("../../models/Category");
+      const subCatsToResolve = Array.isArray(serviceFilters.subCategories)
+        ? serviceFilters.subCategories
+        : [serviceFilters.subCategories];
+      const resolvedSubDocs = await Category.find({
+        $or: [
+          { code: { $in: subCatsToResolve } },
+          { slug: { $in: subCatsToResolve } },
+          { _id: { $in: subCatsToResolve.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+        ],
+        isActive: true,
+      });
+      serviceFilters.subCategories = resolvedSubDocs.map((d) => d._id.toString());
     }
 
     // Call Service
@@ -126,7 +157,9 @@ const getProductByUrlKey = async (req, res) => {
         { url_key: url_key }, // Parent product
         { "variants.url_key": url_key }, // Variant
       ],
-    }).populate("category", "name slug");
+    })
+      .populate("category", "name slug")
+      .populate("subCategories", "name slug");
 
     // Find the specific variant if slug matches a variant url_key
     let variantFromUrl = null;
@@ -139,10 +172,9 @@ const getProductByUrlKey = async (req, res) => {
     if (!product) {
       // Check if it's a valid ObjectId format
       if (/^[0-9a-fA-F]{24}$/.test(url_key)) {
-        product = await Product.findById(url_key).populate(
-          "category",
-          "name slug"
-        );
+        product = await Product.findById(url_key)
+          .populate("category", "name slug")
+          .populate("subCategories", "name slug");
       }
     }
 
@@ -161,7 +193,9 @@ const getProductByUrlKey = async (req, res) => {
             name: { $regex: new RegExp(`^${url_key.replace(/-/g, " ")}`, "i") },
           },
         ],
-      }).populate("category", "name slug");
+      })
+        .populate("category", "name slug")
+        .populate("subCategories", "name slug");
     }
 
     if (!product) {
@@ -271,10 +305,9 @@ const getProductById = async (req, res) => {
       });
     }
 
-    const product = await Product.findById(productId).populate(
-      "category",
-      "name slug"
-    );
+    const product = await Product.findById(productId)
+      .populate("category", "name slug")
+      .populate("subCategories", "name slug");
 
     if (!product) {
       return res.status(404).json({

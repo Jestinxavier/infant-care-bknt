@@ -49,7 +49,21 @@ class ProductService {
     }
 
     if (category) {
-      matchStage.category = new mongoose.Types.ObjectId(category);
+      if (Array.isArray(category)) {
+        matchStage.category = { $in: category.map(id => new mongoose.Types.ObjectId(id)) };
+      } else if (mongoose.Types.ObjectId.isValid(category)) {
+        matchStage.category = new mongoose.Types.ObjectId(category);
+      }
+    }
+
+    if (filters.subCategories) {
+      const subCatIds = Array.isArray(filters.subCategories)
+        ? filters.subCategories.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id))
+        : mongoose.Types.ObjectId.isValid(filters.subCategories) ? [new mongoose.Types.ObjectId(filters.subCategories)] : [];
+
+      if (subCatIds.length > 0) {
+        matchStage.subCategories = { $in: subCatIds };
+      }
     }
 
     // Search Filter (Regex on title/name)
@@ -97,29 +111,29 @@ class ProductService {
       // Apply Variant Level Filters (Color, Size)
       ...(filters.color || filters.size
         ? [
-            {
-              $match: {
-                ...(filters.color
-                  ? {
-                      "variants.attributes.color": {
-                        $in: Array.isArray(filters.color)
-                          ? filters.color
-                          : [filters.color],
-                      },
-                    }
-                  : {}),
-                ...(filters.size
-                  ? {
-                      "variants.attributes.size": {
-                        $in: Array.isArray(filters.size)
-                          ? filters.size
-                          : [filters.size],
-                      },
-                    }
-                  : {}),
-              },
+          {
+            $match: {
+              ...(filters.color
+                ? {
+                  "variants.attributes.color": {
+                    $in: Array.isArray(filters.color)
+                      ? filters.color
+                      : [filters.color],
+                  },
+                }
+                : {}),
+              ...(filters.size
+                ? {
+                  "variants.attributes.size": {
+                    $in: Array.isArray(filters.size)
+                      ? filters.size
+                      : [filters.size],
+                  },
+                }
+                : {}),
             },
-          ]
+          },
+        ]
         : []),
 
       // Calculate effective price and stock (Handle both Variant and Simple Product)
@@ -172,15 +186,15 @@ class ProductService {
       // Filter Logic (Price & Stock)
       ...(minPrice || maxPrice
         ? [
-            {
-              $match: {
-                effectivePrice: {
-                  ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
-                  ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
-                },
+          {
+            $match: {
+              effectivePrice: {
+                ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+                ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
               },
             },
-          ]
+          },
+        ]
         : []),
 
       // Stock Filter
