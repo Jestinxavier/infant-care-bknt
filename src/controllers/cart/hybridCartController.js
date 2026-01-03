@@ -328,14 +328,30 @@ const addItem = async (req, res) => {
       });
     }
 
-    // Create cart if it doesn't exist
+    // Create cart if it doesn't exist (ATOMIC)
     let cartDoc = cart;
     if (!cartDoc) {
       const cartId = req.cartId || generateCartId();
       const userId = req.user?.id || null;
-      cartDoc = await Cart.create({ cartId, userId });
 
-      // Set cookie if new cart
+      // Atomic upsert: find or create cart in one operation
+      cartDoc = await Cart.findOneAndUpdate(
+        { cartId }, // Find by cartId
+        {
+          $setOnInsert: {
+            userId,
+            items: [],
+            status: "active",
+            subtotal: 0,
+            tax: 0,
+            shippingEstimate: 0,
+            total: 0,
+          },
+        },
+        { upsert: true, new: true } // Create if not exists, return new doc
+      );
+
+      // Set cookie if new cart was created
       if (!req.cartId) {
         const cookieOptions = {
           httpOnly: true,

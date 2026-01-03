@@ -6,6 +6,7 @@ const {
 } = require("../../config/phonepe");
 const Order = require("../../models/Order");
 const Payment = require("../../models/Payment");
+const Cart = require("../../models/Cart");
 
 /**
  * Initialize PhonePe Payment (V1 Manual Flow)
@@ -45,9 +46,7 @@ const initPhonePePayment = async (req, res) => {
       merchantTransactionId: transactionId,
       merchantUserId: userId,
       amount: Math.round(amount * 100), // paise
-      redirectUrl: `${
-        process.env.API_URL || "http://localhost:5001/api/v1"
-      }/payments/phonepe/redirect?orderId=${orderId}&transactionId=${transactionId}`,
+      redirectUrl: `${process.env.API_URL}/payments/phonepe/redirect?orderId=${orderId}&transactionId=${transactionId}`,
       redirectMode: "REDIRECT",
       callbackUrl: phonePeConfig.callbackUrl,
       paymentInstrument: { type: "PAY_PAGE" },
@@ -170,14 +169,14 @@ const phonePeCallback = async (req, res) => {
         .json({ success: false, message: "Payment record not found" });
     }
 
+    // Fetch order to check for coupon and cart status
+    const order = await Order.findById(payment.orderId);
+
     if (success && code === "PAYMENT_SUCCESS") {
       payment.status = "success";
       payment.phonepeTransactionId = transactionId;
       payment.phonepeResponse = decoded;
       await payment.save();
-
-      // Fetch order to check for coupon
-      const order = await Order.findById(payment.orderId);
 
       // ATOMIC COUPON CONSUMPTION
       if (order && order.coupon && order.coupon.code) {
@@ -218,6 +217,25 @@ const phonePeCallback = async (req, res) => {
       }
 
       await Order.findByIdAndUpdate(payment.orderId, { paymentStatus: "paid" });
+
+      // FINAL CART CLOSURE
+      if (order && order.cartId) {
+        await Cart.updateOne(
+          {
+            cartId: order.cartId,
+            status: "checkout",
+          },
+          {
+            $set: {
+              status: "ordered",
+              completedAt: new Date(),
+              orderId: order._id,
+            },
+          }
+        );
+        console.log(`🛒 Cart ${order.cartId} marked as ordered.`);
+      }
+
       return res
         .status(200)
         .json({ success: true, message: "Payment successful" });
@@ -229,6 +247,22 @@ const phonePeCallback = async (req, res) => {
       await Order.findByIdAndUpdate(payment.orderId, {
         paymentStatus: "failed",
       });
+
+      // CART RECOVERY
+      if (order && order.cartId) {
+        await Cart.updateOne(
+          {
+            cartId: order.cartId,
+            status: "checkout",
+          },
+          {
+            $set: { status: "active" },
+            $unset: { checkoutStartedAt: 1, checkoutExpiry: 1 },
+          }
+        );
+        console.log(`🛒 Cart ${order.cartId} reverted to active/unlocked.`);
+      }
+
       return res
         .status(200)
         .json({ success: true, message: "Payment failed marked" });

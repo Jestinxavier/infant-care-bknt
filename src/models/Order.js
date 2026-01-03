@@ -56,6 +56,16 @@ const orderSchema = new mongoose.Schema(
       type: String,
       unique: true,
     },
+    idempotencyKey: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow null values, only enforce uniqueness when present
+      index: true,
+    },
+    cartId: {
+      type: String,
+      required: false, // Optional for now to maintain backward compatibility (or true if we strictly enforce it)
+    },
     items: [orderItemSchema],
     totalQuantity: {
       // Total count of items

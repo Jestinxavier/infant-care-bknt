@@ -35,23 +35,30 @@ const createOrder = async (req, res) => {
       });
     }
 
-    // === IDEMPOTENCY CHECK ===
-    const existingOrder = await Order.findOne({
-      userId,
-      status: { $in: ["created", "confirmed", "processing"] },
-    }).sort({ createdAt: -1 });
+    // === IDEMPOTENCY CHECK (Key-Based) ===
+    const idempotencyKey = req.headers["idempotency-key"];
+
+    if (!idempotencyKey) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "MISSING_IDEMPOTENCY_KEY",
+        message: "Idempotency-Key header is required",
+      });
+    }
+
+    // Check if order with this idempotency key already exists
+    const existingOrder = await Order.findOne({ idempotencyKey });
 
     if (existingOrder) {
-      // Check if order is recent (within 5 min)
-      const fiveMinAgo = new Date(Date.now() - CHECKOUT_SESSION_MS);
-      if (existingOrder.createdAt > fiveMinAgo) {
-        return res.status(200).json({
-          success: true,
-          order: existingOrder,
-          idempotent: true,
-          message: "Order already exists",
-        });
-      }
+      console.log(
+        `♻️ Idempotent order creation: Returning existing order ${existingOrder.orderId}`
+      );
+      return res.status(200).json({
+        success: true,
+        order: existingOrder,
+        idempotent: true,
+        message: "Order already exists with this idempotency key",
+      });
     }
 
     // === START TRANSACTION ===
@@ -78,15 +85,21 @@ const createOrder = async (req, res) => {
       });
     }
 
-    // STRICT: Cart must be in checkout status
-    if (cart.status !== "checkout") {
+    // RELAXED VALIDATION: Cart must exist and NOT be ordered
+    // We allow retries, so if it's already in 'checkout' (or even 'active' if we want to be lenient), it's fine.
+    // The critical thing is it must not be 'ordered'.
+    if (cart.status === "ordered") {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        errorCode: "CHECKOUT_NOT_STARTED",
-        message: "Call /cart/start-checkout first",
+        errorCode: "CART_ALREADY_ORDERED",
+        message: "This cart has already been converted to an order",
       });
     }
+
+    // Optional: Ensure checkout session is somehow valid if we care about TTL
+    // But since startCheckout handles TTL, we might just check if it exists.
+    // For now, we mainly block 'ordered'.
 
     // Check checkout expiry
     if (cart.checkoutExpiry < new Date()) {
@@ -380,7 +393,8 @@ const createOrder = async (req, res) => {
     const order = new Order({
       userId,
       orderId,
-      orderId,
+      idempotencyKey, // Store idempotency key with order
+      cartId: cart.cartId, // Store cartId for webhook reference
       items: orderItems,
       totalQuantity,
       subtotal,
@@ -494,12 +508,16 @@ const createOrder = async (req, res) => {
             }
           }
 
-          // 3. Revert Cart (Make it active again for retry)
+          // 3. DO NOT Revert Cart to Active
+          // We keep the cart in 'checkout' state so the user can retry immediately.
+          // The cart will eventually expire if not used, or be updated on success.
+          /*
           await Cart.findByIdAndUpdate(cart._id, {
             status: "active",
             orderId: null,
             completedAt: null,
           });
+          */
 
           console.log(`✅ Cleanup successful for order ${order.orderId}`);
         } catch (cleanupError) {

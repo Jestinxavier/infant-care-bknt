@@ -3,14 +3,19 @@ const authService = require("../../services/service");
 const login = async (req, res) => {
   try {
     // Note: Platform header checks removed - admin access controlled by route prefix
-    const { accessToken, refreshToken, user } = await authService.loginUser(req.body);
+    const { accessToken, refreshToken, user } = await authService.loginUser(
+      req.body
+    );
 
     // Set refresh token as HttpOnly cookie
     // Check if request is from dashboard
-    const isDashboard = req.headers.origin?.includes("localhost:5173") ||
+    const isDashboard =
+      req.headers.origin?.includes("localhost:5173") ||
       req.headers.origin?.includes("dashboard");
 
-    const cookieName = isDashboard ? "dashboard_refresh_token" : "refresh_token";
+    const cookieName = isDashboard
+      ? "dashboard_refresh_token"
+      : "refresh_token";
 
     res.cookie(cookieName, refreshToken, {
       httpOnly: true,
@@ -37,14 +42,14 @@ const login = async (req, res) => {
       message: "Login successful",
       accessToken,
       refreshToken, // Include refreshToken in response for client-side storage
-      user // Include user info in response
+      user, // Include user info in response
     });
   } catch (err) {
     console.error("❌ Login error:", err.message);
     const status = err.message === "Invalid credentials" ? 401 : 400;
     res.status(status).json({
       success: false,
-      message: err.message
+      message: err.message,
     });
   }
 };

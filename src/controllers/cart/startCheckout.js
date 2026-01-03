@@ -87,13 +87,25 @@ const startCheckout = async (req, res) => {
       });
     }
 
-    // 4. Now perform the atomic lock/status update on the identified cart
-    // Use findOneAndUpdate to ensure atomic state transition
+    // 4. Idempotency Check: If cart is already in valid checkout, return existing session
+    if (cart.status === "checkout" && cart.checkoutExpiry > new Date()) {
+      console.log(
+        `♻️ Idempotent checkout: Returning existing session for cart ${cart.cartId}`
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Checkout already in progress",
+        checkoutToken: cart.checkoutToken,
+        expiresAt: cart.checkoutExpiry,
+      });
+    }
+
+    // 5. Atomic lock/status update
+    // Only move to checkout if status is 'active' (or if we decide to force refresh expired checkout)
     const lockedCart = await Cart.findOneAndUpdate(
       {
         _id: cart._id,
-        // Allow checkout if active OR already in checkout (retry/refresh)
-        status: { $in: ["active", "checkout"] },
+        status: { $in: ["active", "checkout"] }, // Allow re-locking if needed, but idempotency above handles most cases
       },
       {
         $set: {
@@ -102,7 +114,7 @@ const startCheckout = async (req, res) => {
             .randomBytes(8)
             .toString("hex")}`,
           checkoutStartedAt: new Date(),
-          checkoutExpiry: new Date(Date.now() + CHECKOUT_SESSION_MS), // 5 min TTL
+          checkoutExpiry: new Date(Date.now() + CHECKOUT_SESSION_MS),
         },
       },
       { new: true }

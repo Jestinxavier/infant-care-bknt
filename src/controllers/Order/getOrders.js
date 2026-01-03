@@ -33,10 +33,6 @@ const getOrders = async (req, res) => {
         path: "items.productId",
         select: "name images",
       })
-      .populate(
-        "addressId",
-        "fullName phone houseName street landmark city state pincode country addressType"
-      )
       .populate("deliveryPartner")
       .sort({ createdAt: -1 }) // Most recent first
       .skip(skip)
@@ -80,7 +76,7 @@ const getOrders = async (req, res) => {
           };
         }),
         itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-        address: order.addressId,
+        address: order.shippingAddress,
       };
     });
 

@@ -46,6 +46,28 @@ const validateCart = async (req, res, next) => {
       return next();
     }
 
+    // Check if cart is already ordered
+    if (cart.status === "ordered") {
+      req.cart = null;
+      req.cartId = null;
+      // Clear cookie for ordered cart
+      res.clearCookie(CART_ID, {
+        path: "/",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+      });
+      return next();
+    }
+
+    // Check if cart is in checkout (pending payment)
+    if (cart.status === "checkout") {
+      // Hide cart from frontend to prevent modification, but KEEP cookie for recovery
+      req.cart = null;
+      req.cartId = null;
+      return next();
+    }
+
     // Check expiry
     if (cart.expiresAt && new Date(cart.expiresAt) < new Date()) {
       // Cart expired - respond with expired flag

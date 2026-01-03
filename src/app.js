@@ -54,6 +54,7 @@ const corsOptions = {
     "X-Client-Type",
     "X-Platform",
     "Access-Control-Allow-Origin",
+    "idempotency-key",
   ],
   exposedHeaders: ["set-cookie"],
   optionsSuccessStatus: 204,
