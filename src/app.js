@@ -66,6 +66,18 @@ app.use(cors(corsOptions));
 // Cookie Parser Middleware
 app.use(cookieParser());
 
+// Webhook route (MUST be defined before global express.json() to capture rawBody)
+const { phonepeWebhook } = require("./controllers/payment/phonepeSDK");
+app.post(
+  "/api/webhooks/phonepe",
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    },
+  }),
+  phonepeWebhook
+);
+
 // Middleware
 app.use(express.json());
 
@@ -163,19 +175,8 @@ app.get("/", (req, res) =>
 
 const {
   checkOrderStatus,
-  phonepeWebhook,
 } = require("./controllers/payment/phonepeSDK");
 
 app.get("/order-confirmation", checkOrderStatus);
-
-app.post(
-  "/api/webhooks/phonepe",
-  express.json({
-    verify: (req, res, buf) => {
-      req.rawBody = buf.toString();
-    },
-  }),
-  phonepeWebhook
-);
 
 module.exports = app;

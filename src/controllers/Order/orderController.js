@@ -262,11 +262,9 @@ const createOrder = async (req, res) => {
             productSku: productInfo?.sku,
             variantId: update.variantId,
             variantSku: variantInfo?.sku,
-            message: `Stock exhausted for "${
-              productInfo?.name || update.productId
-            }" variant ${
-              variantInfo?.sku || update.variantId
-            } (race condition)`,
+            message: `Stock exhausted for "${productInfo?.name || update.productId
+              }" variant ${variantInfo?.sku || update.variantId
+              } (race condition)`,
           };
         }
       } else {
@@ -294,9 +292,8 @@ const createOrder = async (req, res) => {
             productId: update.productId,
             productName: productInfo?.name,
             productSku: productInfo?.sku,
-            message: `Stock exhausted for "${
-              productInfo?.name || update.productId
-            }" (race condition)`,
+            message: `Stock exhausted for "${productInfo?.name || update.productId
+              }" (race condition)`,
           };
         }
       }

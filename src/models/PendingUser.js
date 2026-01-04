@@ -25,6 +25,14 @@ const pendingUserSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    username: {
+      type: String,
+      trim: true
+    },
+    password: {
+      type: String,
+      trim: true
+    },
     isLoginOTP: {
       type: Boolean,
       default: false

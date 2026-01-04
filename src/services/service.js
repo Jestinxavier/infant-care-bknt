@@ -13,7 +13,7 @@ const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../resources/constants");
 /**
  * Step 1: Request OTP - Only email needed
  */
-exports.requestOTP = async ({ email }) => {
+exports.requestOTP = async ({ email, username, password }) => {
   // Check if email already exists in verified users
 
   const existingUser = await User.findOne({ email });
@@ -28,11 +28,13 @@ exports.requestOTP = async ({ email }) => {
   // Delete any existing OTP request for this email
   await PendingUser.deleteMany({ email });
 
-  // Create OTP record (no user data stored yet)
+  // Create OTP record (including user data if provided)
   const pendingOTP = await PendingUser.create({
     email,
     otp,
     otpExpires,
+    username,
+    password,
   });
 
   // Send OTP email
@@ -107,10 +109,20 @@ exports.verifyOTPAndRegister = async ({
   }
 
   // OTP is valid - Create user account
+  const finalUsername = username || pendingOTP.username;
+  const finalPassword = password || pendingOTP.password;
+
+  if (!finalUsername) {
+    throw new Error("Username is required");
+  }
+  if (!finalPassword) {
+    throw new Error("Password is required");
+  }
+
   const user = await User.create({
-    username,
+    username: finalUsername,
     email,
-    password, // Will be hashed by pre-save hook
+    password: finalPassword, // Will be hashed by pre-save hook
     role: role || "user",
     isEmailVerified: true, // Email verified via OTP
   });
