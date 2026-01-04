@@ -11,6 +11,7 @@ const {
   getVariantById,
   getSearchIndex,
   checkStock,
+  getPriceAndStock,
 } = require("../controllers/product");
 const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
@@ -59,6 +60,28 @@ router.get("/search-index", getSearchIndex);
  *         description: Stock check completed
  */
 router.post("/check-stock", checkStock);
+
+/**
+ * @swagger
+ * /api/v1/product/price-stock/{url_key}:
+ *   get:
+ *     summary: Get product price and stock by URL key
+ *     description: Returns lightweight price and stock data for parent product and all variants
+ *     tags: [Products]
+ *     parameters:
+ *       - in: path
+ *         name: url_key
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product or variant url_key
+ *     responses:
+ *       200:
+ *         description: Price and stock data retrieved
+ *       404:
+ *         description: Product not found
+ */
+router.get("/price-stock/:url_key", getPriceAndStock);
 
 /**
  * @swagger

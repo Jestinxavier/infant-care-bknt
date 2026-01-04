@@ -966,6 +966,12 @@ const mergeCart = async (req, res) => {
       // Update cookie to user cart
       setCartCookie(userCart.cartId);
 
+      // Populate product data for stock calculation
+      await userCart.populate({
+        path: "items.productId",
+        select: "title url_key images stockObj variants",
+      });
+
       const formatted = formatCartResponse(userCart);
       return res.status(200).json({
         success: true,
@@ -979,6 +985,12 @@ const mergeCart = async (req, res) => {
     // ═══════════════════════════════════════════════════════════════════
     if (userCart && !guestCart) {
       setCartCookie(userCart.cartId);
+
+      // Populate product data for stock calculation
+      await userCart.populate({
+        path: "items.productId",
+        select: "title url_key images stockObj variants",
+      });
 
       const formatted = formatCartResponse(userCart);
       return res.status(200).json({
@@ -1006,6 +1018,12 @@ const mergeCart = async (req, res) => {
 
       // Check if already assigned to this user
       if (guestCart.userId?.toString() === userId.toString()) {
+        // Populate product data for stock calculation
+        await guestCart.populate({
+          path: "items.productId",
+          select: "title url_key images stockObj variants",
+        });
+
         const formatted = formatCartResponse(guestCart);
         return res.status(200).json({
           success: true,
@@ -1018,6 +1036,12 @@ const mergeCart = async (req, res) => {
       await guestCart.save();
 
       // Cookie already points to this cart, no need to update
+
+      // Populate product data for stock calculation
+      await guestCart.populate({
+        path: "items.productId",
+        select: "title url_key images stockObj variants",
+      });
 
       const formatted = formatCartResponse(guestCart);
       return res.status(200).json({

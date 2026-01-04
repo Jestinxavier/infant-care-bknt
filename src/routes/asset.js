@@ -148,4 +148,47 @@ router.delete("/:id", verifyToken, deleteAsset);
  */
 router.post("/promote", verifyToken, promoteAsset);
 
+/**
+ * @swagger
+ * /api/admin/assets/{id}/promote:
+ *   post:
+ *     summary: Promote asset from temp to permanent (URL-based)
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Asset publicId (URL-encoded)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - entityType
+ *               - entityId
+ *             properties:
+ *               entityType:
+ *                 type: string
+ *                 enum: [Product, Category, Banner]
+ *               entityId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Asset promoted successfully
+ *       404:
+ *         description: Asset not found
+ */
+router.post("/:id/promote", verifyToken, (req, res) => {
+  // Extract publicId from URL param and pass to existing handler
+  req.body.publicId = decodeURIComponent(req.params.id);
+  req.body.entity = req.body.entityType; // Map frontend field name to backend
+  return promoteAsset(req, res);
+});
+
 module.exports = router;

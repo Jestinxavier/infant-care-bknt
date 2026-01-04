@@ -53,31 +53,36 @@ const getAllProducts = async (req, res) => {
     // because service expects ObjectId for category filter
     if (category && category !== "all") {
       const Category = require("../../models/Category");
-      const categoriesToResolve = Array.isArray(category) ? category : [category];
+      const categoriesToResolve = Array.isArray(category)
+        ? category
+        : [category];
 
       const resolvedDocs = await Category.find({
         $or: [
           { code: { $in: categoriesToResolve } },
           { slug: { $in: categoriesToResolve } },
-          { _id: { $in: categoriesToResolve.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+          {
+            _id: {
+              $in: categoriesToResolve.filter((id) =>
+                /^[0-9a-fA-F]{24}$/.test(id)
+              ),
+            },
+          },
         ],
         isActive: true,
       });
 
       if (resolvedDocs.length > 0) {
-        const parentIds = resolvedDocs.map(d => d._id);
+        const parentIds = resolvedDocs.map((d) => d._id);
 
         // Also find all child categories for these parents
         const Category = require("../../models/Category");
         const childDocs = await Category.find({
           parentCategory: { $in: parentIds },
-          isActive: true
+          isActive: true,
         });
 
-        const allCategoryIds = [
-          ...parentIds,
-          ...childDocs.map(d => d._id)
-        ];
+        const allCategoryIds = [...parentIds, ...childDocs.map((d) => d._id)];
 
         serviceFilters.category = allCategoryIds.map((id) => id.toString());
         if (resolvedDocs.length === 1) {
@@ -105,11 +110,19 @@ const getAllProducts = async (req, res) => {
         $or: [
           { code: { $in: subCatsToResolve } },
           { slug: { $in: subCatsToResolve } },
-          { _id: { $in: subCatsToResolve.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+          {
+            _id: {
+              $in: subCatsToResolve.filter((id) =>
+                /^[0-9a-fA-F]{24}$/.test(id)
+              ),
+            },
+          },
         ],
         isActive: true,
       });
-      serviceFilters.subCategories = resolvedSubDocs.map((d) => d._id.toString());
+      serviceFilters.subCategories = resolvedSubDocs.map((d) =>
+        d._id.toString()
+      );
     }
 
     // Call Service
@@ -282,7 +295,6 @@ const getProductByUrlKey = async (req, res) => {
 
 /**
  * Get single product by ID (legacy support)
- * @deprecated Use getProductByUrlKey instead
  */
 const getProductById = async (req, res) => {
   try {

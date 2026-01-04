@@ -2,8 +2,15 @@ const createProduct = require("./createProduct");
 const updateProduct = require("./updateProduct");
 const deleteProduct = require("./deleteProduct");
 const bulkDeleteProducts = require("./bulkDeleteProducts");
-const { getAllProducts, getProductById, getProductByUrlKey, getVariantById, getSearchIndex } = require("./getProducts");
+const {
+  getAllProducts,
+  getProductById,
+  getProductByUrlKey,
+  getVariantById,
+  getSearchIndex,
+} = require("./getProducts");
 const checkStock = require("./checkStock");
+const { getPriceAndStock } = require("./getPriceAndStock");
 
 module.exports = {
   createProduct,
@@ -15,5 +22,6 @@ module.exports = {
   getProductByUrlKey,
   getVariantById,
   getSearchIndex,
-  checkStock
+  checkStock,
+  getPriceAndStock,
 };
