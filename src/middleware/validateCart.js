@@ -26,7 +26,7 @@ const validateCart = async (req, res, next) => {
     if (!cartId && req.user?.id) {
       const userCart = await Cart.findOne({
         userId: req.user.id,
-        status: "active",
+        status: { $in: ["active", "checkout"] },
       });
 
       if (userCart) {

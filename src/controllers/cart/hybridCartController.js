@@ -326,7 +326,7 @@ const addItem = async (req, res) => {
       if (userId) {
         const existingUserCart = await Cart.findOne({
           userId,
-          status: "active",
+          status: { $in: ["active", "checkout"] },
         });
         if (existingUserCart) {
           // Restore user's existing cart
@@ -902,10 +902,10 @@ const mergeCart = async (req, res) => {
     // Step 1: Get guest cart from middleware (populated from cookie/header)
     const guestCart = req.cart; // null if no cookie or cart not found
 
-    // Step 2: Find user's existing active cart (different from guest cart)
+    // Step 2: Find user's existing cart (active or checkout, different from guest cart)
     const userCart = await Cart.findOne({
       userId,
-      status: "active",
+      status: { $in: ["active", "checkout"] },
       // Exclude guestCart if it exists (avoid finding same cart)
       ...(guestCart ? { cartId: { $ne: guestCart.cartId } } : {}),
     });

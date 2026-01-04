@@ -166,15 +166,8 @@ const {
   phonepeWebhook,
 } = require("./controllers/payment/phonepeSDK");
 
-app.use(
-  express.json({
-    verify: (req, res, buf) => {
-      req.rawBody = buf.toString();
-    },
-  })
-);
-
 app.get("/order-confirmation", checkOrderStatus);
+
 app.post(
   "/api/webhooks/phonepe",
   express.json({
