@@ -77,7 +77,7 @@ const checkOrderStatus = async (req, res) => {
 
     return res.redirect(
       `${process.env.FRONTEND_URL}/order-confirmation` +
-        `?status=${order.paymentStatus}&orderId=${order.orderId}`
+      `?status=${order.paymentStatus}&orderId=${order.orderId}`
     );
   } catch {
     return res.redirect(
@@ -93,6 +93,10 @@ const phonepeWebhook = async (req, res) => {
       return res.status(400).send("INVALID CALLBACK");
     }
 
+    /* ---------------------------------------------------- */
+    /* 2. Validate callback authenticity (MANDATORY)        */
+    /* ---------------------------------------------------- */
+    console.log("trigger web hook  ******", req.rawBody)
     const callbackResponse = client.validateCallback(
       phonePeConfig.credentials.username,
       phonePeConfig.credentials.password,
