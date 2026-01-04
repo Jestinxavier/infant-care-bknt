@@ -45,6 +45,19 @@ const initiatePayment = async ({ orderId, amount }) => {
     return { redirectUrl: response.redirectUrl };
   } catch (err) {
     if (err instanceof PhonePeException) {
+       
+       await Order.updateOne(
+         { orderId: orderId },
+         { $set: { paymentStatus: "failed", status: "cancelled" } },
+       );
+
+       await Cart.findOneAndUpdate(
+         { orderId: orderId },
+         {
+           $set: { status: "active", completedAt: null },
+           $unset: { orderId: "" },
+         },
+       );
       console.error("PhonePe SDK error", {
         code: err.code,
         httpStatusCode: err.httpStatusCode,
@@ -212,7 +225,7 @@ const phonepeWebhook = async (req, res) => {
         $unset: { orderId: "" },
       },
     );
-    
+
     return res.status(400).send("INVALID CALLBACK");
   }
 };
