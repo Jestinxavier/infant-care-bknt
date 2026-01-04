@@ -199,6 +199,20 @@ const phonepeWebhook = async (req, res) => {
     return res.status(200).send("OK");
   } catch (err) {
     console.error("PhonePe webhook error:", err.message);
+    const body = JSON.parse(req.rawBody);
+    await Order.updateOne(
+      { orderId: body.payload.merchantOrderId },
+      { $set: { paymentStatus: "failed", status: "cancelled" } },
+    );
+
+    await Cart.findOneAndUpdate(
+      { orderId: body.payload.merchantOrderId },
+      {
+        $set: { status: "active", completedAt: null },
+        $unset: { orderId: "" },
+      },
+    );
+    
     return res.status(400).send("INVALID CALLBACK");
   }
 };
