@@ -111,6 +111,17 @@ const startServer = async () => {
           cronError.message
         );
       }
+
+      // Start expired assets cleanup cron job (temp images after 24h)
+      try {
+        const cleanupExpiredAssets = require("./jobs/cleanupExpiredAssets");
+        cleanupExpiredAssets();
+      } catch (cronError) {
+        console.warn(
+          "⚠️ Failed to start expired assets cleanup cron:",
+          cronError.message
+        );
+      }
     } else {
       console.log("ℹ️ Skipping cron job setup (serverless environment)");
       console.log("💡 Use Vercel Cron Jobs or external scheduler for cleanup");

@@ -44,6 +44,9 @@ const cleanupExpiredAssets = () => {
         `🧹 [Asset Cleanup] Found ${allAssetsToDelete.length} assets to delete (${expiredTempAssets.length} temp, ${expiredArchivedAssets.length} archived).`
       );
 
+      let deletedCount = 0;
+      let failedCount = 0;
+
       for (const asset of allAssetsToDelete) {
         try {
           // Physical Delete from Cloudinary

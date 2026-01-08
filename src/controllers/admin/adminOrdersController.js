@@ -138,10 +138,6 @@ const getAllOrders = async (req, res) => {
           select: "name title images",
         },
       })
-      .populate(
-        "addressId",
-        "fullName phone houseName street landmark city state pincode country"
-      )
       .populate("userId", "username email phone")
       .sort(sort)
       .skip(skip)
@@ -181,7 +177,7 @@ const getAllOrders = async (req, res) => {
         price: item.price,
       })),
       itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-      address: order.addressId,
+      address: order.shippingAddress,
     }));
 
     res.status(200).json({
@@ -239,8 +235,6 @@ const getOrderById = async (req, res) => {
         path: "items.productId",
         select: "name title images description attributes options",
       })
-      .populate("addressId")
-      .populate("addressId")
       .populate("userId", "username email phone")
       .populate("deliveryPartner")
       .lean();
