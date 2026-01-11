@@ -9,6 +9,8 @@ const {
   generateCartId,
 } = require("../../utils/cartIdGenerator");
 const { formatCartResponse } = require("../../utils/formatCartResponse");
+const bundleService = require("../../features/product/bundle.service");
+const { PRODUCT_TYPES } = require("../../features/product/product.model");
 
 const SiteSetting = require("../../models/SiteSetting");
 
@@ -70,11 +72,32 @@ const calculateTotals = async (items) => {
 /**
  * Get product data for cart item
  * Returns variant data if variantId exists, otherwise product data
+ * For BUNDLE products, stock is computed dynamically from child SKUs
  */
 const getProductDataForCart = async (productId, variantId = null) => {
   const product = await Product.findById(productId);
   if (!product) {
     throw new Error("Product not found");
+  }
+
+  // Handle BUNDLE products - compute stock from children
+  if (product.product_type === PRODUCT_TYPES.BUNDLE) {
+    const bundleAvailability = await bundleService.getBundleAvailability(
+      product.bundle_config
+    );
+    return {
+      id: product._id.toString(),
+      title: product.title,
+      image: product.images?.[0] || "",
+      price: product.pricing?.price || product.price || 0,
+      discountPrice:
+        product.pricing?.discountPrice || product.discountPrice || null,
+      stockObj: {
+        available: bundleAvailability.availableQty,
+        isInStock: bundleAvailability.isInStock,
+      },
+      isBundle: true,
+    };
   }
 
   // If no variantId, return product data
@@ -370,11 +393,29 @@ const addItem = async (req, res) => {
       item.variantId || null
     );
 
+    const requestedQty = item.quantity || 1;
+
+    // Validate stock availability (applies to all product types including bundles)
+    if (productData.stockObj.available < requestedQty) {
+      const errorType = productData.isBundle
+        ? "BUNDLE_INSUFFICIENT_STOCK"
+        : "INSUFFICIENT_STOCK";
+      return res.status(400).json({
+        success: false,
+        errorCode: errorType,
+        message: productData.isBundle
+          ? `Only ${productData.stockObj.available} bundles available`
+          : `Only ${productData.stockObj.available} items in stock`,
+        availableQty: productData.stockObj.available,
+        requestedQty,
+      });
+    }
+
     // Prepare item data with snapshots
     const itemData = {
       productId: item.productId,
       variantId: item.variantId || null,
-      quantity: item.quantity || 1,
+      quantity: requestedQty,
       priceSnapshot: productData.price,
       discountPriceSnapshot: productData.discountPrice || null,
       titleSnapshot: productData.title,

@@ -17,7 +17,6 @@ const getAllProducts = async (req, res) => {
 
     const {
       category,
-      minRating,
       sortBy,
       page = filters.page,
       limit = filters.limit,
@@ -276,8 +275,71 @@ const getProductByUrlKey = async (req, res) => {
       }));
     }
 
+    // For BUNDLE products: Calculate stock based on child products
+    if (
+      productObj.product_type === "BUNDLE" &&
+      productObj.bundle_config?.items?.length > 0
+    ) {
+      const childSkus = productObj.bundle_config.items.map((item) => item.sku);
+
+      // Fetch all child products by SKU
+      const childProducts = await Product.find({
+        sku: { $in: childSkus },
+        status: "published",
+      }).select("sku title url_key stockObj stock");
+
+      // Create a map for quick lookup
+      const childProductMap = new Map();
+      childProducts.forEach((child) => {
+        childProductMap.set(child.sku, child);
+      });
+
+      // Check if all child products are in stock
+      let allChildrenInStock = true;
+      let minAvailableQty = Infinity;
+
+      // Enrich bundle items with child product details
+      productObj.bundle_config.items = productObj.bundle_config.items.map(
+        (item) => {
+          const childProduct = childProductMap.get(item.sku);
+          if (childProduct) {
+            const childStock =
+              childProduct.stockObj?.available ?? childProduct.stock ?? 0;
+            const childInStock =
+              childProduct.stockObj?.isInStock ?? childStock > 0;
+
+            if (!childInStock) {
+              allChildrenInStock = false;
+            }
+
+            // Calculate how many bundles we can make based on this item
+            const bundlesAvailable = Math.floor(childStock / (item.qty || 1));
+            minAvailableQty = Math.min(minAvailableQty, bundlesAvailable);
+
+            return {
+              ...item,
+              title: item.title || childProduct.title,
+              url_key: item.url_key || childProduct.url_key,
+            };
+          } else {
+            // Child product not found or not published - mark as out of stock
+            allChildrenInStock = false;
+            return item;
+          }
+        }
+      );
+
+      // Update bundle stock based on child products
+      productObj.stockObj = {
+        available: minAvailableQty === Infinity ? 0 : minAvailableQty,
+        isInStock: allChildrenInStock && minAvailableQty > 0,
+      };
+    }
+
     // Format response in new structure
-    const formattedProduct = formatProductResponse(product);
+    const formattedProduct = formatProductResponse(
+      product.product_type === "BUNDLE" ? productObj : product
+    );
 
     res.status(200).json({
       success: true,

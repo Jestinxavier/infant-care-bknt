@@ -45,12 +45,11 @@ const variantSchema = new mongoose.Schema(
     sku: { type: String, required: true },
     skuLocked: { type: Boolean, default: false },
     price: { type: Number, min: 0 },
-    discountPrice: { type: Number, min: 0 },
     stock: { type: Number, default: 0, min: 0 },
-    pricing: {
-      price: { type: Number, min: 0 },
-      discountPrice: { type: Number, min: 0 },
-    },
+    // Offer pricing (discountPrice is computed at runtime, not stored)
+    offerPrice: { type: Number, min: 0 },
+    offerStartAt: { type: Date },
+    offerEndAt: { type: Date },
     stockObj: {
       available: { type: Number, default: 0, min: 0 },
       isInStock: { type: Boolean, default: true },
@@ -99,6 +98,31 @@ const detailSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Product Type Enum
+const PRODUCT_TYPES = {
+  SIMPLE: "SIMPLE",
+  CONFIGURABLE: "CONFIGURABLE",
+  BUNDLE: "BUNDLE",
+};
+
+// Bundle Item Schema (for bundle_config.items)
+const bundleItemSchema = new mongoose.Schema(
+  {
+    sku: { type: String, required: true },
+    qty: { type: Number, required: true, min: 1 },
+  },
+  { _id: false }
+);
+
+// Bundle Config Schema
+const bundleConfigSchema = new mongoose.Schema(
+  {
+    pricing: { type: String, enum: ["FIXED"], default: "FIXED" },
+    items: [bundleItemSchema],
+  },
+  { _id: false }
+);
+
 // URL Key History Schema
 const urlKeyHistorySchema = new mongoose.Schema(
   {
@@ -130,13 +154,25 @@ const productSchema = new mongoose.Schema(
       default: "draft",
       index: true,
     },
+    // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle)
+    product_type: {
+      type: String,
+      enum: Object.values(PRODUCT_TYPES),
+      default: PRODUCT_TYPES.SIMPLE,
+      index: true,
+    },
+    // Bundle configuration (only for BUNDLE product_type)
+    bundle_config: bundleConfigSchema,
     variantOptions: [variantOptionSchema],
     variants: [variantSchema],
     details: [detailSchema],
     images: [imageMetadataSchema],
     tags: [{ type: String, trim: true }],
     price: { type: Number, min: 0 },
-    discountPrice: { type: Number, min: 0 },
+    // Offer pricing (discountPrice is computed at runtime, not stored)
+    offerPrice: { type: Number, min: 0 },
+    offerStartAt: { type: Date },
+    offerEndAt: { type: Date },
     currency: { type: String, default: "INR" },
     taxClass: { type: String, default: "standard" },
     stock: { type: Number, default: 0, min: 0 },
@@ -170,6 +206,7 @@ productSchema.index({ sku: 1 });
 productSchema.index({ category: 1, status: 1 });
 productSchema.index({ title: "text", description: "text" });
 productSchema.index({ "variants.sku": 1 });
+// product_type index is already declared in schema with `index: true`
 
 // Compound unique index for product SKU
 productSchema.index({ sku: 1 }, { unique: true, sparse: true });
@@ -210,4 +247,7 @@ if (mongoose.models.Product) {
 }
 
 // Export using singleton pattern to prevent duplicate compilation
-module.exports = mongoose.model("Product", productSchema);
+const Product = mongoose.model("Product", productSchema);
+
+module.exports = Product;
+module.exports.PRODUCT_TYPES = PRODUCT_TYPES;

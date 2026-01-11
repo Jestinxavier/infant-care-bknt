@@ -50,7 +50,9 @@ class ProductService {
 
     if (category) {
       if (Array.isArray(category)) {
-        matchStage.category = { $in: category.map(id => new mongoose.Types.ObjectId(id)) };
+        matchStage.category = {
+          $in: category.map((id) => new mongoose.Types.ObjectId(id)),
+        };
       } else if (mongoose.Types.ObjectId.isValid(category)) {
         matchStage.category = new mongoose.Types.ObjectId(category);
       }
@@ -58,8 +60,12 @@ class ProductService {
 
     if (filters.subCategories) {
       const subCatIds = Array.isArray(filters.subCategories)
-        ? filters.subCategories.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id))
-        : mongoose.Types.ObjectId.isValid(filters.subCategories) ? [new mongoose.Types.ObjectId(filters.subCategories)] : [];
+        ? filters.subCategories
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+            .map((id) => new mongoose.Types.ObjectId(id))
+        : mongoose.Types.ObjectId.isValid(filters.subCategories)
+        ? [new mongoose.Types.ObjectId(filters.subCategories)]
+        : [];
 
       if (subCatIds.length > 0) {
         matchStage.subCategories = { $in: subCatIds };
@@ -111,29 +117,29 @@ class ProductService {
       // Apply Variant Level Filters (Color, Size)
       ...(filters.color || filters.size
         ? [
-          {
-            $match: {
-              ...(filters.color
-                ? {
-                  "variants.attributes.color": {
-                    $in: Array.isArray(filters.color)
-                      ? filters.color
-                      : [filters.color],
-                  },
-                }
-                : {}),
-              ...(filters.size
-                ? {
-                  "variants.attributes.size": {
-                    $in: Array.isArray(filters.size)
-                      ? filters.size
-                      : [filters.size],
-                  },
-                }
-                : {}),
+            {
+              $match: {
+                ...(filters.color
+                  ? {
+                      "variants.attributes.color": {
+                        $in: Array.isArray(filters.color)
+                          ? filters.color
+                          : [filters.color],
+                      },
+                    }
+                  : {}),
+                ...(filters.size
+                  ? {
+                      "variants.attributes.size": {
+                        $in: Array.isArray(filters.size)
+                          ? filters.size
+                          : [filters.size],
+                      },
+                    }
+                  : {}),
+              },
             },
-          },
-        ]
+          ]
         : []),
 
       // Calculate effective price and stock (Handle both Variant and Simple Product)
@@ -186,19 +192,21 @@ class ProductService {
       // Filter Logic (Price & Stock)
       ...(minPrice || maxPrice
         ? [
-          {
-            $match: {
-              effectivePrice: {
-                ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
-                ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            {
+              $match: {
+                effectivePrice: {
+                  ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+                  ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+                },
               },
             },
-          },
-        ]
+          ]
         : []),
 
-      // Stock Filter
-      { $match: { isInStock: true } },
+      // Stock Filter - only apply if explicitly requested
+      ...(inStock === true || inStock === "true"
+        ? [{ $match: { isInStock: true } }]
+        : []),
 
       // Grouping Stage
       {
@@ -216,6 +224,7 @@ class ProductService {
           // Accumulate data
           parentId: { $first: "$_id" },
           title: { $first: "$title" },
+          product_type: { $first: "$product_type" },
           url_key: {
             $first: {
               $cond: {
@@ -745,6 +754,8 @@ class ProductService {
 
   /**
    * Search products
+   * @param {string} searchTerm - Search term
+   * @param {Object} options - { page, limit, product_type }
    */
   async searchProducts(searchTerm, options = {}) {
     if (!searchTerm || searchTerm.trim().length === 0) {
@@ -754,6 +765,7 @@ class ProductService {
     const result = await productRepository.search(searchTerm.trim(), {
       page: options.page || 1,
       limit: options.limit || 20,
+      product_type: options.product_type, // Pass through for bundle child picker
     });
 
     return result;

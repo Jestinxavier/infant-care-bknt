@@ -32,9 +32,30 @@ const updateProduct = async (req, res) => {
       metaTitle,
       metaDescription,
       subCategories,
+      // Product type and bundle configuration
+      product_type,
+      bundle_config,
+      // Direct pricing/stock fields (for simple/bundle products)
+      price,
+      stock,
+      offerPrice,
+      offerStartAt,
+      offerEndAt,
       // Legacy fields
       name,
     } = req.body;
+
+    // DEBUG: Log bundle-related fields
+    console.log("📦 [updateProduct] Received bundle fields:", {
+      product_type,
+      bundle_config,
+      price,
+      stock,
+      offerPrice,
+      hasProductType: product_type !== undefined,
+      hasBundleConfig: bundle_config !== undefined,
+      bodyKeys: Object.keys(req.body),
+    });
 
     // Find product
     const product = await Product.findById(productId);
@@ -74,6 +95,17 @@ const updateProduct = async (req, res) => {
     if (status !== undefined) product.status = status;
     if (pricing !== undefined) product.pricing = pricing;
     if (stockObj !== undefined) product.stockObj = stockObj;
+
+    // Update product type and bundle configuration
+    if (product_type !== undefined) product.product_type = product_type;
+    if (bundle_config !== undefined) product.bundle_config = bundle_config;
+
+    // Update direct pricing fields (for simple/bundle products)
+    if (price !== undefined) product.price = price;
+    if (stock !== undefined) product.stock = stock;
+    if (offerPrice !== undefined) product.offerPrice = offerPrice;
+    if (offerStartAt !== undefined) product.offerStartAt = offerStartAt;
+    if (offerEndAt !== undefined) product.offerEndAt = offerEndAt;
 
     // Update category
     if (category) {

@@ -13,8 +13,63 @@ const {
   checkStock,
   getPriceAndStock,
 } = require("../controllers/product");
+const productService = require("../features/product/product.service");
 const verifyToken = require("../middlewares/authMiddleware");
 const router = express.Router();
+
+/**
+ * @swagger
+ * /api/v1/product/search:
+ *   get:
+ *     summary: Search products by SKU, title, or description
+ *     tags: [Products]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search term
+ *       - in: query
+ *         name: product_type
+ *         schema:
+ *           type: string
+ *           enum: [SIMPLE, CONFIGURABLE, BUNDLE]
+ *         description: Filter by product type
+ *     responses:
+ *       200:
+ *         description: Products found
+ */
+router.get("/search", async (req, res) => {
+  try {
+    const { q, page, limit, product_type } = req.query;
+
+    if (!q || q.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Search term is required",
+      });
+    }
+
+    const result = await productService.searchProducts(q, {
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 20,
+      product_type,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: result.data,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    console.error("Search error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Search failed",
+    });
+  }
+});
 
 /**
  * @swagger

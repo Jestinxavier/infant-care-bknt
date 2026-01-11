@@ -33,16 +33,38 @@ class ProductRepository extends BaseRepository {
   }
 
   /**
-   * Search products by text
+   * Search products by text or SKU
+   * @param {string} searchTerm - Search term
+   * @param {Object} options - { page, limit, product_type, includeNonPublished }
    */
   async search(searchTerm, options = {}) {
+    // Build search conditions using regex for flexibility
+    // This allows searching by SKU, title, or description
+    const searchRegex = new RegExp(searchTerm, "i");
+
     const filter = {
-      $text: { $search: searchTerm },
-      status: "published",
+      $or: [
+        { sku: searchRegex },
+        { title: searchRegex },
+        { description: searchRegex },
+      ],
     };
+
+    // For bundle child picker, we want published products
+    // but also allow includeNonPublished option
+    if (!options.includeNonPublished) {
+      filter.status = "published";
+    }
+
+    // Add product_type filter if provided
+    if (options.product_type) {
+      filter.product_type = options.product_type;
+    }
+
     return this.findAll(filter, {
-      ...options,
-      sort: { score: { $meta: "textScore" } },
+      page: options.page,
+      limit: options.limit,
+      sort: { title: 1 },
     });
   }
 

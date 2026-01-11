@@ -2,6 +2,8 @@
  * Format product data for API response in the new structure
  * Converts from database format to frontend format
  */
+const { resolvePrice } = require("./pricingUtils");
+
 const formatProductResponse = (product) => {
   const productObj = product.toObject ? product.toObject() : product;
 
@@ -23,10 +25,14 @@ const formatProductResponse = (product) => {
       ? Object.fromEntries(variant.options)
       : variant.options || {};
 
-    // Get pricing - prefer nested pricing object, fallback to direct fields
-    const price = variant.pricing?.price || variant.price || 0;
-    const discountPrice =
-      variant.pricing?.discountPrice || variant.discountPrice;
+    // Get pricing - use flat fields only (discountPrice computed via resolvePrice)
+    const variantPricing = {
+      price: variant.price || 0,
+      offerPrice: variant.offerPrice,
+      offerStartAt: variant.offerStartAt,
+      offerEndAt: variant.offerEndAt,
+    };
+    const resolvedPricing = resolvePrice(variantPricing);
 
     // Get stock - prefer nested stock object, fallback to direct field
     const stock =
@@ -45,9 +51,13 @@ const formatProductResponse = (product) => {
       attributes: attributes,
       images: variant.images || [],
       pricing: {
-        price: price,
-        ...(discountPrice ? { discountPrice: discountPrice } : {}),
+        price: resolvedPricing.price,
+        ...(resolvedPricing.discountPrice
+          ? { discountPrice: resolvedPricing.discountPrice }
+          : {}),
       },
+      isOfferActive: resolvedPricing.isOfferActive,
+      ...(resolvedPricing.offer ? { offer: resolvedPricing.offer } : {}),
       stock: {
         available: stock,
         isInStock: isInStock,
@@ -99,6 +109,21 @@ const formatProductResponse = (product) => {
     url_key: productObj.url_key,
     title: productObj.title || productObj.name,
     description: productObj.description,
+    product_type: productObj.product_type || "SIMPLE",
+    // Include bundle config for BUNDLE products
+    ...(productObj.product_type === "BUNDLE" && productObj.bundle_config
+      ? {
+          bundle_config: {
+            pricing: productObj.bundle_config.pricing || "FIXED",
+            items: (productObj.bundle_config.items || []).map((item) => ({
+              sku: item.sku,
+              qty: item.qty,
+              title: item.title,
+              url_key: item.url_key,
+            })),
+          },
+        }
+      : {}),
     category: categoryValue,
     images: productObj.images || [],
     rating: {
@@ -147,13 +172,15 @@ const formatProductResponse = (product) => {
 
       // Fallback to product's own pricing fields if no variants or variant prices are 0
       if (parentPrice === 0) {
-        parentPrice =
-          productObj.pricing?.price ||
-          productObj.price ||
-          productObj.basePrice ||
-          0;
-        parentDiscountPrice =
-          productObj.pricing?.discountPrice || productObj.discountPrice || null;
+        const productPricing = {
+          price: productObj.price || productObj.basePrice || 0,
+          offerPrice: productObj.offerPrice,
+          offerStartAt: productObj.offerStartAt,
+          offerEndAt: productObj.offerEndAt,
+        };
+        const resolvedProductPricing = resolvePrice(productPricing);
+        parentPrice = resolvedProductPricing.price;
+        parentDiscountPrice = resolvedProductPricing.discountPrice;
       }
 
       return {
@@ -180,7 +207,10 @@ const formatProductResponse = (product) => {
           : productObj.stock !== undefined
           ? productObj.stock
           : 0;
-      const productIsInStock = productStock > 0;
+      const productIsInStock =
+        productObj.stockObj?.isInStock !== undefined
+          ? productObj.stockObj.isInStock
+          : productStock > 0;
 
       return {
         available: productStock,

@@ -9,6 +9,8 @@ const {
   CHECKOUT_SESSION_MS,
 } = require("../../../resources/constants");
 const { consumeCoupon } = require("../../utils/couponValidation");
+const bundleService = require("../../features/product/bundle.service");
+const { PRODUCT_TYPES } = require("../../features/product/product.model");
 const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
 
@@ -138,8 +140,25 @@ const createOrder = async (req, res) => {
       }
 
       let regularPrice, offerPrice, stock, variantData;
+      let bundleChildDeductions = []; // For bundle child stock deductions
 
-      if (item.variantId) {
+      // Handle BUNDLE products
+      if (product.product_type === PRODUCT_TYPES.BUNDLE) {
+        regularPrice = product.pricing?.price || product.price || 0;
+        offerPrice = product.pricing?.discountPrice || regularPrice;
+
+        // Compute bundle availability from children
+        const bundleAvailability = await bundleService.getBundleAvailability(
+          product.bundle_config
+        );
+        stock = bundleAvailability.availableQty;
+
+        // Prepare child stock deductions
+        bundleChildDeductions = bundleService.calculateBundleStockDeductions(
+          product.bundle_config,
+          item.quantity
+        );
+      } else if (item.variantId) {
         variantData = product.variants?.find(
           (v) => v.id === item.variantId || v._id?.toString() === item.variantId
         );
@@ -158,7 +177,6 @@ const createOrder = async (req, res) => {
         stock = variantData.stockObj?.available ?? variantData.stock ?? 0;
       } else {
         regularPrice = product.pricing?.price || product.price || 0;
-        offerPrice = product.pricing?.discountPrice || regularPrice;
         offerPrice = product.pricing?.discountPrice || regularPrice;
         stock = product.stockObj?.available ?? product.stock ?? 0;
       }
@@ -218,16 +236,63 @@ const createOrder = async (req, res) => {
         variantAttributes: variantAttributes,
       });
 
-      stockUpdates.push({
-        productId: product._id,
-        variantId: item.variantId || null,
-        quantity: itemQuantity,
-      });
+      // For bundles, add child stock deductions; for others, add regular stock update
+      if (
+        product.product_type === PRODUCT_TYPES.BUNDLE &&
+        bundleChildDeductions.length > 0
+      ) {
+        // Bundle: deduct from child SKUs
+        for (const childDeduction of bundleChildDeductions) {
+          stockUpdates.push({
+            type: "BUNDLE_CHILD",
+            sku: childDeduction.sku,
+            quantity: childDeduction.qty,
+            bundleProductId: product._id, // For error reporting
+          });
+        }
+      } else {
+        // Regular product or variant
+        stockUpdates.push({
+          type: "REGULAR",
+          productId: product._id,
+          variantId: item.variantId || null,
+          quantity: itemQuantity,
+        });
+      }
     }
 
     // Step 3: Atomic stock decrement
     for (const update of stockUpdates) {
-      if (update.variantId) {
+      // Handle bundle child SKU deductions
+      if (update.type === "BUNDLE_CHILD") {
+        // Find child product by SKU and deduct stock
+        const result = await Product.findOneAndUpdate(
+          {
+            sku: update.sku,
+            product_type: PRODUCT_TYPES.SIMPLE,
+            $or: [
+              { "stockObj.available": { $gte: update.quantity } },
+              { stock: { $gte: update.quantity } },
+            ],
+          },
+          {
+            $inc: {
+              "stockObj.available": -update.quantity,
+              stock: -update.quantity,
+            },
+          },
+          { session, new: true }
+        );
+
+        if (!result) {
+          throw {
+            code: "OUT_OF_STOCK",
+            bundleProductId: update.bundleProductId,
+            childSku: update.sku,
+            message: `Bundle child SKU "${update.sku}" out of stock (race condition)`,
+          };
+        }
+      } else if (update.variantId) {
         const result = await Product.findOneAndUpdate(
           {
             _id: update.productId,
@@ -262,9 +327,11 @@ const createOrder = async (req, res) => {
             productSku: productInfo?.sku,
             variantId: update.variantId,
             variantSku: variantInfo?.sku,
-            message: `Stock exhausted for "${productInfo?.name || update.productId
-              }" variant ${variantInfo?.sku || update.variantId
-              } (race condition)`,
+            message: `Stock exhausted for "${
+              productInfo?.name || update.productId
+            }" variant ${
+              variantInfo?.sku || update.variantId
+            } (race condition)`,
           };
         }
       } else {
@@ -292,8 +359,9 @@ const createOrder = async (req, res) => {
             productId: update.productId,
             productName: productInfo?.name,
             productSku: productInfo?.sku,
-            message: `Stock exhausted for "${productInfo?.name || update.productId
-              }" (race condition)`,
+            message: `Stock exhausted for "${
+              productInfo?.name || update.productId
+            }" (race condition)`,
           };
         }
       }

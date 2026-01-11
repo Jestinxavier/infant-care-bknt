@@ -31,15 +31,12 @@ const variantSchema = new mongoose.Schema(
     id: { type: String, required: true },
     url_key: { type: String }, // Made optional in schema, controller will generate
     sku: { type: String, unique: true, sparse: true },
-    // Support both formats: direct fields and nested objects
-    price: { type: Number, min: 0 }, // Direct price (for backward compatibility)
-    discountPrice: { type: Number, min: 0 },
-    stock: { type: Number, default: 0, min: 0 }, // Direct stock
-    // Nested pricing object (new format)
-    pricing: {
-      price: { type: Number, min: 0 },
-      discountPrice: { type: Number, min: 0 },
-    },
+    price: { type: Number, min: 0 },
+    stock: { type: Number, default: 0, min: 0 },
+    // Offer pricing (discountPrice is computed at runtime, not stored)
+    offerPrice: { type: Number, min: 0 },
+    offerStartAt: { type: Date },
+    offerEndAt: { type: Date },
     // Nested stock object (new format)
     stockObj: {
       available: { type: Number, default: 0, min: 0 },
@@ -143,11 +140,32 @@ const productSchema = new mongoose.Schema(
       default: "draft",
     },
 
-    // Product-level pricing (parent level)
-    pricing: {
-      price: { type: Number, min: 0 },
-      discountPrice: { type: Number, min: 0 },
+    // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle)
+    product_type: {
+      type: String,
+      enum: ["SIMPLE", "CONFIGURABLE", "BUNDLE"],
+      default: "SIMPLE",
+      index: true,
     },
+
+    // Bundle configuration (only for BUNDLE product_type)
+    bundle_config: {
+      pricing: { type: String, enum: ["FIXED"], default: "FIXED" },
+      items: [
+        {
+          sku: { type: String, required: true },
+          title: { type: String }, // Product title for display
+          url_key: { type: String }, // Product URL key for linking
+          qty: { type: Number, required: true, min: 1 },
+        },
+      ],
+    },
+
+    // Product-level pricing (discountPrice is computed at runtime, not stored)
+    price: { type: Number, min: 0 },
+    offerPrice: { type: Number, min: 0 },
+    offerStartAt: { type: Date },
+    offerEndAt: { type: Date },
 
     // Product-level stock (parent level)
     stockObj: {

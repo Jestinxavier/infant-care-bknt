@@ -62,8 +62,12 @@ class ProductController {
    * Search products (storefront)
    */
   searchProducts = asyncHandler(async (req, res) => {
-    const { q, page, limit } = req.query;
-    const result = await productService.searchProducts(q, { page, limit });
+    const { q, page, limit, product_type } = req.query;
+    const result = await productService.searchProducts(q, {
+      page,
+      limit,
+      product_type, // Pass through for bundle child picker
+    });
 
     res
       .status(200)

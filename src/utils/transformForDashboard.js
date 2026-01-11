@@ -164,8 +164,8 @@ function transformForDashboard(product) {
     price: minPrice, // Regular price (or min price for variants)
     discountPrice: product.pricing?.discountPrice || null, // Discount price if exists
 
-    // Variant count
-    variantCount: product.variants?.length || 0,
+    // Product Type
+    product_type: product.product_type || "SIMPLE",
 
     // Display fields
     thumbnail,

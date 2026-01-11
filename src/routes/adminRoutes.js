@@ -194,6 +194,82 @@ router.post(
   bulkDeleteProducts
 );
 
+// Import Product model for lean search
+const Product = require("../models/Product");
+
+/**
+ * @swagger
+ * /api/v1/admin/products/search:
+ *   get:
+ *     summary: "[Admin] Search products for bundle child picker"
+ *     description: Lightweight search returning only essential fields for bundle configuration
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search term (SKU or title)
+ *       - in: query
+ *         name: product_type
+ *         schema:
+ *           type: string
+ *           enum: [SIMPLE, CONFIGURABLE, BUNDLE]
+ *         description: Filter by product type (default SIMPLE for bundles)
+ *     responses:
+ *       200:
+ *         description: Products found
+ */
+router.get("/products/search", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { q, product_type = "SIMPLE", limit = 20 } = req.query;
+
+    if (!q || q.trim().length < 2) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        message: "Search term must be at least 2 characters",
+      });
+    }
+
+    const searchRegex = new RegExp(q.trim(), "i");
+
+    // Find products with minimal fields
+    const products = await Product.find({
+      $or: [{ sku: searchRegex }, { title: searchRegex }],
+      product_type: product_type,
+      status: "published",
+    })
+      .select("_id title sku url_key stockObj product_type")
+      .limit(parseInt(limit))
+      .lean();
+
+    // Transform response to minimal format
+    const data = products.map((p) => ({
+      _id: p._id,
+      title: p.title,
+      sku: p.sku,
+      url_key: p.url_key,
+      stock: p.stockObj?.available ?? 0,
+      product_type: p.product_type,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error("Admin product search error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Search failed",
+    });
+  }
+});
+
 // Import bulk import controller
 const bulkImportController = require("../controllers/product/bulkImport");
 
