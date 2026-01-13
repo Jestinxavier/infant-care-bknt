@@ -4,13 +4,30 @@
  * Handles bundle-specific business logic:
  * - Stock availability resolution
  * - Bundle validation
+ *
+ * ⚠️ ARCHITECTURAL CONSTRAINT ⚠️
+ * This service is READ-ONLY at cart level.
+ * - ❌ NEVER write/mutate stock
+ * - ❌ NEVER reserve stock
+ * - ✅ READ-ONLY queries only
+ *
+ * Stock is only deducted during ORDER CREATION (atomic transaction).
+ * This ensures cart operations are fast and non-blocking.
  */
 
-const Product = require("./product.model");
-const { PRODUCT_TYPES } = Product;
+const Product = require("../../models/Product");
+
+const PRODUCT_TYPES = {
+  SIMPLE: "SIMPLE",
+  CONFIGURABLE: "CONFIGURABLE",
+  BUNDLE: "BUNDLE",
+};
 
 /**
  * Get bundle availability by checking child SKU stock
+ *
+ * 🔒 READ-ONLY: This function ONLY reads stock, never mutates it.
+ * Stock reservation/deduction happens ONLY at order creation.
  *
  * @param {Object} bundle_config - Bundle configuration with items array
  * @returns {Object} { isInStock: boolean, availableQty: number }
@@ -31,7 +48,7 @@ const getBundleAvailability = async (bundle_config) => {
   const childProducts = await Product.find({
     sku: { $in: childSkus },
     product_type: PRODUCT_TYPES.SIMPLE,
-  }).select("sku stock stockObj");
+  }).select("sku stock stockObj product_type");
 
   // Create SKU to stock mapping
   const stockMap = new Map();

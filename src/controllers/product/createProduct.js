@@ -12,6 +12,7 @@ const {
   validateVariantData,
 } = require("../../utils/variantValidator");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
+const bundleService = require("../../features/product/bundle.service");
 
 const createProduct = async (req, res) => {
   try {
@@ -149,6 +150,21 @@ const createProduct = async (req, res) => {
       const validStatuses = ["draft", "published", "archived"];
       if (!validStatuses.includes(normalizedStatus)) {
         normalizedStatus = "draft"; // Default to draft for invalid statuses
+      }
+    }
+
+    // Validate bundle configuration for BUNDLE products
+    if (product_type === "BUNDLE") {
+      const bundleValidation = await bundleService.validateBundleConfig(
+        bundle_config
+      );
+      if (!bundleValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_BUNDLE_CONFIG",
+          message: "Invalid bundle configuration",
+          errors: bundleValidation.errors,
+        });
       }
     }
 

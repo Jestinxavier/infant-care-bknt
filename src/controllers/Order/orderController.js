@@ -558,7 +558,18 @@ const createOrder = async (req, res) => {
 
           // 2. Release Stock
           for (const update of stockUpdates) {
-            if (update.variantId) {
+            if (update.type === "BUNDLE_CHILD") {
+              // Release bundle child SKU stock
+              await Product.findOneAndUpdate(
+                { sku: update.sku, product_type: PRODUCT_TYPES.SIMPLE },
+                {
+                  $inc: {
+                    "stockObj.available": update.quantity,
+                    stock: update.quantity,
+                  },
+                }
+              );
+            } else if (update.variantId) {
               await Product.findOneAndUpdate(
                 { _id: update.productId, "variants.id": update.variantId },
                 {

@@ -7,6 +7,7 @@ const {
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
+const bundleService = require("../../features/product/bundle.service");
 
 const updateProduct = async (req, res) => {
   try {
@@ -64,6 +65,23 @@ const updateProduct = async (req, res) => {
         success: false,
         message: "Product not found",
       });
+    }
+
+    // Validate bundle configuration for BUNDLE products
+    const effectiveProductType =
+      product_type !== undefined ? product_type : product.product_type;
+    if (effectiveProductType === "BUNDLE" && bundle_config !== undefined) {
+      const bundleValidation = await bundleService.validateBundleConfig(
+        bundle_config
+      );
+      if (!bundleValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_BUNDLE_CONFIG",
+          message: "Invalid bundle configuration",
+          errors: bundleValidation.errors,
+        });
+      }
     }
 
     // Update title/name

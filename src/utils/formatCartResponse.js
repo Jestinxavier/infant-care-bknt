@@ -1,27 +1,58 @@
 // utils/formatCartResponse.js
 
 /**
+ * Check if cart contains any BUNDLE products
+ */
+const cartHasBundles = (cart) => {
+  if (!cart || !cart.items) return false;
+  return cart.items.some((item) => item.productId?.product_type === "BUNDLE");
+};
+
+/**
  * Format cart response - ensures MongoDB _id is never exposed
  * Only cartId is exposed, never the cart document's MongoDB _id
+ *
+ * IMPORTANT: If cart contains BUNDLE products, bundleStocks is REQUIRED.
+ * This prevents future regressions where bundles show stock=0.
+ *
+ * @param {Object} cart - Cart document
+ * @param {Map} bundleStocks - Map of productId -> bundleAvailableQty for BUNDLE products
  */
-const formatCartResponse = (cart) => {
+const formatCartResponse = (cart, bundleStocks = null) => {
   if (!cart) return null;
+
+  // Enforce bundleStocks for carts with bundles (prevents regressions)
+  if (!bundleStocks && cartHasBundles(cart)) {
+    console.error(
+      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products"
+    );
+    // Don't throw to avoid breaking existing code, but log warning
+    // Bundles will show stock=0 if bundleStocks not provided
+  }
 
   // Format items
   const formattedItems = cart.items.map((item) => {
-    // Calculate stock
+    // Calculate stock based on product type
     let stock = 0;
-    if (item.productId && item.productId._id) {
-      if (item.variantId && Array.isArray(item.productId.variants)) {
-        const variant = item.productId.variants.find(
-          (v) => v.id === item.variantId
-        );
+    const product = item.productId;
+
+    if (product && product._id) {
+      const productType = product.product_type || "SIMPLE";
+
+      if (productType === "BUNDLE") {
+        // For bundles, use pre-computed bundleStocks or default to 0
+        // Bundles don't store stock - it's computed from child products
+        if (bundleStocks && bundleStocks.has(product._id.toString())) {
+          stock = bundleStocks.get(product._id.toString());
+        }
+      } else if (item.variantId && Array.isArray(product.variants)) {
+        // CONFIGURABLE with variant
+        const variant = product.variants.find((v) => v.id === item.variantId);
         if (variant) {
           stock = variant.stockObj?.available ?? variant.stock ?? 0;
         }
       } else {
-        // Simple Product Stock - Try direct access, then _doc (for Mongoose docs), then fallback to 0
-        const product = item.productId;
+        // SIMPLE product stock
         stock =
           product?.stockObj?.available ??
           product?._doc?.stockObj?.available ??
@@ -53,6 +84,7 @@ const formatCartResponse = (cart) => {
         _id: item.productId._id.toString(),
         title: item.productId.title,
         url_key: item.productId.url_key,
+        product_type: item.productId.product_type || "SIMPLE",
         images: Array.isArray(item.productId.images)
           ? item.productId.images
               .map((img) => {
@@ -74,7 +106,7 @@ const formatCartResponse = (cart) => {
                     try {
                       // Extract characters using regex looking for '0': 'h', '1': 't', etc.
                       // Pattern: 'KEY': 'VALUE'
-                      const matches = [...img.matchAll(/'\d+':\s*'([^'])'/g)];
+                      const matches = [...img.matchAll(/'\\d+':\\s*'([^'])'/g)];
                       if (matches.length > 0) {
                         // Reconstruct the string
                         return matches.map((m) => m[1]).join("");

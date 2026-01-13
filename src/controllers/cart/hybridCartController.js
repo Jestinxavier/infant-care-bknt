@@ -70,6 +70,18 @@ const calculateTotals = async (items) => {
 };
 
 /**
+ * Recompute and assign cart totals
+ * Use this helper instead of manually calling calculateTotals + Object.assign
+ */
+const recomputeCartTotals = async (cart) => {
+  const totals = await calculateTotals(cart.items);
+  cart.subtotal = totals.subtotal;
+  cart.tax = totals.tax;
+  cart.shippingEstimate = totals.shippingEstimate;
+  cart.total = totals.total;
+};
+
+/**
  * Get product data for cart item
  * Returns variant data if variantId exists, otherwise product data
  * For BUNDLE products, stock is computed dynamically from child SKUs
@@ -137,6 +149,108 @@ const getProductDataForCart = async (productId, variantId = null) => {
 };
 
 /**
+ * Get bundle availability with request-scoped caching
+ * First call computes, subsequent calls return cached result
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} product - Product document (must have _id and bundle_config)
+ * @returns {Object} { isInStock: boolean, availableQty: number }
+ */
+const getCachedBundleAvailability = async (req, product) => {
+  // Initialize cache on first use
+  if (!req.bundleAvailabilityCache) {
+    req.bundleAvailabilityCache = new Map();
+  }
+
+  const key = product._id.toString();
+
+  // Return cached if exists
+  if (req.bundleAvailabilityCache.has(key)) {
+    return req.bundleAvailabilityCache.get(key);
+  }
+
+  // Compute and cache
+  const availability = await bundleService.getBundleAvailability(
+    product.bundle_config
+  );
+  req.bundleAvailabilityCache.set(key, availability);
+
+  return availability;
+};
+
+/**
+ * Compute bundle stocks and validation issues for all BUNDLE items in cart
+ * Uses request-scoped cache to avoid N+1 DB calls
+ *
+ * IMPORTANT: Cart MUST be populated with items.productId before calling this.
+ * This avoids redundant DB queries.
+ *
+ * @param {Object} req - Express request object (for caching)
+ * @param {Object} cart - Cart document with POPULATED items.productId
+ * @returns {{ bundleStocks: Map, issues: Array }}
+ */
+const computeBundleStocksAndIssues = async (req, cart) => {
+  const bundleStocks = new Map();
+  const issues = [];
+
+  if (!cart || !cart.items) {
+    return { bundleStocks, issues };
+  }
+
+  for (const item of cart.items) {
+    const productDoc = item.productId;
+
+    // Fail fast if not populated - caller must populate first
+    if (!productDoc || !productDoc._id) {
+      console.error(
+        "❌ computeBundleStocksAndIssues: Cart items must be populated with productId"
+      );
+      continue; // Skip unpopulated items
+    }
+
+    if (productDoc.product_type === PRODUCT_TYPES.BUNDLE) {
+      // Use cached availability
+      const availability = await getCachedBundleAvailability(req, productDoc);
+      const productId = productDoc._id.toString();
+
+      // Store stock for formatCartResponse
+      bundleStocks.set(productId, availability.availableQty);
+
+      // Compute validation issues
+      if (!availability.isInStock) {
+        issues.push({
+          productId,
+          sku: productDoc.sku,
+          title: productDoc.title,
+          reason: "OUT_OF_STOCK",
+          message: "This bundle is currently unavailable",
+        });
+      } else if (availability.availableQty < item.quantity) {
+        issues.push({
+          productId,
+          sku: productDoc.sku,
+          title: productDoc.title,
+          reason: "INSUFFICIENT_STOCK",
+          availableQty: availability.availableQty,
+          requestedQty: item.quantity,
+          message: `Only ${availability.availableQty} bundles available, you have ${item.quantity} in cart`,
+        });
+      }
+    }
+  }
+
+  return { bundleStocks, issues };
+};
+
+/**
+ * Compute bundle stocks only (for endpoints that don't need validation)
+ * Uses request-scoped cache
+ */
+const computeBundleStocks = async (req, cart) => {
+  const { bundleStocks } = await computeBundleStocksAndIssues(req, cart);
+  return bundleStocks;
+};
+/**
  * POST /api/v1/cart/create
  * Create cart server-side (optional)
  */
@@ -170,7 +284,8 @@ const createCart = async (req, res) => {
           }
         }
 
-        const formatted = formatCartResponse(existingCart);
+        const bundleStocks = await computeBundleStocks(existingCart);
+        const formatted = formatCartResponse(existingCart, bundleStocks);
         return res.status(200).json({
           success: true,
           cart: formatted,
@@ -197,7 +312,8 @@ const createCart = async (req, res) => {
     };
     res.cookie(CART_ID, newCartId, cookieOptions);
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(201).json({
       success: true,
@@ -288,25 +404,39 @@ const getCart = async (req, res) => {
     }
 
     // Recalculate totals to ensure they're up-to-date
-    // Recalculate totals to ensure they're up-to-date
     const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
+
     await cart.save();
 
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images stockObj variants",
+      select:
+        "title url_key images stockObj variants product_type bundle_config sku",
     });
 
-    const formatted = formatCartResponse(cart);
+    // Compute bundle stocks AND validation issues in ONE pass (no N+1)
+    const { bundleStocks, issues } = await computeBundleStocksAndIssues(
+      req,
+      cart
+    );
+
+    // Pass bundleStocks so formatCartResponse can set correct stock for bundle items
+    const formatted = formatCartResponse(cart, bundleStocks);
+
+    // Cart validation result per bundle spec:
+    // isValid: false blocks checkout, issues array explains why
+    const isValid = issues.length === 0;
 
     res.status(200).json({
       success: true,
       cart: formatted,
+      isValid,
+      issues: issues.length > 0 ? issues : undefined,
     });
   } catch (error) {
     console.error("❌ Error getting cart:", error);
@@ -440,7 +570,7 @@ const addItem = async (req, res) => {
     // Ensure product data is populated for the response
     await cartDoc.populate({
       path: "items.productId",
-      select: "title url_key images stockObj variants",
+      select: "title url_key images stockObj variants product_type",
     });
 
     const formatted = formatCartResponse(cartDoc);
@@ -518,10 +648,12 @@ const updateItem = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images stockObj variants",
+      select:
+        "title url_key images stockObj variants product_type bundle_config",
     });
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(200).json({
       success: true,
@@ -579,10 +711,12 @@ const removeItem = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images stockObj variants",
+      select:
+        "title url_key images stockObj variants product_type bundle_config",
     });
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(200).json({
       success: true,
@@ -626,7 +760,8 @@ const clearCart = async (req, res) => {
     cart.total = 0;
     await cart.save();
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     // Clear cookie also
     res.clearCookie(CART_ID);
@@ -694,10 +829,23 @@ const getItems = async (req, res) => {
     // Ensure product data is populated for the response
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images stockObj variants",
+      select:
+        "title url_key images stockObj variants product_type bundle_config",
     });
 
-    const formatted = formatCartResponse(cart);
+    // Compute bundle stocks for BUNDLE products
+    const bundleStocks = new Map();
+    for (const item of cart.items) {
+      const product = item.productId;
+      if (product && product.product_type === PRODUCT_TYPES.BUNDLE) {
+        const availability = await bundleService.getBundleAvailability(
+          product.bundle_config
+        );
+        bundleStocks.set(product._id.toString(), availability.availableQty);
+      }
+    }
+
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(200).json({
       success: true,
@@ -756,11 +904,13 @@ const getPriceSummary = async (req, res) => {
     if (!cart.items[0]?.productId?.title) {
       await cart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants",
+        select:
+          "title url_key images stockObj variants product_type bundle_config",
       });
     }
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(200).json({
       success: true,
@@ -891,11 +1041,13 @@ const getSummary = async (req, res) => {
     if (!cart.items[0]?.productId?.title) {
       await cart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants",
+        select:
+          "title url_key images stockObj variants product_type bundle_config",
       });
     }
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(200).json({
       success: true,
@@ -1010,7 +1162,7 @@ const mergeCart = async (req, res) => {
       // Populate product data for stock calculation
       await userCart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants",
+        select: "title url_key images stockObj variants product_type",
       });
 
       const formatted = formatCartResponse(userCart);
@@ -1030,7 +1182,7 @@ const mergeCart = async (req, res) => {
       // Populate product data for stock calculation
       await userCart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants",
+        select: "title url_key images stockObj variants product_type",
       });
 
       const formatted = formatCartResponse(userCart);
@@ -1062,7 +1214,7 @@ const mergeCart = async (req, res) => {
         // Populate product data for stock calculation
         await guestCart.populate({
           path: "items.productId",
-          select: "title url_key images stockObj variants",
+          select: "title url_key images stockObj variants product_type",
         });
 
         const formatted = formatCartResponse(guestCart);
@@ -1081,7 +1233,7 @@ const mergeCart = async (req, res) => {
       // Populate product data for stock calculation
       await guestCart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants",
+        select: "title url_key images stockObj variants product_type",
       });
 
       const formatted = formatCartResponse(guestCart);
@@ -1246,7 +1398,8 @@ const applyCoupon = async (req, res) => {
 
     await cart.save();
 
-    const formatted = formatCartResponse(cart);
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const formatted = formatCartResponse(cart, bundleStocks);
 
     res.status(200).json({
       success: true,
