@@ -41,24 +41,53 @@ const calculateShipping = (subtotal, settings) => {
 };
 
 /**
- * Calculate cart totals (subtotal, tax, shipping, total)
+ * Calculate cart totals with dynamic pricing
+ * Fetches products and computes prices at runtime using quantity pricing resolver
+ *
+ * @param {Array} items - Cart items (must have productId populated or as ObjectId)
+ * @returns {{ subtotal, tax, shippingEstimate, total, itemPrices: Map }}
  */
 const calculateTotals = async (items) => {
-  // Calculate subtotal from REGULAR prices (before discount)
-  const subtotal = items.reduce((sum, item) => {
-    return sum + item.priceSnapshot * item.quantity;
-  }, 0);
+  const {
+    computeCartItemPricing,
+  } = require("../../utils/quantityPricingUtils");
 
-  // Calculate total using OFFER prices (after discount)
-  const totalAfterDiscount = items.reduce((sum, item) => {
-    const price = item.discountPriceSnapshot || item.priceSnapshot;
-    return sum + price * item.quantity;
-  }, 0);
+  let subtotal = 0; // Sum of basePrice * quantity (for display)
+  let totalAfterDiscount = 0; // Sum of unitPrice * quantity (actual total)
+  const itemPrices = new Map(); // Map itemId -> pricing info
+
+  for (const item of items) {
+    // Get product (may be populated or just ObjectId)
+    let product = item.productId;
+    if (!product || !product._id) {
+      product = await Product.findById(item.productId).select(
+        "price offerPrice offerStartAt offerEndAt quantityRules variants product_type"
+      );
+    }
+
+    if (!product) continue;
+
+    // Find variant if applicable
+    let variant = null;
+    if (item.variantId && product.variants) {
+      variant = product.variants.find((v) => v.id === item.variantId);
+    }
+
+    // Compute pricing using the resolver
+    const pricing = computeCartItemPricing(product, variant, item.quantity);
+
+    // Store for later use in formatCartResponse
+    const itemId = item._id ? item._id.toString() : item.productId.toString();
+    itemPrices.set(itemId, pricing);
+
+    // Accumulate totals
+    subtotal += pricing.basePrice * item.quantity;
+    totalAfterDiscount += pricing.lineTotal;
+  }
 
   const settings = await getCartSettings();
   const shippingEstimate = calculateShipping(totalAfterDiscount, settings);
 
-  // Note: logic is basic here; Cart model checks coupon discount on save
   const total = totalAfterDiscount + shippingEstimate;
 
   return {
@@ -66,19 +95,21 @@ const calculateTotals = async (items) => {
     tax: 0,
     shippingEstimate: Math.round(shippingEstimate * 100) / 100,
     total: Math.round(total * 100) / 100,
+    itemPrices, // Map of item pricing for formatCartResponse
   };
 };
 
 /**
  * Recompute and assign cart totals
- * Use this helper instead of manually calling calculateTotals + Object.assign
+ * Returns itemPrices map for use in formatCartResponse
  */
 const recomputeCartTotals = async (cart) => {
-  const totals = await calculateTotals(cart.items);
-  cart.subtotal = totals.subtotal;
-  cart.tax = totals.tax;
-  cart.shippingEstimate = totals.shippingEstimate;
-  cart.total = totals.total;
+  const result = await calculateTotals(cart.items);
+  cart.subtotal = result.subtotal;
+  cart.tax = result.tax;
+  cart.shippingEstimate = result.shippingEstimate;
+  cart.total = result.total;
+  return result.itemPrices;
 };
 
 /**
@@ -284,8 +315,29 @@ const createCart = async (req, res) => {
           }
         }
 
-        const bundleStocks = await computeBundleStocks(existingCart);
-        const formatted = formatCartResponse(existingCart, bundleStocks);
+        // Populate and compute pricing for existing cart
+        if (existingCart.items.length > 0) {
+          await existingCart.populate({
+            path: "items.productId",
+            select:
+              "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+          });
+          const totals = await calculateTotals(existingCart.items);
+          const itemPrices = totals.itemPrices;
+          const bundleStocks = await computeBundleStocks(req, existingCart);
+          const formatted = formatCartResponse(
+            existingCart,
+            bundleStocks,
+            itemPrices
+          );
+          return res.status(200).json({
+            success: true,
+            cart: formatted,
+          });
+        }
+
+        // No items - empty cart
+        const formatted = formatCartResponse(existingCart, null, null);
         return res.status(200).json({
           success: true,
           cart: formatted,
@@ -312,8 +364,8 @@ const createCart = async (req, res) => {
     };
     res.cookie(CART_ID, newCartId, cookieOptions);
 
-    const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    // New cart has no items
+    const formatted = formatCartResponse(cart, null, null);
 
     res.status(201).json({
       success: true,
@@ -403,21 +455,22 @@ const getCart = async (req, res) => {
       });
     }
 
-    // Recalculate totals to ensure they're up-to-date
+    // Ensure product data is populated for the response (needed for pricing)
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
+    // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
     const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
+    const itemPrices = totals.itemPrices;
 
     await cart.save();
-
-    // Ensure product data is populated for the response
-    await cart.populate({
-      path: "items.productId",
-      select:
-        "title url_key images stockObj variants product_type bundle_config sku",
-    });
 
     // Compute bundle stocks AND validation issues in ONE pass (no N+1)
     const { bundleStocks, issues } = await computeBundleStocksAndIssues(
@@ -425,8 +478,8 @@ const getCart = async (req, res) => {
       cart
     );
 
-    // Pass bundleStocks so formatCartResponse can set correct stock for bundle items
-    const formatted = formatCartResponse(cart, bundleStocks);
+    // Pass bundleStocks and itemPrices so formatCartResponse has all pricing data
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     // Cart validation result per bundle spec:
     // isValid: false blocks checkout, issues array explains why
@@ -541,13 +594,11 @@ const addItem = async (req, res) => {
       });
     }
 
-    // Prepare item data with snapshots
+    // Prepare item data (no price snapshots - prices computed dynamically)
     const itemData = {
       productId: item.productId,
       variantId: item.variantId || null,
       quantity: requestedQty,
-      priceSnapshot: productData.price,
-      discountPriceSnapshot: productData.discountPrice || null,
       titleSnapshot: productData.title,
       imageSnapshot: productData.image,
       skuSnapshot: item.sku || null,
@@ -557,23 +608,20 @@ const addItem = async (req, res) => {
     // Add item to cart
     await cartDoc.addItem(itemData);
 
-    // Recalculate totals
-    // Recalculate totals
-    const totals = await calculateTotals(cartDoc.items);
-    cartDoc.subtotal = totals.subtotal;
-    cartDoc.tax = totals.tax;
-    cartDoc.shippingEstimate = totals.shippingEstimate;
-    cartDoc.total = totals.total;
-    cartDoc.total = totals.total;
+    // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
+    const itemPrices = await recomputeCartTotals(cartDoc);
     await cartDoc.save();
 
     // Ensure product data is populated for the response
     await cartDoc.populate({
       path: "items.productId",
-      select: "title url_key images stockObj variants product_type",
+      select:
+        "title url_key images stockObj variants product_type quantityRules",
     });
 
-    const formatted = formatCartResponse(cartDoc);
+    // Get bundle stocks for bundle products
+    const bundleStocks = await computeBundleStocks(req, cartDoc);
+    const formatted = formatCartResponse(cartDoc, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,
@@ -637,23 +685,24 @@ const updateItem = async (req, res) => {
       }
     }
 
-    // Recalculate totals
+    // Ensure product data is populated first (needed for pricing)
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
+    // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
     const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
+    const itemPrices = totals.itemPrices;
     await cart.save();
 
-    // Ensure product data is populated for the response
-    await cart.populate({
-      path: "items.productId",
-      select:
-        "title url_key images stockObj variants product_type bundle_config",
-    });
-
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,
@@ -700,23 +749,24 @@ const removeItem = async (req, res) => {
 
     cart.items.pull(itemId);
 
-    // Recalculate totals
+    // Ensure product data is populated first (needed for pricing)
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
+    // Recalculate totals dynamically
     const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
+    const itemPrices = totals.itemPrices;
     await cart.save();
 
-    // Ensure product data is populated for the response
-    await cart.populate({
-      path: "items.productId",
-      select:
-        "title url_key images stockObj variants product_type bundle_config",
-    });
-
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,
@@ -760,8 +810,8 @@ const clearCart = async (req, res) => {
     cart.total = 0;
     await cart.save();
 
-    const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    // Empty cart - no bundle stocks or item prices needed
+    const formatted = formatCartResponse(cart, null, null);
 
     // Clear cookie also
     res.clearCookie(CART_ID);
@@ -826,26 +876,21 @@ const getItems = async (req, res) => {
       });
     }
 
-    // Ensure product data is populated for the response
+    // Ensure product data is populated for pricing
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config",
+        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
-    // Compute bundle stocks for BUNDLE products
-    const bundleStocks = new Map();
-    for (const item of cart.items) {
-      const product = item.productId;
-      if (product && product.product_type === PRODUCT_TYPES.BUNDLE) {
-        const availability = await bundleService.getBundleAvailability(
-          product.bundle_config
-        );
-        bundleStocks.set(product._id.toString(), availability.availableQty);
-      }
-    }
+    // Compute totals with itemPrices
+    const totals = await calculateTotals(cart.items);
+    const itemPrices = totals.itemPrices;
 
-    const formatted = formatCartResponse(cart, bundleStocks);
+    // Compute bundle stocks for BUNDLE products
+    const bundleStocks = await computeBundleStocks(req, cart);
+
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,
@@ -899,18 +944,19 @@ const getPriceSummary = async (req, res) => {
       });
     }
 
-    // Ensure product data is populated for the response (needed for price calculation)
-    // Assuming cart is already populated by middleware or we do it here
-    if (!cart.items[0]?.productId?.title) {
-      await cart.populate({
-        path: "items.productId",
-        select:
-          "title url_key images stockObj variants product_type bundle_config",
-      });
-    }
+    // Ensure product data is populated for pricing
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
+    // Compute totals with itemPrices
+    const totals = await calculateTotals(cart.items);
+    const itemPrices = totals.itemPrices;
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,
@@ -1037,17 +1083,19 @@ const getSummary = async (req, res) => {
       });
     }
 
-    // Ensure product data is populated for the response
-    if (!cart.items[0]?.productId?.title) {
-      await cart.populate({
-        path: "items.productId",
-        select:
-          "title url_key images stockObj variants product_type bundle_config",
-      });
-    }
+    // Ensure product data is populated for pricing
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
+    // Compute totals with itemPrices
+    const totals = await calculateTotals(cart.items);
+    const itemPrices = totals.itemPrices;
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,
@@ -1130,13 +1178,11 @@ const mergeCart = async (req, res) => {
           // DUPLICATE: SUM quantities
           userCart.items[existingIndex].quantity += guestItem.quantity;
         } else {
-          // NEW ITEM: Add to user cart
+          // NEW ITEM: Add to user cart (no price snapshots - computed dynamically)
           userCart.items.push({
             productId: guestItem.productId,
             variantId: guestItem.variantId,
             quantity: guestItem.quantity,
-            priceSnapshot: guestItem.priceSnapshot,
-            discountPriceSnapshot: guestItem.discountPriceSnapshot,
             titleSnapshot: guestItem.titleSnapshot,
             imageSnapshot: guestItem.imageSnapshot,
             skuSnapshot: guestItem.skuSnapshot,
@@ -1145,27 +1191,30 @@ const mergeCart = async (req, res) => {
         }
       }
 
-      // Recalculate totals
-      const totals = await calculateTotals(userCart.items);
-      userCart.subtotal = totals.subtotal;
-      userCart.tax = totals.tax;
-      userCart.shippingEstimate = totals.shippingEstimate;
-      userCart.total = totals.total;
-      await userCart.save();
-
       // Delete guest cart
       await Cart.deleteOne({ cartId: guestCart.cartId });
 
       // Update cookie to user cart
       setCartCookie(userCart.cartId);
 
-      // Populate product data for stock calculation
+      // Populate product data for pricing
       await userCart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants product_type",
+        select:
+          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
-      const formatted = formatCartResponse(userCart);
+      // Recalculate totals dynamically
+      const totals = await calculateTotals(userCart.items);
+      userCart.subtotal = totals.subtotal;
+      userCart.tax = totals.tax;
+      userCart.shippingEstimate = totals.shippingEstimate;
+      userCart.total = totals.total;
+      const itemPrices = totals.itemPrices;
+      await userCart.save();
+
+      const bundleStocks = await computeBundleStocks(req, userCart);
+      const formatted = formatCartResponse(userCart, bundleStocks, itemPrices);
       return res.status(200).json({
         success: true,
         cart: formatted,
@@ -1179,13 +1228,18 @@ const mergeCart = async (req, res) => {
     if (userCart && !guestCart) {
       setCartCookie(userCart.cartId);
 
-      // Populate product data for stock calculation
+      // Populate product data for pricing
       await userCart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants product_type",
+        select:
+          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
-      const formatted = formatCartResponse(userCart);
+      // Compute totals with itemPrices
+      const totals = await calculateTotals(userCart.items);
+      const itemPrices = totals.itemPrices;
+      const bundleStocks = await computeBundleStocks(req, userCart);
+      const formatted = formatCartResponse(userCart, bundleStocks, itemPrices);
       return res.status(200).json({
         success: true,
         cart: formatted,
@@ -1211,13 +1265,21 @@ const mergeCart = async (req, res) => {
 
       // Check if already assigned to this user
       if (guestCart.userId?.toString() === userId.toString()) {
-        // Populate product data for stock calculation
+        // Populate product data for pricing
         await guestCart.populate({
           path: "items.productId",
-          select: "title url_key images stockObj variants product_type",
+          select:
+            "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
         });
 
-        const formatted = formatCartResponse(guestCart);
+        const totals = await calculateTotals(guestCart.items);
+        const itemPrices = totals.itemPrices;
+        const bundleStocks = await computeBundleStocks(req, guestCart);
+        const formatted = formatCartResponse(
+          guestCart,
+          bundleStocks,
+          itemPrices
+        );
         return res.status(200).json({
           success: true,
           cart: formatted,
@@ -1230,13 +1292,17 @@ const mergeCart = async (req, res) => {
 
       // Cookie already points to this cart, no need to update
 
-      // Populate product data for stock calculation
+      // Populate product data for pricing
       await guestCart.populate({
         path: "items.productId",
-        select: "title url_key images stockObj variants product_type",
+        select:
+          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
-      const formatted = formatCartResponse(guestCart);
+      const totals = await calculateTotals(guestCart.items);
+      const itemPrices = totals.itemPrices;
+      const bundleStocks = await computeBundleStocks(req, guestCart);
+      const formatted = formatCartResponse(guestCart, bundleStocks, itemPrices);
       return res.status(200).json({
         success: true,
         cart: formatted,
@@ -1350,15 +1416,21 @@ const applyCoupon = async (req, res) => {
       }
     }
 
-    // Calculate cart value for minimum requirement
-    // Use subtotal or totalAfterDiscount (items only)
-    const totals = calculateTotals(cart.items);
-    // Assuming minCartValue applies to the item total after item discounts
-    // Calculate total from items only (excluding shipping) for validation
-    const cartItemTotal = cart.items.reduce((sum, item) => {
-      const price = item.discountPriceSnapshot || item.priceSnapshot;
-      return sum + price * item.quantity;
-    }, 0);
+    // ═══════════════════════════════════════════════════════════════════
+    // Calculate cart value for minimum requirement using dynamic pricing
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Populate product data for pricing
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
+    // Compute totals dynamically
+    const totals = await calculateTotals(cart.items);
+    const cartItemTotal = totals.total - totals.shippingEstimate; // items + tax, excluding shipping
+    const itemPrices = totals.itemPrices;
 
     if (cartItemTotal < coupon.minCartValue) {
       return res.status(400).json({
@@ -1367,7 +1439,7 @@ const applyCoupon = async (req, res) => {
       });
     }
 
-    // Calculate discount
+    // Calculate discount based on cart total
     let discountAmount = 0;
     if (coupon.type === "flat") {
       discountAmount = coupon.value;
@@ -1386,20 +1458,15 @@ const applyCoupon = async (req, res) => {
     };
 
     // Update totals with new discount
-    // The pre-save hook in Cart model will apply this discountAmount to the total
-    // But we need to make sure the hook logic aligns or we set it here.
-    // The hook: if (this.coupon && this.coupon.discountAmount > 0) totalAfterDiscount -= ...
-    // So setting it here is correct.
-
-    // We also need to update other totals
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
+    // total will be recalculated in pre-save hook minus coupon discount
 
     await cart.save();
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks);
+    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
 
     res.status(200).json({
       success: true,

@@ -15,10 +15,11 @@ const cartHasBundles = (cart) => {
  * IMPORTANT: If cart contains BUNDLE products, bundleStocks is REQUIRED.
  * This prevents future regressions where bundles show stock=0.
  *
- * @param {Object} cart - Cart document
+ * @param {Object} cart - Cart document with populated items
  * @param {Map} bundleStocks - Map of productId -> bundleAvailableQty for BUNDLE products
+ * @param {Map} itemPrices - Map of itemId -> pricing info from calculateTotals
  */
-const formatCartResponse = (cart, bundleStocks = null) => {
+const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
   if (!cart) return null;
 
   // Enforce bundleStocks for carts with bundles (prevents regressions)
@@ -26,8 +27,6 @@ const formatCartResponse = (cart, bundleStocks = null) => {
     console.error(
       "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products"
     );
-    // Don't throw to avoid breaking existing code, but log warning
-    // Bundles will show stock=0 if bundleStocks not provided
   }
 
   // Format items
@@ -41,7 +40,6 @@ const formatCartResponse = (cart, bundleStocks = null) => {
 
       if (productType === "BUNDLE") {
         // For bundles, use pre-computed bundleStocks or default to 0
-        // Bundles don't store stock - it's computed from child products
         if (bundleStocks && bundleStocks.has(product._id.toString())) {
           stock = bundleStocks.get(product._id.toString());
         }
@@ -60,6 +58,10 @@ const formatCartResponse = (cart, bundleStocks = null) => {
       }
     }
 
+    // Get pricing from itemPrices map (computed dynamically)
+    const itemId = item._id ? item._id.toString() : item.productId.toString();
+    const pricing = itemPrices ? itemPrices.get(itemId) : null;
+
     const itemObj = {
       _id: item._id.toString(), // Item ID (embedded document ID, needed for updates)
       productId: item.productId?._id
@@ -68,8 +70,21 @@ const formatCartResponse = (cart, bundleStocks = null) => {
       variantId: item.variantId || null,
       quantity: item.quantity,
       stock,
-      priceSnapshot: item.priceSnapshot,
-      discountPriceSnapshot: item.discountPriceSnapshot || null,
+      // New dynamic pricing fields (replaces priceSnapshot/discountPriceSnapshot)
+      unitPrice: pricing?.unitPrice ?? 0,
+      basePrice: pricing?.basePrice ?? 0,
+      originalPrice: pricing?.originalPrice ?? pricing?.basePrice ?? 0,
+      lineTotal: pricing?.lineTotal ?? 0,
+      // Pricing metadata for tier messaging
+      pricingMeta: pricing
+        ? {
+            appliedRule: pricing.appliedRule,
+            nextTier: pricing.nextTier,
+            savings: pricing.savings,
+            isOfferActive: pricing.isOfferActive,
+          }
+        : null,
+      // Display snapshots
       titleSnapshot: item.titleSnapshot,
       imageSnapshot: item.imageSnapshot,
       skuSnapshot: item.skuSnapshot || null,

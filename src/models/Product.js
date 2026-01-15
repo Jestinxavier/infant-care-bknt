@@ -37,6 +37,13 @@ const variantSchema = new mongoose.Schema(
     offerPrice: { type: Number, min: 0 },
     offerStartAt: { type: Date },
     offerEndAt: { type: Date },
+    // Quantity-based tiered pricing (overrides product-level rules if defined)
+    quantityRules: [
+      {
+        minQty: { type: Number, required: true, min: 2 },
+        price: { type: Number, required: true, min: 0.01 },
+      },
+    ],
     // Nested stock object (new format)
     stockObj: {
       available: { type: Number, default: 0, min: 0 },
@@ -157,6 +164,7 @@ const productSchema = new mongoose.Schema(
           title: { type: String }, // Product title for display
           url_key: { type: String }, // Product URL key for linking
           qty: { type: Number, required: true, min: 1 },
+          isFree: { type: Boolean, default: false }, // Mark item as free in bundle
         },
       ],
     },
@@ -166,6 +174,14 @@ const productSchema = new mongoose.Schema(
     offerPrice: { type: Number, min: 0 },
     offerStartAt: { type: Date },
     offerEndAt: { type: Date },
+
+    // Quantity-based tiered pricing (not applicable to BUNDLE products)
+    quantityRules: [
+      {
+        minQty: { type: Number, required: true, min: 2 },
+        price: { type: Number, required: true, min: 0.01 },
+      },
+    ],
 
     // Product-level stock (parent level)
     stockObj: {

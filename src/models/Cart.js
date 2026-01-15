@@ -2,6 +2,9 @@
 const mongoose = require("mongoose");
 
 // Cart Item Schema (embedded in Cart)
+// NOTE: Cart items NO LONGER store price snapshots.
+// Prices are computed dynamically at runtime using product pricing rules.
+// This ensures cart always reflects current pricing truth.
 const cartItemSchema = new mongoose.Schema(
   {
     productId: {
@@ -19,16 +22,7 @@ const cartItemSchema = new mongoose.Schema(
       min: 1,
       default: 1,
     },
-    // Snapshots to preserve data at time of adding to cart
-    priceSnapshot: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
-    discountPriceSnapshot: {
-      type: Number,
-      min: 0,
-    },
+    // Display snapshots (for cart UI, not for pricing)
     titleSnapshot: {
       type: String,
       required: true,
@@ -136,32 +130,21 @@ const cartSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save middleware to calculate totals
+// Pre-save middleware
+// NOTE: Totals are no longer computed from stored price snapshots.
+// They are computed dynamically by the controller using current product pricing.
+// This hook only handles coupon clamping and total safety checks.
 cartSchema.pre("save", function (next) {
-  // Calculate subtotal from REGULAR prices (priceSnapshot)
-  this.subtotal = this.items.reduce((sum, item) => {
-    return sum + item.priceSnapshot * item.quantity;
-  }, 0);
+  // Totals are managed by controller via calculateTotals()
+  // which fetches products and computes pricing dynamically
 
-  // Calculate totalAfterDiscount using OFFER prices
-  let totalAfterDiscount = this.items.reduce((sum, item) => {
-    const price = item.discountPriceSnapshot || item.priceSnapshot;
-    return sum + price * item.quantity;
-  }, 0);
-
-  // Apply Coupon Discount (if any)
+  // Apply Coupon Discount clamping (if any)
   if (this.coupon && this.coupon.discountAmount > 0) {
-    // Ensure we don't discount more than the total
-    if (this.coupon.discountAmount > totalAfterDiscount) {
-      this.coupon.discountAmount = totalAfterDiscount; // Clamp
+    // Ensure we don't discount more than the subtotal
+    if (this.coupon.discountAmount > this.subtotal) {
+      this.coupon.discountAmount = this.subtotal; // Clamp
     }
-    totalAfterDiscount -= this.coupon.discountAmount;
   }
-
-  // Calculate total (totalAfterDiscount + tax + shipping)
-  // Note: shippingEstimate is set by controller, but we ensure total logic is consistent here
-  this.total =
-    totalAfterDiscount + (this.tax || 0) + (this.shippingEstimate || 0);
 
   // Final safety clamp
   if (this.total < 0) {
@@ -186,13 +169,12 @@ cartSchema.statics.findOrCreate = async function (cartId, userId = null) {
 };
 
 // Instance method to add item
+// NOTE: No longer stores price snapshots - prices computed dynamically
 cartSchema.methods.addItem = function (itemData) {
   const {
     productId,
     variantId,
     quantity,
-    priceSnapshot,
-    discountPriceSnapshot,
     titleSnapshot,
     imageSnapshot,
     skuSnapshot,
@@ -215,8 +197,6 @@ cartSchema.methods.addItem = function (itemData) {
       productId,
       variantId: variantId || null,
       quantity,
-      priceSnapshot,
-      discountPriceSnapshot: discountPriceSnapshot || null,
       titleSnapshot,
       imageSnapshot,
       skuSnapshot: skuSnapshot || null,

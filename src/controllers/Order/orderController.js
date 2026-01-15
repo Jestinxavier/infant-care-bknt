@@ -13,6 +13,7 @@ const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
 const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
+const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
 
 const generateOrderId = () =>
   crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -141,11 +142,13 @@ const createOrder = async (req, res) => {
 
       let regularPrice, offerPrice, stock, variantData;
       let bundleChildDeductions = []; // For bundle child stock deductions
+      let unitPrice; // Resolved price after quantity tiers (for non-bundles)
 
-      // Handle BUNDLE products
+      // Handle BUNDLE products (no quantity tiers)
       if (product.product_type === PRODUCT_TYPES.BUNDLE) {
         regularPrice = product.pricing?.price || product.price || 0;
         offerPrice = product.pricing?.discountPrice || regularPrice;
+        unitPrice = offerPrice; // Bundles don't support quantity tiers
 
         // Compute bundle availability from children
         const bundleAvailability = await bundleService.getBundleAvailability(
@@ -175,10 +178,26 @@ const createOrder = async (req, res) => {
         regularPrice = variantData.pricing?.price || variantData.price || 0;
         offerPrice = variantData.pricing?.discountPrice || regularPrice;
         stock = variantData.stockObj?.available ?? variantData.stock ?? 0;
+
+        // Apply quantity-based tiered pricing for variants
+        const pricingResult = computeCartItemPricing(
+          product,
+          variantData,
+          item.quantity
+        );
+        unitPrice = pricingResult.unitPrice;
       } else {
         regularPrice = product.pricing?.price || product.price || 0;
         offerPrice = product.pricing?.discountPrice || regularPrice;
         stock = product.stockObj?.available ?? product.stock ?? 0;
+
+        // Apply quantity-based tiered pricing for simple products
+        const pricingResult = computeCartItemPricing(
+          product,
+          null,
+          item.quantity
+        );
+        unitPrice = pricingResult.unitPrice;
       }
 
       // Find matching item in cart to get attributes
@@ -207,16 +226,18 @@ const createOrder = async (req, res) => {
 
       const itemQuantity = Number(item.quantity);
 
+      // Use regularPrice for subtotal (original price before discounts)
       subtotal += regularPrice * itemQuantity;
-      totalAfterDiscount += offerPrice * itemQuantity;
+      // Use unitPrice (after quantity tiers) for final pricing
+      totalAfterDiscount += unitPrice * itemQuantity;
       totalQuantity += itemQuantity;
 
       orderItems.push({
         productId: product._id,
         variantId: item.variantId || null,
         quantity: itemQuantity,
-        price: offerPrice,
-        regularPrice: regularPrice,
+        price: unitPrice, // Resolved price after quantity tiers
+        regularPrice: regularPrice, // Original price for display
 
         // Product Snapshot
         name: product.name || product.title,
