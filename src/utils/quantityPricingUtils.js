@@ -45,7 +45,7 @@ function validateQuantityRules(basePrice, rules) {
       errors.push(
         `Tier ${i + 1}: Tier price (${
           rule.price
-        }) must be less than base price (${basePrice})`
+        }) must be less than base price (${basePrice})`,
       );
     }
 
@@ -54,7 +54,7 @@ function validateQuantityRules(basePrice, rules) {
       errors.push(
         `Tier ${i + 1}: Minimum quantity must be greater than previous tier (${
           sortedRules[i - 1].minQty
-        })`
+        })`,
       );
     }
 
@@ -63,7 +63,7 @@ function validateQuantityRules(basePrice, rules) {
       errors.push(
         `Tier ${i + 1}: Price must be less than previous tier (${
           sortedRules[i - 1].price
-        })`
+        })`,
       );
     }
   }
@@ -103,24 +103,27 @@ function resolveQuantityPrice(effectiveBasePrice, quantityRules, quantity) {
     return result;
   }
 
-  if (!quantityRules || quantityRules.length === 0 || quantity < 2) {
+  if (!quantityRules || quantityRules.length === 0) {
     return result;
   }
 
-  // Sort by minQty DESC to find highest applicable rule
-  const sortedRules = [...quantityRules].sort((a, b) => b.minQty - a.minQty);
+  // Only calculate applied rule if quantity >= 2
+  if (quantity >= 2) {
+    // Sort by minQty DESC to find highest applicable rule
+    const sortedRules = [...quantityRules].sort((a, b) => b.minQty - a.minQty);
 
-  // Find applied rule (highest minQty that quantity satisfies)
-  for (const rule of sortedRules) {
-    if (quantity >= rule.minQty) {
-      result.unitPrice = rule.price;
-      result.appliedRule = { minQty: rule.minQty, price: rule.price };
-      result.savings = (effectiveBasePrice - rule.price) * quantity;
-      break;
+    // Find applied rule (highest minQty that quantity satisfies)
+    for (const rule of sortedRules) {
+      if (quantity >= rule.minQty) {
+        result.unitPrice = rule.price;
+        result.appliedRule = { minQty: rule.minQty, price: rule.price };
+        result.savings = (effectiveBasePrice - rule.price) * quantity;
+        break;
+      }
     }
   }
 
-  // Find next tier (lowest minQty greater than current quantity)
+  // Always calculate next tier (even for qty=1, to encourage bulk purchase)
   const sortedAsc = [...quantityRules].sort((a, b) => a.minQty - b.minQty);
   for (const rule of sortedAsc) {
     if (rule.minQty > quantity) {
@@ -187,7 +190,7 @@ function computeCartItemPricing(product, variant, quantity) {
   const quantityPricing = resolveQuantityPrice(
     effectiveBasePrice,
     quantityRules,
-    quantity
+    quantity,
   );
 
   return {
@@ -211,7 +214,7 @@ function computeCartItemPricing(product, variant, quantity) {
  */
 function formatNextTierMessage(
   nextTier,
-  template = "Buy {{minQty}} or more and pay ₹{{price}} each"
+  template = "Buy {{minQty}} or more and pay ₹{{price}} each",
 ) {
   if (!nextTier) return null;
 

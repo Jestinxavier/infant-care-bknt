@@ -9,18 +9,29 @@ const variantOptionValueSchema = new mongoose.Schema(
     label: { type: String },
     hex: { type: String },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Variant Option Schema
+// Uses attributeId (ObjectId) as foreign key to attribute_definitions
+// Keeps name/code for backward compatibility during migration
 const variantOptionSchema = new mongoose.Schema(
   {
-    id: { type: String, required: true },
-    name: { type: String, required: true },
-    code: { type: String, required: true },
+    // NEW: Reference to global attribute definition
+    attributeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AttributeDefinition",
+    },
+    // LEGACY: Kept for backward compatibility during migration
+    id: { type: String },
+    name: { type: String },
+    code: { type: String },
+    // Position for display ordering
+    position: { type: Number, default: 0 },
+    // Product-scoped values
     values: [variantOptionValueSchema],
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Image Metadata Schema
@@ -34,7 +45,7 @@ const imageMetadataSchema = new mongoose.Schema(
     size: { type: Number },
     alt: { type: String },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Variant Schema (embedded)
@@ -57,6 +68,8 @@ const variantSchema = new mongoose.Schema(
     images: [imageMetadataSchema],
     options: { type: Map, of: String },
     attributes: { type: Map, of: String },
+    // Hash of options for duplicate detection (e.g., "color:red|size:m")
+    _optionsHash: { type: String },
     weight: { type: Number },
     length: { type: Number },
     width: { type: Number },
@@ -64,7 +77,7 @@ const variantSchema = new mongoose.Schema(
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
     totalReviews: { type: Number, default: 0, min: 0 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Detail Field Schema (for details.fields array)
@@ -83,7 +96,7 @@ const detailFieldSchema = new mongoose.Schema(
       default: "text",
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Detail Schema (for details array)
@@ -95,7 +108,7 @@ const detailSchema = new mongoose.Schema(
     badges: { type: Array, default: [] },
     flex_box: { type: Boolean, default: false },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Product Type Enum
@@ -103,6 +116,7 @@ const PRODUCT_TYPES = {
   SIMPLE: "SIMPLE",
   CONFIGURABLE: "CONFIGURABLE",
   BUNDLE: "BUNDLE",
+  CHOICE_GROUP: "CHOICE_GROUP",
 };
 
 // Bundle Item Schema (for bundle_config.items)
@@ -111,7 +125,7 @@ const bundleItemSchema = new mongoose.Schema(
     sku: { type: String, required: true },
     qty: { type: Number, required: true, min: 1 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Bundle Config Schema
@@ -120,7 +134,7 @@ const bundleConfigSchema = new mongoose.Schema(
     pricing: { type: String, enum: ["FIXED"], default: "FIXED" },
     items: [bundleItemSchema],
   },
-  { _id: false }
+  { _id: false },
 );
 
 // URL Key History Schema
@@ -129,7 +143,7 @@ const urlKeyHistorySchema = new mongoose.Schema(
     urlKey: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Product Schema
@@ -163,8 +177,30 @@ const productSchema = new mongoose.Schema(
     },
     // Bundle configuration (only for BUNDLE product_type)
     bundle_config: bundleConfigSchema,
-    variantOptions: [variantOptionSchema],
-    variants: [variantSchema],
+    variantOptions: {
+      type: [variantOptionSchema],
+      validate: {
+        validator: function (options) {
+          // Check for duplicate attributes (by attributeId or code for legacy)
+          const ids = options.map((o) =>
+            o.attributeId ? o.attributeId.toString() : o.code,
+          );
+          return ids.length === new Set(ids).size;
+        },
+        message: "Duplicate attributes are not allowed in a single product",
+      },
+    },
+    variants: {
+      type: [variantSchema],
+      validate: {
+        validator: function (variants) {
+          // Check for duplicate _optionsHash
+          const hashes = variants.map((v) => v._optionsHash).filter(Boolean);
+          return hashes.length === new Set(hashes).size;
+        },
+        message: "Duplicate variant combinations are not allowed",
+      },
+    },
     details: [detailSchema],
     images: [imageMetadataSchema],
     tags: [{ type: String, trim: true }],
@@ -197,7 +233,7 @@ const productSchema = new mongoose.Schema(
   {
     timestamps: true,
     collection: "products",
-  }
+  },
 );
 
 // Indexes
@@ -213,6 +249,12 @@ productSchema.index({ sku: 1 }, { unique: true, sparse: true });
 
 // Compound unique index for variant SKU across all products
 productSchema.index({ "variants.sku": 1 }, { unique: true, sparse: true });
+
+// Index for variant options hash (for duplicate detection within a product)
+productSchema.index({ "variants._optionsHash": 1 }, { sparse: true });
+
+// Index for attributeId lookups
+productSchema.index({ "variantOptions.attributeId": 1 }, { sparse: true });
 
 // Pre-save hook for URL key generation (only on creation)
 productSchema.pre("save", async function (next) {

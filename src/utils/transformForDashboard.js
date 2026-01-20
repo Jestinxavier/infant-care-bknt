@@ -165,7 +165,21 @@ function transformForDashboard(product) {
     discountPrice: product.pricing?.discountPrice || null, // Discount price if exists
 
     // Product Type
-    product_type: product.product_type || "SIMPLE",
+    product_type:
+      product.product_type || (hasVariants ? "CONFIGURABLE" : "SIMPLE"),
+
+    // Variants (needed for low stock alerts)
+    variants: hasVariants
+      ? product.variants.map((v) => ({
+          _id: v.id || v._id, // Ensure ID is available
+          id: v.id || v._id,
+          sku: v.sku,
+          stock: v.stockObj?.available ?? v.stock ?? 0,
+          price: v.pricing?.price || v.price || 0,
+          attributes: getVariantAttributes(v), // Use helper to normalize attributes
+          options: getVariantAttributes(v), // Backward compatibility
+        }))
+      : [],
 
     // Display fields
     thumbnail,

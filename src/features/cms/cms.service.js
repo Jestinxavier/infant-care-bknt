@@ -5,6 +5,7 @@ const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
 const ApiError = require("../../core/ApiError");
 const mongoose = require("mongoose");
+const menuValidator = require("./menu.validation");
 
 /**
  * CMS Service
@@ -459,6 +460,32 @@ class CmsService {
           typeof contentData === "object" &&
           contentData !== null
         ) {
+          // Special validation for header navigation menu
+          if (
+            page === "header" &&
+            contentData.navigation &&
+            contentData.navigation.menu
+          ) {
+            console.log(
+              "[CMS Service] Validating header navigation menu structure"
+            );
+            const validationResult = menuValidator.validateMenu(
+              contentData.navigation.menu
+            );
+
+            if (!validationResult.valid) {
+              console.error(
+                "[CMS Service] Menu validation failed:",
+                validationResult.errors
+              );
+              throw ApiError.badRequest(
+                `Menu validation failed: ${validationResult.errors.join("; ")}`
+              );
+            }
+
+            console.log("[CMS Service] Menu validation passed successfully");
+          }
+
           updateData = { content: contentData };
         } else {
           updateData = contentData;

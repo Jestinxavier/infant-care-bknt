@@ -4,79 +4,137 @@ const cloudinary = require("../config/cloudinary");
 
 /**
  * Cleanup expired temporary assets
- * Runs daily at 2:00 AM
+ * Runs daily at 2:00 AM (cron) or can be called manually
  *
  * Deletes assets where:
- * - status = "temp"
- * - expiresAt < NOW()
- * - usedBy.length === 0 (not in use)
+ * - status = "temp" and expiresAt < NOW() and usedBy.length === 0
+ * - status = "archived" and archivedAt < 7 days ago
  */
-const cleanupExpiredAssets = () => {
+
+/**
+ * Execute the cleanup logic (shared by cron and manual trigger)
+ * @param {Object} options - Cleanup options
+ * @param {boolean} options.dryRun - If true, only report what would be deleted
+ * @returns {Object} - Cleanup results
+ */
+const executeCleanup = async (options = {}) => {
+  const { dryRun = false } = options;
+  const now = new Date();
+  const results = {
+    tempAssetsFound: 0,
+    archivedAssetsFound: 0,
+    deletedCount: 0,
+    failedCount: 0,
+    errors: [],
+    deletedAssets: [],
+  };
+
+  try {
+    // 1. Find expired temp assets (24h default)
+    const expiredTempAssets = await Asset.find({
+      status: "temp",
+      expiresAt: { $lt: now },
+      usedBy: { $size: 0 },
+    }).limit(500); // Increased limit for backlog
+
+    results.tempAssetsFound = expiredTempAssets.length;
+
+    // 2. Find archived assets for hard delete (older than 7 days)
+    const archiveRetentionDate = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const expiredArchivedAssets = await Asset.find({
+      status: "archived",
+      archivedAt: { $lt: archiveRetentionDate },
+    }).limit(100);
+
+    results.archivedAssetsFound = expiredArchivedAssets.length;
+
+    const allAssetsToDelete = [...expiredTempAssets, ...expiredArchivedAssets];
+
+    if (allAssetsToDelete.length === 0) {
+      console.log("🧹 [Asset Cleanup] No assets to clean up.");
+      return results;
+    }
+
+    console.log(
+      `🧹 [Asset Cleanup] Found ${allAssetsToDelete.length} assets to delete (${expiredTempAssets.length} temp, ${expiredArchivedAssets.length} archived).`
+    );
+
+    if (dryRun) {
+      console.log("🔍 [Dry Run] Would delete the following assets:");
+      allAssetsToDelete.forEach((asset) => {
+        console.log(`  - ${asset.publicId} (${asset.status})`);
+        results.deletedAssets.push({
+          publicId: asset.publicId,
+          status: asset.status,
+          expiresAt: asset.expiresAt,
+          archivedAt: asset.archivedAt,
+        });
+      });
+      return results;
+    }
+
+    // Process deletions
+    for (const asset of allAssetsToDelete) {
+      try {
+        // Physical Delete from Cloudinary
+        await cloudinary.cloudinary.uploader.destroy(asset.publicId, {
+          resource_type: "image",
+        });
+
+        // Delete from DB
+        await Asset.findByIdAndDelete(asset._id);
+        console.log(`  ✅ Deleted: ${asset.publicId}`);
+
+        results.deletedCount++;
+        results.deletedAssets.push({
+          publicId: asset.publicId,
+          status: asset.status,
+        });
+      } catch (error) {
+        console.error(
+          `  ❌ Failed to delete ${asset.publicId}:`,
+          error.message
+        );
+        results.failedCount++;
+        results.errors.push({
+          publicId: asset.publicId,
+          error: error.message,
+        });
+      }
+    }
+
+    console.log(
+      `✅ Cleanup complete: ${results.deletedCount} deleted, ${results.failedCount} failed`
+    );
+
+    return results;
+  } catch (error) {
+    console.error("❌ Cleanup execution error:", error);
+    results.errors.push({ error: error.message });
+    throw error;
+  }
+};
+
+/**
+ * Start the cron job for scheduled cleanup
+ */
+const startCleanupCron = () => {
   // Schedule: Run every day at 2 AM (0 2 * * *)
   cron.schedule("0 2 * * *", async () => {
+    console.log("🕐 [Asset Cleanup] Cron job triggered at 2 AM");
     try {
-      const now = new Date();
-      // 1. Cleanup expired temp assets (24h default)
-      const expiredTempAssets = await Asset.find({
-        status: "temp",
-        expiresAt: { $lt: now },
-        usedBy: { $size: 0 },
-      }).limit(100);
-
-      // 2. Cleanup archived assets (Hard delete after 7 days)
-      const archiveRetentionDate = new Date(now - 7 * 24 * 60 * 60 * 1000);
-      const expiredArchivedAssets = await Asset.find({
-        status: "archived",
-        archivedAt: { $lt: archiveRetentionDate },
-      }).limit(100);
-
-      const allAssetsToDelete = [
-        ...expiredTempAssets,
-        ...expiredArchivedAssets,
-      ];
-
-      if (allAssetsToDelete.length === 0) {
-        console.log("🧹 [Asset Cleanup] No assets to clean up.");
-        return;
-      }
-
-      console.log(
-        `🧹 [Asset Cleanup] Found ${allAssetsToDelete.length} assets to delete (${expiredTempAssets.length} temp, ${expiredArchivedAssets.length} archived).`
-      );
-
-      let deletedCount = 0;
-      let failedCount = 0;
-
-      for (const asset of allAssetsToDelete) {
-        try {
-          // Physical Delete from Cloudinary
-          await cloudinary.cloudinary.uploader.destroy(asset.publicId, {
-            resource_type: "image",
-          });
-
-          // Delete from DB
-          await Asset.findByIdAndDelete(asset._id);
-          console.log(`  ✅ Deleted from DB: ${asset.publicId}`);
-
-          deletedCount++;
-        } catch (error) {
-          console.error(
-            `  ❌ Failed to delete ${asset.publicId}:`,
-            error.message
-          );
-          failedCount++;
-        }
-      }
-
-      console.log(
-        `✅ Cleanup complete: ${deletedCount} deleted, ${failedCount} failed`
-      );
+      await executeCleanup();
     } catch (error) {
-      console.error("❌ Cleanup job error:", error);
+      console.error("❌ Cron cleanup job error:", error);
     }
   });
 
   console.log("✅ Asset cleanup cron job scheduled (daily at 2 AM)");
 };
 
-module.exports = cleanupExpiredAssets;
+// Default export for backward compatibility (starts cron)
+module.exports = startCleanupCron;
+
+// Named exports for manual triggering
+module.exports.executeCleanup = executeCleanup;
+module.exports.startCleanupCron = startCleanupCron;

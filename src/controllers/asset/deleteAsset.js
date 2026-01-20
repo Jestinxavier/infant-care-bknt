@@ -4,10 +4,13 @@ const Asset = require("../../models/Asset");
 /**
  * Delete asset (only if temp and not in use)
  * DELETE /api/admin/assets/:id
+ * Query params:
+ *   - force=true: Archive permanent assets for delayed deletion (7-day retention)
  */
 const deleteAsset = async (req, res) => {
   try {
     const { id } = req.params;
+    const { force } = req.query;
     const mongoose = require("mongoose");
 
     let asset = null;
@@ -35,11 +38,35 @@ const deleteAsset = async (req, res) => {
       });
     }
 
-    // Block deletion if permanent
+    // Handle permanent assets
     if (asset.status === "permanent") {
+      // If force flag is set, archive the asset for delayed deletion
+      if (force === "true") {
+        asset.status = "archived";
+        asset.archivedAt = new Date();
+        asset.usedBy = []; // Clear usage references
+        await asset.save();
+
+        console.log(
+          `📦 Asset archived for delayed deletion: ${asset.publicId}`
+        );
+
+        return res.status(200).json({
+          success: true,
+          message: "Asset archived for deletion (will be removed in 7 days)",
+          archivedAsset: {
+            id: asset._id,
+            publicId: asset.publicId,
+            archivedAt: asset.archivedAt,
+          },
+        });
+      }
+
+      // Without force flag, block deletion
       return res.status(403).json({
         success: false,
-        message: "Cannot delete permanent assets. Asset is protected.",
+        message:
+          "Cannot delete permanent assets. Use force=true to archive for delayed deletion.",
       });
     }
 

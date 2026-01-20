@@ -11,18 +11,23 @@ const variantOptionValueSchema = new mongoose.Schema(
     hex: { type: String }, // For color variants
     metadata: { type: Map, of: String }, // ✅ NEW: Additional metadata (image_url, etc.)
   },
-  { _id: false }
+  { _id: false },
 );
 
 const variantOptionSchema = new mongoose.Schema(
   {
     id: { type: String, required: true },
+    attributeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AttributeDefinition",
+      required: true,
+    }, // ✅ REQUIRED: Reference to global attribute
     name: { type: String, required: true },
     code: { type: String, required: true },
     values: [variantOptionValueSchema],
     position: { type: Number, default: 0 }, // ✅ NEW: Display order
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Variant Schema (embedded in Product)
@@ -61,7 +66,7 @@ const variantSchema = new mongoose.Schema(
     _optionsHash: { type: String }, // ✅ NEW: Hash of options for duplicate detection
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" }, // ✅ NEW: Reference to parent product
   },
-  { _id: false }
+  { _id: false },
 );
 
 // Detail Field Schema - Used across all section types
@@ -80,7 +85,7 @@ const detailFieldSchema = new mongoose.Schema(
     label: { type: String },
     value: { type: String },
   },
-  { _id: false, strict: false }
+  { _id: false, strict: false },
 );
 
 // Detail Section Schema
@@ -101,7 +106,7 @@ const detailSchema = new mongoose.Schema(
     // For all types (structure differs based on type)
     fields: [detailFieldSchema],
   },
-  { _id: false, strict: false }
+  { _id: false, strict: false },
 );
 
 const productSchema = new mongoose.Schema(
@@ -147,10 +152,10 @@ const productSchema = new mongoose.Schema(
       default: "draft",
     },
 
-    // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle)
+    // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle), CHOICE_GROUP (gift choice)
     product_type: {
       type: String,
-      enum: ["SIMPLE", "CONFIGURABLE", "BUNDLE"],
+      enum: ["SIMPLE", "CONFIGURABLE", "BUNDLE", "CHOICE_GROUP"],
       default: "SIMPLE",
       index: true,
     },
@@ -165,6 +170,17 @@ const productSchema = new mongoose.Schema(
           url_key: { type: String }, // Product URL key for linking
           qty: { type: Number, required: true, min: 1 },
           isFree: { type: Boolean, default: false }, // Mark item as free in bundle
+        },
+      ],
+    },
+
+    // Choice configuration (only for CHOICE_GROUP product_type)
+    // CHOICE_GROUP products are NOT sellable - they reference bundle products that ARE sellable
+    choice_config: {
+      choices: [
+        {
+          bundle_id: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+          label: { type: String }, // Display label e.g., "Free Jabala", "Free Towel"
         },
       ],
     },
@@ -217,7 +233,7 @@ const productSchema = new mongoose.Schema(
 
     createdAt: { type: Date, default: Date.now },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Pre-save middleware to sync name with title for backward compatibility
@@ -230,11 +246,46 @@ productSchema.pre("save", function (next) {
   if (!this.title && this.name) {
     this.title = this.name;
   }
+
+  // ✅ VALIDATION: Ensure no duplicate variants based on _optionsHash
+  if (this.variants && this.variants.length > 0) {
+    const hashes = new Set();
+    for (const variant of this.variants) {
+      if (variant._optionsHash) {
+        if (hashes.has(variant._optionsHash)) {
+          return next(
+            new Error(
+              `Duplicate variant configuration detected. Options Hash: ${variant._optionsHash}`,
+            ),
+          );
+        }
+        hashes.add(variant._optionsHash);
+      }
+    }
+  }
+
   next();
 });
 
 // Index for url_key lookups
 productSchema.index({ url_key: 1 });
+
+// ✅ NEW: Unique index to prevent duplicate variants within the same parent product
+// Note: Sparse is needed because non-variant products (SIMPLE) won't have parentId or _optionsHash on the parent level
+// But wait, variants are embedded. We can't index embedded docs like this easily for uniqueness across array elements in Mongo < ???
+// Correction: Mongoose/Mongo doesn't support unique index on array of embedded objects like this easily without specific "variants.sku" syntax.
+// However, the USER Requirement 8 says: "Unique index on { productId, _optionsHash }".
+// Since variants are EMBEDDED in `Product` model, this requirement implies `_optionsHash` is unique *within the variants array*.
+// MongoDB cannot strictly enforce array uniqueness via standard index. Ideally, this logic lives in the controller (which we have in `createProduct` and `bulkImport`).
+// BUT if the request implies a separate collection or specific schema validation:
+// "Hash includes sorted attribute/value pairs. Result: no duplicate variants — ever."
+// Given the current schema is EMBEDDED, I will add a pre-save hook to enforce this uniqueness logic since a DB index on embedded array elements for checking distinctness relative to siblings is complex.
+// Actually, user might mean "Product Uniqueness" if modeled differently, but here it is embedded.
+// I will implement the PRE-SAVE VALIDATION for this.
+
+// Create index for fast lookups
+productSchema.index({ "variants.sku": 1 });
+productSchema.index({ "variants._optionsHash": 1 });
 
 // Force clear any cached model to ensure schema updates are applied
 if (mongoose.connection.models.Product) {

@@ -57,13 +57,15 @@ const calculateTotals = async (items) => {
   const itemPrices = new Map(); // Map itemId -> pricing info
 
   for (const item of items) {
-    // Get product (may be populated or just ObjectId)
-    let product = item.productId;
-    if (!product || !product._id) {
-      product = await Product.findById(item.productId).select(
-        "price offerPrice offerStartAt offerEndAt quantityRules variants product_type"
-      );
-    }
+    // Get product ID
+    const productId = item.productId?._id || item.productId;
+
+    // Always fetch product directly for pricing fields (populate may not return quantityRules)
+    const product = await Product.findById(productId)
+      .select(
+        "price offerPrice offerStartAt offerEndAt quantityRules variants product_type",
+      )
+      .lean();
 
     if (!product) continue;
 
@@ -77,7 +79,7 @@ const calculateTotals = async (items) => {
     const pricing = computeCartItemPricing(product, variant, item.quantity);
 
     // Store for later use in formatCartResponse
-    const itemId = item._id ? item._id.toString() : item.productId.toString();
+    const itemId = item._id ? item._id.toString() : productId.toString();
     itemPrices.set(itemId, pricing);
 
     // Accumulate totals
@@ -126,7 +128,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
   // Handle BUNDLE products - compute stock from children
   if (product.product_type === PRODUCT_TYPES.BUNDLE) {
     const bundleAvailability = await bundleService.getBundleAvailability(
-      product.bundle_config
+      product.bundle_config,
     );
     return {
       id: product._id.toString(),
@@ -202,7 +204,7 @@ const getCachedBundleAvailability = async (req, product) => {
 
   // Compute and cache
   const availability = await bundleService.getBundleAvailability(
-    product.bundle_config
+    product.bundle_config,
   );
   req.bundleAvailabilityCache.set(key, availability);
 
@@ -234,7 +236,7 @@ const computeBundleStocksAndIssues = async (req, cart) => {
     // Fail fast if not populated - caller must populate first
     if (!productDoc || !productDoc._id) {
       console.error(
-        "❌ computeBundleStocksAndIssues: Cart items must be populated with productId"
+        "❌ computeBundleStocksAndIssues: Cart items must be populated with productId",
       );
       continue; // Skip unpopulated items
     }
@@ -328,7 +330,7 @@ const createCart = async (req, res) => {
           const formatted = formatCartResponse(
             existingCart,
             bundleStocks,
-            itemPrices
+            itemPrices,
           );
           return res.status(200).json({
             success: true,
@@ -475,7 +477,7 @@ const getCart = async (req, res) => {
     // Compute bundle stocks AND validation issues in ONE pass (no N+1)
     const { bundleStocks, issues } = await computeBundleStocksAndIssues(
       req,
-      cart
+      cart,
     );
 
     // Pass bundleStocks and itemPrices so formatCartResponse has all pricing data
@@ -520,6 +522,19 @@ const addItem = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Product ID is required",
+      });
+    }
+
+    // CHOICE_GROUP products are NOT sellable - they reference bundle products
+    // Customer must select a specific bundle on PDP before adding to cart
+    const productCheck = await Product.findById(item.productId).select(
+      "product_type",
+    );
+    if (productCheck?.product_type === PRODUCT_TYPES.CHOICE_GROUP) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "CHOICE_GROUP_NOT_SELLABLE",
+        message: "Please select a gift option before adding to cart",
       });
     }
 
@@ -573,7 +588,7 @@ const addItem = async (req, res) => {
     // Get product data
     const productData = await getProductDataForCart(
       item.productId,
-      item.variantId || null
+      item.variantId || null,
     );
 
     const requestedQty = item.quantity || 1;
@@ -616,7 +631,7 @@ const addItem = async (req, res) => {
     await cartDoc.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type quantityRules",
+        "title url_key images stockObj variants product_type quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Get bundle stocks for bundle products
@@ -1171,7 +1186,7 @@ const mergeCart = async (req, res) => {
         const existingIndex = userCart.items.findIndex(
           (item) =>
             item.productId.toString() === guestItem.productId.toString() &&
-            item.variantId === guestItem.variantId
+            item.variantId === guestItem.variantId,
         );
 
         if (existingIndex !== -1) {
@@ -1278,7 +1293,7 @@ const mergeCart = async (req, res) => {
         const formatted = formatCartResponse(
           guestCart,
           bundleStocks,
-          itemPrices
+          itemPrices,
         );
         return res.status(200).json({
           success: true,

@@ -83,6 +83,14 @@ const createProduct = async (req, res) => {
       }
     }
 
+    if (typeof parsedBody.quantityRules === "string") {
+      try {
+        parsedBody.quantityRules = JSON.parse(parsedBody.quantityRules);
+      } catch (e) {
+        parsedBody.quantityRules = [];
+      }
+    }
+
     // Support both new structure and legacy structure
     const {
       // New structure fields
@@ -117,6 +125,8 @@ const createProduct = async (req, res) => {
       offerPrice,
       offerStartAt,
       offerEndAt,
+      // Quantity-based tier pricing
+      quantityRules,
     } = parsedBody;
 
     // Use title or name (backward compatibility)
@@ -155,9 +165,8 @@ const createProduct = async (req, res) => {
 
     // Validate bundle configuration for BUNDLE products
     if (product_type === "BUNDLE") {
-      const bundleValidation = await bundleService.validateBundleConfig(
-        bundle_config
-      );
+      const bundleValidation =
+        await bundleService.validateBundleConfig(bundle_config);
       if (!bundleValidation.valid) {
         return res.status(400).json({
           success: false,
@@ -228,7 +237,7 @@ const createProduct = async (req, res) => {
       };
       productUrlKey = await generateUniqueUrlKey(
         productTitle,
-        checkUrlKeyExists
+        checkUrlKeyExists,
       );
     }
 
@@ -251,7 +260,7 @@ const createProduct = async (req, res) => {
           console.error("Error parsing images JSON:", e);
           console.error(
             "Images string value:",
-            parsedBody.images.substring(0, 200)
+            parsedBody.images.substring(0, 200),
           );
           // If parsing fails, try to extract URL if it's a simple string
           if (parsedBody.images.startsWith("http")) {
@@ -275,7 +284,7 @@ const createProduct = async (req, res) => {
           (f.fieldname.startsWith("product_image_") ||
             f.fieldname.startsWith("images")) &&
           !f.fieldname.includes("variant_") &&
-          !f.fieldname.includes("variant")
+          !f.fieldname.includes("variant"),
       );
 
       // Files are already uploaded to Cloudinary by multer-cloudinary
@@ -480,8 +489,8 @@ const createProduct = async (req, res) => {
       if (missingFields.length > 0) {
         console.log(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
-            ", "
-          )}`
+            ", ",
+          )}`,
         );
         console.log("   → Auto-saving as 'draft' instead");
         normalizedStatus = "draft";
@@ -569,6 +578,14 @@ const createProduct = async (req, res) => {
       offerPrice: offerPrice ? parseFloat(offerPrice) : null,
       offerStartAt: offerStartAt || null,
       offerEndAt: offerEndAt || null,
+      // Quantity-based tier pricing
+      quantityRules:
+        Array.isArray(quantityRules) && quantityRules.length > 0
+          ? quantityRules.map((rule) => ({
+              minQty: parseInt(rule.minQty),
+              price: parseFloat(rule.price),
+            }))
+          : [],
       // DO NOT allow rating fields to be set manually
       averageRating: 0,
       totalReviews: 0,
@@ -585,7 +602,7 @@ const createProduct = async (req, res) => {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "product",
-          product._id
+          product._id,
         );
         console.log("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
@@ -597,7 +614,7 @@ const createProduct = async (req, res) => {
       // Non-critical error - log but don't fail the request
       console.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
-        finalizeError
+        finalizeError,
       );
     }
 

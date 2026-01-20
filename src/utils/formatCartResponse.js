@@ -25,7 +25,7 @@ const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
   // Enforce bundleStocks for carts with bundles (prevents regressions)
   if (!bundleStocks && cartHasBundles(cart)) {
     console.error(
-      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products"
+      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products",
     );
   }
 
@@ -107,7 +107,7 @@ const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
                   // Handle actual object case (as before)
                   try {
                     const sortedKeys = Object.keys(img).sort(
-                      (a, b) => parseInt(a) - parseInt(b)
+                      (a, b) => parseInt(a) - parseInt(b),
                     );
                     return sortedKeys.map((k) => img[k]).join("");
                   } catch (e) {
@@ -140,7 +140,7 @@ const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
               })
               .filter(
                 (url) =>
-                  url && typeof url === "string" && url.startsWith("http")
+                  url && typeof url === "string" && url.startsWith("http"),
               )
           : [],
       };
@@ -167,7 +167,7 @@ const generatePriceSummary = (cart, formattedItems) => {
   const lines = [];
   const subtotal = cart.subtotal || 0;
 
-  // 1. Subtotal
+  // 1. Subtotal (MRP/original prices)
   lines.push({
     key: "items_subtotal",
     label: "Subtotal",
@@ -176,21 +176,45 @@ const generatePriceSummary = (cart, formattedItems) => {
     order: 1,
   });
 
-  // Calculate product level discount (MRP - Selling Price)
-  const sellingPriceTotal = formattedItems.reduce((sum, item) => {
-    const price = item.discountPriceSnapshot || item.priceSnapshot;
-    return sum + price * item.quantity;
-  }, 0);
+  // Calculate discounts from dynamic pricing fields
+  let totalOriginalPrice = 0;
+  let totalUnitPrice = 0;
+  let totalTierSavings = 0;
 
-  const productDiscount = subtotal - sellingPriceTotal;
+  formattedItems.forEach((item) => {
+    // originalPrice is MRP, unitPrice is final price (after offer + tier)
+    const originalPrice = item.originalPrice || item.unitPrice || 0;
+    const unitPrice = item.unitPrice || 0;
 
-  if (productDiscount > 0) {
+    totalOriginalPrice += originalPrice * item.quantity;
+    totalUnitPrice += unitPrice * item.quantity;
+
+    // Tier savings from pricingMeta
+    if (item.pricingMeta?.savings) {
+      totalTierSavings += item.pricingMeta.savings;
+    }
+  });
+
+  // Discount on MRP (offer discount = originalPrice - basePrice before tier)
+  const offerDiscount = subtotal - totalUnitPrice - totalTierSavings;
+  if (offerDiscount > 0) {
     lines.push({
       key: "discount_on_mrp",
       label: "Discount on MRP",
-      amount: -productDiscount,
+      amount: -offerDiscount,
       type: "discount",
       order: 1.5,
+    });
+  }
+
+  // Tier/Bulk discount
+  if (totalTierSavings > 0) {
+    lines.push({
+      key: "bulk_discount",
+      label: "Bulk Discount",
+      amount: -totalTierSavings,
+      type: "discount",
+      order: 1.6,
     });
   }
 

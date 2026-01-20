@@ -6,6 +6,7 @@ const {
   promoteAsset,
 } = require("../controllers/asset");
 const verifyToken = require("../middlewares/authMiddleware");
+const { executeCleanup } = require("../jobs/cleanupExpiredAssets");
 
 const router = express.Router();
 
@@ -187,8 +188,64 @@ router.post("/promote", verifyToken, promoteAsset);
 router.post("/:id/promote", verifyToken, (req, res) => {
   // Extract publicId from URL param and pass to existing handler
   req.body.publicId = decodeURIComponent(req.params.id);
-  req.body.entity = req.body.entityType; // Map frontend field name to backend
+  // Map frontend field name to backend and normalize to lowercase
+  // Schema expects lowercase: ["product", "cms", "category"]
+  req.body.entity = req.body.entityType?.toLowerCase();
   return promoteAsset(req, res);
+});
+
+/**
+ * @swagger
+ * /api/admin/assets/cleanup:
+ *   post:
+ *     summary: Manually trigger cleanup of expired temp and archived assets
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               dryRun:
+ *                 type: boolean
+ *                 description: If true, only report what would be deleted without actually deleting
+ *     responses:
+ *       200:
+ *         description: Cleanup completed or dry-run results
+ *       500:
+ *         description: Cleanup failed
+ */
+router.post("/cleanup", verifyToken, async (req, res) => {
+  try {
+    const { dryRun = false } = req.body;
+
+    console.log(
+      `🧹 [Manual Cleanup] Triggered by ${
+        req.user?.email || "unknown"
+      } (dryRun: ${dryRun})`
+    );
+
+    const results = await executeCleanup({ dryRun });
+
+    res.status(200).json({
+      success: true,
+      message: dryRun
+        ? `Dry run complete. Would delete ${
+            results.tempAssetsFound + results.archivedAssetsFound
+          } assets.`
+        : `Cleanup complete. Deleted ${results.deletedCount} assets.`,
+      results,
+    });
+  } catch (error) {
+    console.error("❌ Manual cleanup error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Cleanup failed",
+      error: error.message,
+    });
+  }
 });
 
 module.exports = router;

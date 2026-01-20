@@ -42,6 +42,8 @@ const updateProduct = async (req, res) => {
       offerPrice,
       offerStartAt,
       offerEndAt,
+      // Quantity-based tier pricing
+      quantityRules,
       // Legacy fields
       name,
     } = req.body;
@@ -71,9 +73,8 @@ const updateProduct = async (req, res) => {
     const effectiveProductType =
       product_type !== undefined ? product_type : product.product_type;
     if (effectiveProductType === "BUNDLE" && bundle_config !== undefined) {
-      const bundleValidation = await bundleService.validateBundleConfig(
-        bundle_config
-      );
+      const bundleValidation =
+        await bundleService.validateBundleConfig(bundle_config);
       if (!bundleValidation.valid) {
         return res.status(400).json({
           success: false,
@@ -103,7 +104,7 @@ const updateProduct = async (req, res) => {
         product.url_key = await generateUniqueUrlKey(
           newTitle,
           checkUrlKeyExists,
-          product.url_key
+          product.url_key,
         );
       }
     }
@@ -124,6 +125,25 @@ const updateProduct = async (req, res) => {
     if (offerPrice !== undefined) product.offerPrice = offerPrice;
     if (offerStartAt !== undefined) product.offerStartAt = offerStartAt;
     if (offerEndAt !== undefined) product.offerEndAt = offerEndAt;
+
+    // Update quantity-based tier pricing
+    if (quantityRules !== undefined) {
+      let parsedRules = quantityRules;
+      if (typeof quantityRules === "string") {
+        try {
+          parsedRules = JSON.parse(quantityRules);
+        } catch (e) {
+          parsedRules = [];
+        }
+      }
+      product.quantityRules =
+        Array.isArray(parsedRules) && parsedRules.length > 0
+          ? parsedRules.map((rule) => ({
+              minQty: parseInt(rule.minQty),
+              price: parseFloat(rule.price),
+            }))
+          : [];
+    }
 
     // Update category
     if (category) {
@@ -179,7 +199,8 @@ const updateProduct = async (req, res) => {
 
           // Check if any codes changed (by comparing at same index)
           const codesChanged = existingCodes.some(
-            (code, index) => code && newCodes[index] && code !== newCodes[index]
+            (code, index) =>
+              code && newCodes[index] && code !== newCodes[index],
           );
 
           if (codesChanged) {
@@ -199,7 +220,7 @@ const updateProduct = async (req, res) => {
         (opt) => ({
           ...opt,
           values: (opt.values || []).map(({ hex, ...rest }) => rest),
-        })
+        }),
       );
 
       product.variantOptions = cleanedVariantOptions;
@@ -433,8 +454,8 @@ const updateProduct = async (req, res) => {
       if (missingFields.length > 0) {
         console.log(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
-            ", "
-          )}`
+            ", ",
+          )}`,
         );
         console.log("   → Auto-saving as 'draft' instead");
         product.status = "draft";
@@ -454,7 +475,7 @@ const updateProduct = async (req, res) => {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "product",
-          product._id
+          product._id,
         );
         console.log("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
@@ -466,7 +487,7 @@ const updateProduct = async (req, res) => {
       // Non-critical error - log but don't fail the request
       console.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
-        finalizeError
+        finalizeError,
       );
     }
 

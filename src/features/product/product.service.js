@@ -24,6 +24,8 @@ class ProductService {
    * Get all products with advanced filtering and grouping (PLP)
    */
   async getAllProducts(filters = {}, options = {}) {
+    // Current time for offer validation
+    const now = new Date();
     const {
       page = 1,
       limit = 20,
@@ -64,8 +66,8 @@ class ProductService {
             .filter((id) => mongoose.Types.ObjectId.isValid(id))
             .map((id) => new mongoose.Types.ObjectId(id))
         : mongoose.Types.ObjectId.isValid(filters.subCategories)
-        ? [new mongoose.Types.ObjectId(filters.subCategories)]
-        : [];
+          ? [new mongoose.Types.ObjectId(filters.subCategories)]
+          : [];
 
       if (subCatIds.length > 0) {
         matchStage.subCategories = { $in: subCatIds };
@@ -149,14 +151,72 @@ class ProductService {
             $cond: {
               if: { $ifNull: ["$variants", false] },
               then: {
-                $ifNull: [
-                  "$variants.pricing.discountPrice",
-                  "$variants.pricing.price",
-                  "$variants.price",
-                ],
+                // Variant Logic: Check Offer Validity
+                $let: {
+                  vars: {
+                    vPrice: { $ifNull: ["$variants.price", 0] },
+                    vOffer: { $ifNull: ["$variants.offerPrice", 0] },
+                    vStart: { $ifNull: ["$variants.offerStartAt", null] },
+                    vEnd: { $ifNull: ["$variants.offerEndAt", null] },
+                  },
+                  in: {
+                    $cond: {
+                      if: {
+                        $and: [
+                          { $gt: ["$$vOffer", 0] },
+                          {
+                            $or: [
+                              { $eq: ["$$vStart", null] },
+                              { $lte: ["$$vStart", now] },
+                            ],
+                          },
+                          {
+                            $or: [
+                              { $eq: ["$$vEnd", null] },
+                              { $gte: ["$$vEnd", now] },
+                            ],
+                          },
+                        ],
+                      },
+                      then: "$$vOffer",
+                      else: "$$vPrice",
+                    },
+                  },
+                },
               },
               else: {
-                $ifNull: ["$pricing.discountPrice", "$pricing.price", "$price"],
+                // Parent Logic: Check Offer Validity
+                $let: {
+                  vars: {
+                    pPrice: { $ifNull: ["$price", 0] },
+                    pOffer: { $ifNull: ["$offerPrice", 0] },
+                    pStart: { $ifNull: ["$offerStartAt", null] },
+                    pEnd: { $ifNull: ["$offerEndAt", null] },
+                  },
+                  in: {
+                    $cond: {
+                      if: {
+                        $and: [
+                          { $gt: ["$$pOffer", 0] },
+                          {
+                            $or: [
+                              { $eq: ["$$pStart", null] },
+                              { $lte: ["$$pStart", now] },
+                            ],
+                          },
+                          {
+                            $or: [
+                              { $eq: ["$$pEnd", null] },
+                              { $gte: ["$$pEnd", now] },
+                            ],
+                          },
+                        ],
+                      },
+                      then: "$$pOffer",
+                      else: "$$pPrice",
+                    },
+                  },
+                },
               },
             },
           },
@@ -279,9 +339,20 @@ class ProductService {
           discountPrice: {
             $first: {
               $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: "$variants.pricing.discountPrice",
-                else: "$pricing.discountPrice",
+                if: {
+                  $lt: [
+                    "$effectivePrice",
+                    {
+                      $cond: {
+                        if: { $ifNull: ["$variants", false] },
+                        then: { $ifNull: ["$variants.price", 0] },
+                        else: { $ifNull: ["$price", 0] },
+                      },
+                    },
+                  ],
+                },
+                then: "$effectivePrice",
+                else: null,
               },
             },
           },
@@ -289,8 +360,8 @@ class ProductService {
             $first: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
-                then: "$variants.pricing.price",
-                else: "$pricing.price",
+                then: { $ifNull: ["$variants.price", 0] },
+                else: { $ifNull: ["$price", 0] },
               },
             },
           },
@@ -408,7 +479,7 @@ class ProductService {
       };
       productData.url_key = await generateUniqueUrlKey(
         productData.title,
-        checkUrlKeyExists
+        checkUrlKeyExists,
       );
     }
 
@@ -497,7 +568,7 @@ class ProductService {
           const skuValidation = validateSku(variant.sku);
           if (!skuValidation.valid) {
             throw ApiError.validation(
-              `Invalid variant SKU: ${skuValidation.error}`
+              `Invalid variant SKU: ${skuValidation.error}`,
             );
           }
 
@@ -519,7 +590,7 @@ class ProductService {
           const skuExists = await checkSkuExists(variant.sku);
           if (skuExists) {
             throw ApiError.validation(
-              `Variant SKU already exists: ${variant.sku}`
+              `Variant SKU already exists: ${variant.sku}`,
             );
           }
         }
@@ -544,7 +615,7 @@ class ProductService {
     if (updateData.sku !== undefined && updateData.sku !== product.sku) {
       if (product.skuLocked) {
         throw ApiError.forbidden(
-          "Cannot change SKU: Product SKU is locked (used in orders)"
+          "Cannot change SKU: Product SKU is locked (used in orders)",
         );
       }
 
@@ -591,7 +662,7 @@ class ProductService {
 
         const urlKeyExists = await checkUrlKeyExists(
           updateData.url_key,
-          productId
+          productId,
         );
         if (urlKeyExists) {
           throw ApiError.validation("URL key already exists");
@@ -617,7 +688,7 @@ class ProductService {
       for (let i = 0; i < updateData.variants.length; i++) {
         const variant = updateData.variants[i];
         const existingVariant = product.variants.find(
-          (v) => v.id === variant.id
+          (v) => v.id === variant.id,
         );
 
         // Check variant SKU locking
@@ -628,7 +699,7 @@ class ProductService {
         ) {
           if (existingVariant.skuLocked) {
             throw ApiError.forbidden(
-              `Cannot change variant SKU: SKU ${existingVariant.sku} is locked (used in orders)`
+              `Cannot change variant SKU: SKU ${existingVariant.sku} is locked (used in orders)`,
             );
           }
         }
@@ -659,7 +730,7 @@ class ProductService {
           const skuValidation = validateSku(variant.sku);
           if (!skuValidation.valid) {
             throw ApiError.validation(
-              `Invalid variant SKU: ${skuValidation.error}`
+              `Invalid variant SKU: ${skuValidation.error}`,
             );
           }
 
@@ -685,7 +756,7 @@ class ProductService {
           const skuExists = await checkSkuExists(variant.sku, productId);
           if (skuExists) {
             throw ApiError.validation(
-              `Variant SKU already exists: ${variant.sku}`
+              `Variant SKU already exists: ${variant.sku}`,
             );
           }
         }
@@ -694,7 +765,7 @@ class ProductService {
 
     const updatedProduct = await productRepository.updateById(
       productId,
-      updateData
+      updateData,
     );
     return updatedProduct;
   }
@@ -726,13 +797,13 @@ class ProductService {
     const validStatuses = ["draft", "published", "archived"];
     if (!validStatuses.includes(status)) {
       throw ApiError.validation(
-        `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+        `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
       );
     }
 
     const updatedProduct = await productRepository.updateStatus(
       productId,
-      status
+      status,
     );
     return updatedProduct;
   }
@@ -744,7 +815,7 @@ class ProductService {
     const validStatuses = ["draft", "published", "archived"];
     if (!validStatuses.includes(status)) {
       throw ApiError.validation(
-        `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+        `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
       );
     }
 

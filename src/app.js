@@ -75,7 +75,7 @@ app.post(
       req.rawBody = buf.toString();
     },
   }),
-  phonepeWebhook
+  phonepeWebhook,
 );
 
 // Middleware
@@ -110,6 +110,7 @@ const cmsProductRoutes = require("./features/product/product.cms.routes");
 const adminRoutes = require("./routes/adminRoutes");
 const deliveryPartnerRoutes = require("./routes/deliveryPartnerRoutes");
 const assetRoutes = require("./routes/asset");
+const attributeRoutes = require("./routes/attributeRoutes");
 const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
 
 // Storefront routes (unchanged)
@@ -156,6 +157,10 @@ app.use(`/api/v1${ADMIN_PREFIX}/csv-images`, csvImageRoutes);
 // Asset management routes under admin
 app.use(`/api/v1${ADMIN_PREFIX}/assets`, assetRoutes);
 
+// Attribute management routes (public GET, admin CUD)
+app.use("/api/v1/attributes", attributeRoutes);
+app.use(`/api/v1${ADMIN_PREFIX}/attributes`, attributeRoutes);
+
 // Swagger API Documentation
 app.use(
   "/api-docs",
@@ -163,19 +168,17 @@ app.use(
   swaggerUi.setup(swaggerSpec, {
     customCss: ".swagger-ui .topbar { display: none }",
     customSiteTitle: "Online Shopping API Docs",
-  })
+  }),
 );
 
 // Default route
 app.get("/", (req, res) =>
   res.send(
-    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5001/api-docs</a>"
-  )
+    "API is running 🚀\n\nAPI Documentation: <a href='/api-docs'>http://localhost:5001/api-docs</a>",
+  ),
 );
 
-const {
-  checkOrderStatus,
-} = require("./controllers/payment/phonepeSDK");
+const { checkOrderStatus } = require("./controllers/payment/phonepeSDK");
 
 app.get("/order-confirmation", checkOrderStatus);
 

@@ -22,8 +22,8 @@ const formatProductResponse = (product) => {
         ? Object.fromEntries(variant.attributes)
         : variant.attributes
       : variant.options instanceof Map
-      ? Object.fromEntries(variant.options)
-      : variant.options || {};
+        ? Object.fromEntries(variant.options)
+        : variant.options || {};
 
     // Get pricing - use flat fields only (discountPrice computed via resolvePrice)
     const variantPricing = {
@@ -75,7 +75,7 @@ const formatProductResponse = (product) => {
         value: val.value,
         // hex is available in uiMeta - no longer included here
       })),
-    })
+    }),
   );
 
   // Format details - preserve new structure (description/grid/pair)
@@ -194,7 +194,7 @@ const formatProductResponse = (product) => {
         return {
           available: formattedVariants.reduce(
             (sum, v) => sum + v.stock.available,
-            0
+            0,
           ),
           isInStock: formattedVariants.some((v) => v.stock.isInStock),
         };
@@ -205,8 +205,8 @@ const formatProductResponse = (product) => {
         productObj.stockObj?.available !== undefined
           ? productObj.stockObj.available
           : productObj.stock !== undefined
-          ? productObj.stock
-          : 0;
+            ? productObj.stock
+            : 0;
       const productIsInStock =
         productObj.stockObj?.isInStock !== undefined
           ? productObj.stockObj.isInStock
@@ -226,6 +226,8 @@ const formatProductResponse = (product) => {
     meta_description:
       productObj.metaDescription || productObj.meta_description || "",
     uiMeta: productObj.uiMeta || {},
+    // Quantity-based tier pricing
+    quantityRules: productObj.quantityRules || [],
   };
 };
 

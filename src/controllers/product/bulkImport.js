@@ -38,8 +38,27 @@ class BulkImportController {
     const errors = [];
     const warnings = [];
     const tempImagesNeeded = new Set();
+    const AttributeDefinition = require("../../models/AttributeDefinition");
 
-    console.log(`🔍 [Bulk Import] Validating ${products.length} products...`);
+    console.log(
+      `🔍 [Bulk Import] Validating ${products.length} products (Strict Mode)...`,
+    );
+
+    // 1️⃣ GLOBAL ATTRIBUTE REGISTRY LOADING
+    // Fetch all attributes to enforce strict validation
+    const allAttributes = await AttributeDefinition.find({}).lean();
+
+    // Create Lookup Maps:
+    // codeMap: "color" -> Attribute Object
+    const attributeMap = new Map();
+    allAttributes.forEach((attr) => {
+      attributeMap.set(attr.code.toLowerCase(), attr);
+      attributeMap.set(attr.name.toLowerCase(), attr); // Fallback lookup
+    });
+
+    console.log(
+      `📚 [Bulk Import] Loaded ${attributeMap.size} global attributes for validation.`,
+    );
 
     // Fetch all categories for validation
     const categories = await Category.find({})
@@ -94,8 +113,15 @@ class BulkImportController {
         });
       }
       // SKU is now optional for new products (it will be auto-generated)
-      if (!product.isNewProduct && (!product.sku || product.sku.trim() === "")) {
-        errors.push({ row: rowNum, field: "sku", message: "SKU is required for updates" });
+      if (
+        !product.isNewProduct &&
+        (!product.sku || product.sku.trim() === "")
+      ) {
+        errors.push({
+          row: rowNum,
+          field: "sku",
+          message: "SKU is required for updates",
+        });
       }
 
       // Validate category
@@ -112,7 +138,6 @@ class BulkImportController {
           }
         }
       } else {
-        // Category is required in Product model
         errors.push({
           row: rowNum,
           field: "category",
@@ -129,14 +154,23 @@ class BulkImportController {
         }
       }
 
-      // Validate variants
+      // 2️⃣ VARIANT VALIDATION & STRICT ATTRIBUTE CHECK
       if (product.variants && Array.isArray(product.variants)) {
+        const productVariantHashes = new Set();
+
         for (let j = 0; j < product.variants.length; j++) {
           const variant = product.variants[j];
           const variantRow = `${rowNum}.${j + 1}`;
 
-          // Check variant SKU (only if present, it will be auto-generated otherwise)
+          // Check variant SKU
           if (variant.sku) {
+            if (inputSkus.has(variant.sku)) {
+              errors.push({
+                row: variantRow,
+                field: "sku",
+                message: `Duplicate Variant SKU: ${variant.sku}`,
+              });
+            }
             inputSkus.add(variant.sku);
           }
 
@@ -156,6 +190,84 @@ class BulkImportController {
             });
           }
 
+          // Validate offer fields if present
+          if (
+            variant.offerPrice !== undefined &&
+            variant.offerPrice !== null &&
+            variant.offerPrice !== ""
+          ) {
+            if (isNaN(variant.offerPrice) || Number(variant.offerPrice) < 0) {
+              errors.push({
+                row: variantRow,
+                field: "offerPrice",
+                message: "Offer price must be a valid non-negative number",
+              });
+            }
+          }
+
+          if (variant.offerStartAt && isNaN(Date.parse(variant.offerStartAt))) {
+            errors.push({
+              row: variantRow,
+              field: "offerStartAt",
+              message: "Invalid offer start date format",
+            });
+          }
+
+          if (variant.offerEndAt && isNaN(Date.parse(variant.offerEndAt))) {
+            errors.push({
+              row: variantRow,
+              field: "offerEndAt",
+              message: "Invalid offer end date format",
+            });
+          }
+
+          // STRICT ATTRIBUTE VALIDATION
+          // Check 'attributes' object from parsed CSV
+          if (variant.attributes) {
+            const sortedAttributes = [];
+
+            for (const [key, value] of Object.entries(variant.attributes)) {
+              const normalizedKey = key.toLowerCase().trim();
+
+              // Ignore non-attribute metadata like 'price', 'sku' if they leaked
+              if (
+                ["sku", "price", "stock", "image", "images"].includes(
+                  normalizedKey,
+                )
+              )
+                continue;
+
+              // CHECK GENUINE ATTRIBUTES
+              const attributeDef = attributeMap.get(normalizedKey);
+
+              if (!attributeDef) {
+                // ❌ FAIL: Unknown attribute
+                errors.push({
+                  row: variantRow,
+                  field: `attribute_${key}`,
+                  message: `Unknown attribute: '${key}'. Please create this attribute in Settings > Product Attributes first.`,
+                });
+              } else {
+                // Track for hash generation
+                sortedAttributes.push(
+                  `${attributeDef._id}:${String(value).trim().toLowerCase()}`,
+                );
+              }
+            }
+
+            // DUPLICATE VARIANT DETECTION (In-memory)
+            sortedAttributes.sort();
+            const optionsHash = sortedAttributes.join("|");
+            if (productVariantHashes.has(optionsHash)) {
+              errors.push({
+                row: variantRow,
+                field: "variants",
+                message: `Duplicate variant configuration detected within this product.`,
+              });
+            }
+            productVariantHashes.add(optionsHash);
+          }
+
           // Collect temp images from variant
           if (variant.imageMetadata && Array.isArray(variant.imageMetadata)) {
             for (const tempKey of variant.imageMetadata) {
@@ -170,7 +282,7 @@ class BulkImportController {
 
     // Check for existing SKUs in database
     // Check for existing SKUs in database (Product and embedded variants)
-    const allSkus = Array.from(inputSkus).filter(s => !!s);
+    const allSkus = Array.from(inputSkus).filter((s) => !!s);
 
     let existingSkusInDb = new Set();
     if (allSkus.length > 0) {
@@ -229,14 +341,14 @@ class BulkImportController {
 
     // Determine which are updates vs creates
     const updateCount = products.filter(
-      (p) => p.csvId && !p.csvId.startsWith("TMP_")
+      (p) => p.csvId && !p.csvId.startsWith("TMP_"),
     ).length;
     const createCount = products.length - updateCount;
 
     // Calculate total variants
     const totalVariants = products.reduce(
       (sum, p) => sum + (p.variants ? p.variants.length : 0),
-      0
+      0,
     );
 
     // Validate all temp images exist
@@ -262,8 +374,9 @@ class BulkImportController {
     const isValid = errors.length === 0;
 
     console.log(
-      `${isValid ? "✅" : "❌"} [Bulk Import] Validation ${isValid ? "passed" : "failed"
-      }: ${errors.length} errors`
+      `${isValid ? "✅" : "❌"} [Bulk Import] Validation ${
+        isValid ? "passed" : "failed"
+      }: ${errors.length} errors`,
     );
 
     res.status(200).json(
@@ -279,7 +392,7 @@ class BulkImportController {
           tempImagesCount: tempKeysArray.length,
           missingImagesCount: missingImages.length,
         },
-      }).toJSON()
+      }).toJSON(),
     );
   });
 
@@ -308,19 +421,23 @@ class BulkImportController {
       try {
         await session.startTransaction();
         isTransactionStarted = true;
-        console.log("✅ [Bulk Import] Transaction started (replica set detected)");
+        console.log(
+          "✅ [Bulk Import] Transaction started (replica set detected)",
+        );
       } catch (transactionError) {
         console.warn(
           "⚠️ [Bulk Import] Failed to start transaction:",
-          transactionError.message
+          transactionError.message,
         );
         console.warn("⚠️ [Bulk Import] Continuing without transaction");
       }
     } else {
       console.warn(
-        "⚠️ [Bulk Import] Standalone MongoDB detected - transactions not supported"
+        "⚠️ [Bulk Import] Standalone MongoDB detected - transactions not supported",
       );
-      console.warn("⚠️ [Bulk Import] Import will proceed without atomic guarantees");
+      console.warn(
+        "⚠️ [Bulk Import] Import will proceed without atomic guarantees",
+      );
     }
 
     // Track created resources for rollback
@@ -331,7 +448,7 @@ class BulkImportController {
 
     try {
       console.log(
-        `📦 [Bulk Import] Starting commit for ${products.length} products...`
+        `📦 [Bulk Import] Starting commit for ${products.length} products...`,
       );
 
       // Fetch categories for resolution
@@ -340,6 +457,15 @@ class BulkImportController {
         categoriesQuery = categoriesQuery.session(session);
       }
       const categories = await categoriesQuery;
+
+      // 1️⃣ LOAD ATTRIBUTES FOR RESOLUTION
+      const AttributeDefinition = require("../../models/AttributeDefinition");
+      const allAttributes = await AttributeDefinition.find({}).lean();
+      const attributeMap = new Map();
+      allAttributes.forEach((attr) => {
+        attributeMap.set(attr.code.toLowerCase(), attr);
+        attributeMap.set(attr.name.toLowerCase(), attr);
+      });
 
       const categoryMap = new Map();
       const idToDataMap = new Map();
@@ -379,7 +505,7 @@ class BulkImportController {
 
       if (tempKeysArray.length > 0) {
         console.log(
-          `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`
+          `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`,
         );
 
         let tempImagesQuery = CsvTempImage.find({
@@ -401,7 +527,7 @@ class BulkImportController {
             const moveResult = await cloudinary.uploader.rename(
               tempImage.public_id,
               newPublicId,
-              { resource_type: "image" }
+              { resource_type: "image" },
             );
 
             imageMapping.set(tempImage.temp_key, {
@@ -417,15 +543,15 @@ class BulkImportController {
             tempKeysUsed.push(tempImage.temp_key);
 
             console.log(
-              `  ✅ Converted: ${tempImage.temp_key} → ${newPublicId}`
+              `  ✅ Converted: ${tempImage.temp_key} → ${newPublicId}`,
             );
           } catch (error) {
             console.error(
               `  ❌ Failed to convert ${tempImage.temp_key}:`,
-              error.message
+              error.message,
             );
             throw new Error(
-              `Failed to convert image ${tempImage.temp_key}: ${error.message}`
+              `Failed to convert image ${tempImage.temp_key}: ${error.message}`,
             );
           }
         }
@@ -440,7 +566,7 @@ class BulkImportController {
           if (categoryMap.has(catKey)) {
             resolvedCategoryId = categoryMap.get(catKey);
           } else if (mongoose.Types.ObjectId.isValid(productData.category)) {
-            resolvedCategoryId = productData.category; // Trust it if it's a valid ID but not in our lean cache (unlikely but safe fallback)
+            resolvedCategoryId = productData.category; // Trust it if it's a valid ID
           }
         }
 
@@ -451,7 +577,7 @@ class BulkImportController {
           productData.csvId && !productData.csvId.startsWith("TMP_");
 
         // Build images array
-        const images = []; // ✅ Restored missing variable
+        const images = [];
 
         // Pre-calculate ID for new products to use in variant linkage
         const finalProductId = isUpdate
@@ -501,8 +627,11 @@ class BulkImportController {
           });
         }
 
-        // Prepare embedded variants
+        // Prepare embedded variants with strictly resolved attributes
         const embeddedVariants = [];
+        // Map to prevent duplicate variantOptions at product level
+        const uniqueVariantOptions = new Map();
+
         if (productData.variants && productData.variants.length > 0) {
           for (const variantData of productData.variants) {
             // Build variant images
@@ -525,76 +654,136 @@ class BulkImportController {
               variantId.startsWith("TMP_") ||
               variantData.isNewVariant
             ) {
-              let configCode = "";
-              if (
-                variantData.attributes &&
-                typeof variantData.attributes === "object"
-              ) {
-                const attrs = variantData.attributes;
-                // Attributes might be a Map or object depending on parsing.
-                // Assuming object based on earlier use.
-                const parts = [];
-                // Try common keys case-insensitively
-                const colorKey = Object.keys(attrs).find(
-                  (k) => k.toLowerCase() === "color"
-                );
-                const sizeKey = Object.keys(attrs).find(
-                  (k) => k.toLowerCase() === "size"
-                );
-
-                if (colorKey && attrs[colorKey])
-                  parts.push(
-                    String(attrs[colorKey]).substring(0, 3).toUpperCase()
-                  );
-                if (sizeKey && attrs[sizeKey])
-                  parts.push(String(attrs[sizeKey]).toUpperCase());
-
-                if (parts.length > 0) configCode = parts.join("-");
-              }
-
-              if (!configCode) {
-                configCode = Math.random()
-                  .toString(36)
-                  .substring(2, 6)
-                  .toUpperCase();
-              }
-
+              const configCode = Math.random()
+                .toString(36)
+                .substring(2, 6)
+                .toUpperCase();
               variantId = `${finalProductId}-${configCode}`;
             }
 
             // 3. Auto-generate Variant SKU if new
             let finalVariantSku = variantData.sku;
-            if (!variantData.csvId || variantData.csvId.startsWith("TMP_") || variantData.isNewVariant) {
-              finalVariantSku = generateVariantSku(finalProductSku, variantData.attributes || {});
+
+            // 4. RESOLVE ATTRIBUTES STRICTLY
+            const resolvedAttributes = new Map();
+            if (
+              variantData.attributes &&
+              typeof variantData.attributes === "object"
+            ) {
+              for (const [key, value] of Object.entries(
+                variantData.attributes,
+              )) {
+                const normalizedKey = key.toLowerCase().trim();
+                if (
+                  ["sku", "price", "stock", "image", "images"].includes(
+                    normalizedKey,
+                  )
+                )
+                  continue;
+
+                const attrDef = attributeMap.get(normalizedKey);
+                if (attrDef) {
+                  // Store as "Color": "Red"
+                  resolvedAttributes.set(attrDef.name, String(value).trim());
+
+                  // Collect unique variantOptions for Parent Product with ID
+                  if (!uniqueVariantOptions.has(attrDef.code)) {
+                    uniqueVariantOptions.set(attrDef.code, {
+                      id: attrDef.code, // Use code as ID for stability or geneate one
+                      attributeId: attrDef._id, // ✅ MANDATORY
+                      name: attrDef.name,
+                      code: attrDef.code,
+                      values: [],
+                    });
+                  }
+
+                  // Add value to variantOptions uniqueness list
+                  const opt = uniqueVariantOptions.get(attrDef.code);
+                  const valStr = String(value).trim();
+
+                  // Check if this value already exists
+                  if (
+                    !opt.values.some(
+                      (v) => v.value.toLowerCase() === valStr.toLowerCase(),
+                    )
+                  ) {
+                    // Try to find rich metadata (hex, label) from the parsed frontend options
+                    // The frontend parses 'variant_color' -> 'Red' and 'hex_code' -> '#FF0000'
+                    // and structures it into productData.options
+                    let hexCode = null;
+                    let label = valStr;
+
+                    if (
+                      productData.variantOptions &&
+                      Array.isArray(productData.variantOptions)
+                    ) {
+                      const feOption = productData.variantOptions.find(
+                        (o) =>
+                          o.name.toLowerCase() === attrDef.name.toLowerCase(),
+                      );
+                      if (feOption && feOption.values) {
+                        const feValue = feOption.values.find(
+                          (v) => v.value.toLowerCase() === valStr.toLowerCase(),
+                        );
+                        if (feValue) {
+                          if (feValue.hex) hexCode = feValue.hex;
+                          if (feValue.label) label = feValue.label;
+                        }
+                      }
+                    }
+
+                    opt.values.push({
+                      id: Math.random().toString(36).substr(2, 9),
+                      value: valStr.toLowerCase().replace(/\s+/g, "-"), // slugify
+                      label: label,
+                      code: valStr.substring(0, 3).toUpperCase(), // simple code gen
+                      hex: hexCode, // ✅ Added Hex Code
+                    });
+                  }
+                }
+              }
+            }
+
+            // Generate hash for safety
+            const optionsArray = Array.from(resolvedAttributes.entries());
+            optionsArray.sort((a, b) => a[0].localeCompare(b[0]));
+            const optionsHash = optionsArray
+              .map((p) => `${p[0]}:${p[1]}`)
+              .join("|");
+
+            // Add SKU fallback if still missing
+            if (!finalVariantSku) {
+              finalVariantSku = `${finalProductSku}-${optionsHash.substring(0, 6)}`; //Fallback
             }
 
             embeddedVariants.push({
-              id: variantId, // ✅ Use standardized ID
-              parentId: finalProductId, // ✅ Linking to parent
-              url_key: `${productData.url_key}-${(finalVariantSku || variantData.sku)
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "-")}`, // Generate simplified url_key for variant
-              sku: finalVariantSku || variantData.sku,
+              id: variantId,
+              parentId: finalProductId,
+              url_key: `${productData.url_key}-${finalVariantSku.toLowerCase()}`,
+              sku: finalVariantSku,
               price: variantData.price,
               stock: variantData.stock,
               images: variantImages,
-              attributes: variantData.attributes, // Map<String, String> in schema, object here is fine if mongoose casting works, else might need transform
-              // Mongoose 'Map' type usually needs key-value pairs or object.
-              // Let's ensure attributes is an object.
+              attributes: resolvedAttributes, // Map<String, String>
+              options: resolvedAttributes, // Legacy support
 
-              // Populate other fields required by schema defaults
               stockObj: {
                 available: variantData.stock || 0,
                 isInStock: (variantData.stock || 0) > 0,
               },
-              pricing: {
-                // Redundant but good for schema compatibility
-                price: variantData.price,
-                discountPrice: variantData.discountPrice || variantData.price,
-              },
+              price: variantData.price,
+              offerPrice: variantData.offerPrice
+                ? Number(variantData.offerPrice)
+                : undefined,
+              offerStartAt: variantData.offerStartAt || undefined,
+              offerEndAt: variantData.offerEndAt || undefined,
+              _optionsHash: optionsHash,
             });
           }
         }
+
+        // Convert variantOptions map to array
+        const finalVariantOptions = Array.from(uniqueVariantOptions.values());
 
         if (isUpdate) {
           // Update existing product
@@ -610,16 +799,24 @@ class BulkImportController {
                 idToDataMap.get(resolvedCategoryId?.toString())?.code ||
                 productData.categoryCode,
               status: ["draft", "published", "archived"].includes(
-                (productData.status || "").toLowerCase()
+                (productData.status || "").toLowerCase(),
               )
                 ? productData.status.toLowerCase()
                 : "draft",
               images: images.length > 0 ? images.map((i) => i.url) : undefined, // Product schema images is string[]
-              pricing: {
-                price: productData.price || 0,
-                discountPrice:
-                  productData.discountPrice || productData.price || 0,
-              },
+              price: productData.price || 0, // Ensure direct field is updated too
+              offerPrice: productData.offerPrice
+                ? Number(productData.offerPrice)
+                : undefined,
+              offerStartAt:
+                productData.offerStartAt === "" ||
+                productData.offerStartAt === null
+                  ? null
+                  : productData.offerStartAt || undefined,
+              offerEndAt:
+                productData.offerEndAt === "" || productData.offerEndAt === null
+                  ? null
+                  : productData.offerEndAt || undefined,
               stockObj: {
                 available: productData.stock || 0,
                 isInStock: (productData.stock || 0) > 0,
@@ -631,54 +828,53 @@ class BulkImportController {
               metaTitle: productData.metaTitle,
               metaDescription: productData.metaDescription,
               uiMeta: productData.uiMeta, // ✅ NEW
-              variantOptions:
-                productData.variantOptions || productData.options || [],
+              variantOptions: finalVariantOptions, // ✅ UPDATED with attributeId
 
               // ✅ NEW: Embed variants directly
-              variants: embeddedVariants,
+              variants: embeddedVariants, // ✅ UPDATED strict variants
             },
-            isTransactionStarted ? { session } : {}
+            isTransactionStarted ? { session } : {},
           );
           console.log(`  📝 Updated product: ${productData.sku}`);
         } else {
           // Create new product
-          const newProduct = new Product({
+          const newProductData = {
             _id: finalProductId, // ✅ Explicit ID
             title: productData.title,
             name: productData.title, // Sync name with title
-            sku: productData.sku,
+            sku: finalProductSku, // ✅ Use generated/unique SKU
             description: productData.description || "",
-            category: resolvedCategoryId || productData.category,
-            categoryCode: productData.category, // ✅ Save code
-            images: images.map((i) => i.url),
+            category: resolvedCategoryId, // ✅ Use resolved ID
+            categoryCode:
+              idToDataMap.get(resolvedCategoryId?.toString())?.code ||
+              productData.categoryCode,
             status: ["draft", "published", "archived"].includes(
-              (productData.status || "").toLowerCase()
+              (productData.status || "").toLowerCase(),
             )
               ? productData.status.toLowerCase()
               : "draft",
-            pricing: {
-              price: productData.price || 0,
-              discountPrice:
-                productData.discountPrice || productData.price || 0,
-            },
+            images: images.map((i) => i.url),
+            price: productData.price || 0,
+            offerPrice: productData.offerPrice
+              ? Number(productData.offerPrice)
+              : undefined,
+            offerStartAt: productData.offerStartAt || undefined,
+            offerEndAt: productData.offerEndAt || undefined,
             stockObj: {
               available: productData.stock || 0,
               isInStock: (productData.stock || 0) > 0,
             },
             details: productData.details || [],
-            tags: productData.tags || productData.tag, // ✅ Store as single string
-            // New fields
+            tags: productData.tags || productData.tag,
             url_key: productData.url_key,
             metaTitle: productData.metaTitle,
             metaDescription: productData.metaDescription,
             uiMeta: productData.uiMeta, // ✅ NEW
-            variantOptions:
-              productData.variantOptions || productData.options || [],
+            variantOptions: finalVariantOptions, // ✅ UPDATED with attributeId
+            variants: embeddedVariants, // ✅ UPDATED strict variants
+          };
 
-            // ✅ NEW: Embed variants directly
-            variants: embeddedVariants,
-          });
-
+          const newProduct = new Product(newProductData);
           await newProduct.save(isTransactionStarted ? { session } : {});
           createdProductIds.push(newProduct._id);
           console.log(`  ✨ Created product with SKU: ${finalProductSku}`);
@@ -691,10 +887,10 @@ class BulkImportController {
       if (tempKeysUsed.length > 0) {
         await CsvTempImage.deleteMany(
           { temp_key: { $in: tempKeysUsed } },
-          isTransactionStarted ? { session } : {}
+          isTransactionStarted ? { session } : {},
         );
         console.log(
-          `🧹 [Bulk Import] Cleaned up ${tempKeysUsed.length} temp image records`
+          `🧹 [Bulk Import] Cleaned up ${tempKeysUsed.length} temp image records`,
         );
       }
 
@@ -704,13 +900,16 @@ class BulkImportController {
           await session.commitTransaction();
           console.log("✅ [Bulk Import] Transaction committed");
         } catch (commitError) {
-          console.warn("⚠️ [Bulk Import] Failed to commit transaction (standalone MongoDB):", commitError.message);
+          console.warn(
+            "⚠️ [Bulk Import] Failed to commit transaction (standalone MongoDB):",
+            commitError.message,
+          );
         }
       }
       session.endSession();
 
       console.log(
-        `✅ [Bulk Import] Successfully committed ${products.length} products`
+        `✅ [Bulk Import] Successfully committed ${products.length} products`,
       );
 
       res.status(200).json(
@@ -723,7 +922,7 @@ class BulkImportController {
             products: products.length - createdProductIds.length,
           },
           imagesConverted: convertedImages.length,
-        }).toJSON()
+        }).toJSON(),
       );
     } catch (error) {
       console.error(`❌ [Bulk Import] Error during commit:`, error.message);
@@ -734,7 +933,10 @@ class BulkImportController {
           await session.abortTransaction();
           console.log("🔄 [Bulk Import] Transaction aborted");
         } catch (abortError) {
-          console.warn("⚠️ [Bulk Import] Failed to abort transaction (standalone MongoDB):", abortError.message);
+          console.warn(
+            "⚠️ [Bulk Import] Failed to abort transaction (standalone MongoDB):",
+            abortError.message,
+          );
         }
       }
       session.endSession();
@@ -744,12 +946,12 @@ class BulkImportController {
         try {
           await Product.deleteMany({ _id: { $in: createdProductIds } });
           console.log(
-            `🔄 [Rollback] Deleted ${createdProductIds.length} products`
+            `🔄 [Rollback] Deleted ${createdProductIds.length} products`,
           );
         } catch (rollbackError) {
           console.error(
             "❌ [Rollback] Failed to delete products:",
-            rollbackError.message
+            rollbackError.message,
           );
         }
       }
@@ -762,15 +964,15 @@ class BulkImportController {
             img.old_public_id,
             {
               resource_type: "image",
-            }
+            },
           );
           console.log(
-            `🔄 [Rollback] Reverted image: ${img.new_public_id} → ${img.old_public_id}`
+            `🔄 [Rollback] Reverted image: ${img.new_public_id} → ${img.old_public_id}`,
           );
         } catch (rollbackError) {
           console.error(
             `❌ [Rollback] Failed to revert image:`,
-            rollbackError.message
+            rollbackError.message,
           );
         }
       }
@@ -791,7 +993,7 @@ class BulkImportController {
               variants: createdVariantIds.length,
               images: convertedImages.length,
             },
-          }).toJSON()
+          }).toJSON(),
         );
       }
 
@@ -803,7 +1005,7 @@ class BulkImportController {
             variants: createdVariantIds.length,
             images: convertedImages.length,
           },
-        }).toJSON()
+        }).toJSON(),
       );
     }
   });
@@ -828,7 +1030,7 @@ class BulkImportController {
       // If we can't determine topology, assume standalone (no transaction support)
       console.warn(
         "⚠️ [Bulk Import] Unable to detect MongoDB topology:",
-        error.message
+        error.message,
       );
       return false;
     }
