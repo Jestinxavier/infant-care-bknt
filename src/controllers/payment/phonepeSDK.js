@@ -162,6 +162,15 @@ const phonepeWebhook = async (req, res) => {
           { orderId: updatedOrder._id },
           { status: "ordered", completedAt: new Date() },
         );
+
+        const { emitEvent } = require("../../services/socketService");
+        emitEvent("newOrder", {
+          orderId: updatedOrder.orderId,
+          totalAmount: updatedOrder.totalAmount,
+          customerName: updatedOrder.shippingAddress?.firstName + " " + updatedOrder.shippingAddress?.lastName,
+          itemsCount: updatedOrder.totalQuantity,
+          createdAt: updatedOrder.createdAt
+        });
         break;
       }
 

@@ -132,7 +132,14 @@ const startServer = async () => {
       console.log("🔧 Running in Vercel serverless mode");
     } else {
       // For traditional deployment, start the server
-      app.listen(PORT, () => {
+      const http = require("http");
+      const server = http.createServer(app);
+      
+      // Initialize Socket.io
+      const socketService = require("./services/socketService");
+      socketService.init(server);
+
+      server.listen(PORT, () => {
         console.log(
           `\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`
         );
