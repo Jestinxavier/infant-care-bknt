@@ -9,7 +9,10 @@ const {
   getAllCategories,
   getCategoryById,
 } = require("./adminCategoriesController");
-const { getAllCustomers } = require("./adminCustomersController");
+const {
+  getAllCustomers,
+  getCustomerById,
+} = require("./adminCustomersController");
 const { getAllReviews, replyToReview } = require("./adminReviewController");
 
 module.exports = {
@@ -25,6 +28,7 @@ module.exports = {
 
   // Customers
   getAllCustomers,
+  getCustomerById,
 
   // Categories
   getAllCategories,

@@ -524,16 +524,21 @@ const createOrder = async (req, res) => {
 
     await payment.save({ session });
 
-    // Step 9: Keep cart in checkout (NOT ordered yet - only on payment success)
-    // Cart will be marked "ordered" by webhook on successful payment
-    // Cart will be reverted to "active" on payment failure
+    // Step 9: Update cart status
+    const cartUpdate = {
+      orderId: order._id,
+    };
+
+    if (paymentMethod === PAYMENT_METHODS.COD) {
+      cartUpdate.status = "ordered";
+      cartUpdate.completedAt = new Date();
+    } else {
+      cartUpdate.status = "checkout";
+    }
+
     await Cart.findByIdAndUpdate(
       cart._id,
-      {
-        status: "checkout", // Keep in checkout, not ordered
-        orderId: order._id,
-        // completedAt will be set on payment success
-      },
+      cartUpdate,
       { session }
     );
 
@@ -643,9 +648,21 @@ const createOrder = async (req, res) => {
     }
 
     // COD or other methods
+    const { emitEvent } = require("../../services/socketService");
+    emitEvent("newOrder", {
+      orderId: order.orderId,
+      totalAmount: order.totalAmount,
+      customerName: shippingAddressData.firstName + " " + shippingAddressData.lastName,
+      itemsCount: totalQuantity,
+      createdAt: order.createdAt
+    });
+
     return res.status(201).json({
       success: true,
       message: "Order placed successfully",
+      paymentMode: "cod",
+      orderId: order.orderId,
+      requiresPayment: false
     });
   } catch (error) {
     await session.abortTransaction();

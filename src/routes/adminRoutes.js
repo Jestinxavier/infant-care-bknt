@@ -12,6 +12,7 @@ const {
   getAllCategories,
   getCategoryById,
   getAllCustomers,
+  getCustomerById,
   getAllReviews,
   replyToReview,
 } = require("../controllers/admin");
@@ -892,6 +893,26 @@ router.patch(
  */
 router.get("/customers", verifyToken, requireAdmin, getAllCustomers);
 router.post("/customers", verifyToken, requireAdmin, getAllCustomers);
+
+/**
+ * @swagger
+ * /api/v1/admin/customers/{customerId}:
+ *   get:
+ *     summary: "[Admin] Get customer details and their order history"
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: customerId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Customer details retrieved successfully
+ */
+router.get("/customers/:customerId", verifyToken, requireAdmin, getCustomerById);
 
 // ==================== REVIEWS ====================
 
