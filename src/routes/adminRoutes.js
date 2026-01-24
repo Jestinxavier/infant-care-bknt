@@ -8,6 +8,7 @@ const {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
+  sendOrderInvoice,
   getAllCategories,
   getCategoryById,
   getAllCustomers,
@@ -191,7 +192,7 @@ router.post(
   "/products/bulk-delete",
   verifyToken,
   requireAdmin,
-  bulkDeleteProducts
+  bulkDeleteProducts,
 );
 
 // Import Product model for lean search
@@ -300,7 +301,7 @@ router.post(
   "/products/validate-import",
   verifyToken,
   requireAdmin,
-  bulkImportController.validateImport
+  bulkImportController.validateImport,
 );
 
 /**
@@ -332,7 +333,7 @@ router.post(
   "/products/commit-import",
   verifyToken,
   requireAdmin,
-  bulkImportController.commitImport
+  bulkImportController.commitImport,
 );
 
 /**
@@ -420,7 +421,7 @@ router.post(
       next();
     });
   },
-  createProduct
+  createProduct,
 );
 
 /**
@@ -558,7 +559,7 @@ router.patch(
   requireAdmin,
   (req, res, next) => parser.any()(req, res, next),
   parseMultipartBody,
-  updateProduct
+  updateProduct,
 );
 
 /**
@@ -774,26 +775,15 @@ router.post("/orders", verifyToken, requireAdmin, getAllOrders);
  *       200:
  *         description: Order retrieved successfully
  */
-router.get("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
-router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
-
 /**
  * @swagger
- * /api/v1/admin/orders/{orderId}/status:
- *   patch:
- *     summary: "[Admin] Update order status"
- *     description: Update the status of an order (e.g., pending, confirmed, processing, shipped, delivered, cancelled).
+ * /api/v1/admin/orders/send-invoice:
+ *   post:
+ *     summary: "[Admin] Send invoice email to customer"
+ *     description: Send invoice email for an order. Accepts orderId in request body instead of URL path.
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: orderId
- *         required: true
- *         schema:
- *           type: string
- *         description: Order ID
- *         example: 64abc123def456789
  *     requestBody:
  *       required: true
  *       content:
@@ -801,8 +791,52 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *           schema:
  *             type: object
  *             required:
- *               - status
+ *               - orderId
  *             properties:
+ *               orderId:
+ *                 type: string
+ *                 description: Order ID
+ *                 example: 64abc123def456789
+ *     responses:
+ *       200:
+ *         description: Invoice sent successfully
+ *       404:
+ *         description: Order not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/orders/send-invoice",
+  verifyToken,
+  requireAdmin,
+  sendOrderInvoice,
+);
+
+router.get("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
+router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/update-status:
+ *   patch:
+ *     summary: "[Admin] Update order status"
+ *     description: Update the status of an order. Accepts orderId in request body instead of URL path.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 description: Order ID
+ *                 example: 64abc123def456789
  *               status:
  *                 type: string
  *                 enum: [pending, confirmed, processing, shipped, delivered, cancelled]
@@ -811,19 +845,6 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *     responses:
  *       200:
  *         description: Order status updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Order status updated successfully
- *                 order:
- *                   $ref: '#/components/schemas/Order'
  *       400:
  *         description: Invalid status value
  *       404:
@@ -832,10 +853,10 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *         description: Unauthorized
  */
 router.patch(
-  "/orders/:orderId/status",
+  "/orders/update-status",
   verifyToken,
   requireAdmin,
-  updateOrderStatus
+  updateOrderStatus,
 );
 
 // ==================== CUSTOMERS ====================
@@ -1046,7 +1067,7 @@ router.post(
   "/categories/bulk-delete",
   verifyToken,
   requireAdmin,
-  bulkDeleteCategories
+  bulkDeleteCategories,
 );
 
 /**
@@ -1122,13 +1143,13 @@ router.get(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  getCategoryById
+  getCategoryById,
 );
 router.post(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  getCategoryById
+  getCategoryById,
 );
 
 /**
@@ -1204,7 +1225,7 @@ router.post(
       next();
     });
   },
-  createCategory
+  createCategory,
 );
 
 /**
@@ -1283,7 +1304,7 @@ router.patch(
       next();
     });
   },
-  updateCategory
+  updateCategory,
 );
 
 /**
@@ -1328,7 +1349,7 @@ router.delete(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  deleteCategory
+  deleteCategory,
 );
 
 module.exports = router;

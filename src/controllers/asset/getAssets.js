@@ -28,12 +28,12 @@ const getAssets = async (req, res) => {
 
     // Cursor-based pagination
     if (cursor) {
-      query._id = { $gt: cursor };
+      query._id = { $lt: cursor };
     }
 
     // Fetch assets with pagination
     const assets = await Asset.find(query)
-      .sort({ _id: 1 }) // Sort by _id for stable cursor
+      .sort({ _id: -1 }) // Sort by _id DESC (newest first)
       .limit(parseInt(limit) + 1) // Fetch one extra to check if more exist
       .populate("uploadedBy", "name email") // Populate user info
       .lean(); // Convert to plain objects for better performance

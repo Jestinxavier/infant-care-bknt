@@ -1,0 +1,208 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f4f6f9;
+        font-family: Arial, sans-serif;
+        color: #333;
+      }
+
+      table {
+        border-spacing: 0;
+        border-collapse: collapse;
+      }
+
+      .wrapper {
+        width: 100%;
+        padding: 30px 0;
+        background: #f4f6f9;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 600px;
+        margin: auto;
+        background: #ffffff;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid #e5e7eb;
+      }
+
+      .header {
+        background: #ffffff;
+        text-align: center;
+        padding: 25px;
+        color: #000000;
+        border-bottom: 1px solid #64748b;
+      }
+
+      .header img {
+        width: 110px;
+        margin-bottom: 12px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: bold;
+      }
+
+      .content {
+        padding: 30px;
+        color: #334155;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .content p {
+        margin: 0 0 15px;
+      }
+
+      .otp-box {
+        margin: 25px 0;
+        padding: 22px;
+        border: 2px dashed #2563eb;
+        border-radius: 10px;
+        text-align: center;
+        background: #f9fafb;
+      }
+
+      .otp-label {
+        font-size: 13px;
+        color: #64748b;
+        margin-bottom: 10px;
+      }
+
+      .otp-code {
+        font-size: 32px;
+        font-weight: bold;
+        color: #2563eb;
+        font-family: "Courier New", monospace;
+        letter-spacing: 4px;
+        display: inline-block;
+        padding: 10px 16px;
+        background: #ffffff;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+      }
+
+      .otp-note {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #64748b;
+      }
+
+      .warning-box {
+        background: #fffbea;
+        border-left: 4px solid #facc15;
+        padding: 15px;
+        border-radius: 6px;
+        margin: 20px 0;
+        font-size: 13px;
+      }
+
+      .warning-box strong {
+        color: #92400e;
+      }
+
+      .warning-box ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      .footer {
+        background: #f1f5f9;
+        text-align: center;
+        padding: 18px;
+        font-size: 12px;
+        color: #64748b;
+      }
+
+      .footer p {
+        margin: 5px 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrapper">
+      <table width="100%">
+        <tr>
+          <td align="center">
+            <table class="container">
+              <!-- HEADER -->
+              <tr>
+                <td class="header">
+                  <img
+                    src="https://res.cloudinary.com/dtwj3t1s2/image/upload/v1769280636/assets/f253991b70e990235d74d751c219bacaf6a4a12466cc7fb1c9518b48fb3e1988.png"
+                    alt="Infants Care"
+                  />
+                  <h1>Email Verification Code</h1>
+                </td>
+              </tr>
+
+              <!-- CONTENT -->
+              <tr>
+                <td class="content">
+                  <p>Hello <strong>{{username}}</strong>,</p>
+
+                  <p>
+                    Thank you for registering with
+                    <strong>Infants Care</strong>. Please use the verification
+                    code below to confirm your email.
+                  </p>
+
+                  <!-- OTP BOX -->
+                  <div class="otp-box">
+                    <div class="otp-label">Your Verification Code</div>
+                    <div class="otp-code">{{otp}}</div>
+                    <div class="otp-note">
+                      This code is valid for the next
+                      <strong>10 minutes</strong>.
+                    </div>
+                  </div>
+
+                  <!-- WARNING -->
+                  <div class="warning-box">
+                    <strong>Important:</strong>
+                    <ul>
+                      <li>Do not share this code with anyone</li>
+                      <li>This code expires in 10 minutes</li>
+                      <li>
+                        If you did not request this, you may ignore this email
+                      </li>
+                    </ul>
+                  </div>
+
+                  <p>
+                    Enter this code on the verification page to activate your
+                    account.
+                  </p>
+
+                  <p>
+                    Regards,<br />
+                    <strong>Infants Care Team</strong>
+                  </p>
+                </td>
+              </tr>
+
+              <!-- FOOTER -->
+              <tr>
+                <td class="footer">
+                  <p><strong>© 2025 Infants Care</strong></p>
+                  <p>This is an automated email. Please do not reply.</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </body>
+</html>

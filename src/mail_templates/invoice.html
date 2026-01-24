@@ -1,0 +1,278 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f8fafc;
+        font-family: Arial, sans-serif;
+      }
+
+      .wrapper {
+        width: 100%;
+        padding: 30px 0;
+        background: #f8fafc;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 600px;
+        margin: auto;
+        background: #ffffff;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+      }
+
+      .header {
+        background: #ffffff;
+        text-align: center;
+        padding: 25px;
+        color: #000000;
+        border-bottom: 1px solid #64748b;
+      }
+
+      .header img {
+        width: 110px;
+        margin-bottom: 12px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: bold;
+      }
+
+      .header p {
+        margin: 6px 0 0;
+        font-size: 14px;
+        opacity: 0.85;
+      }
+
+      .content {
+        padding: 30px;
+        color: #334155;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .content p {
+        margin: 0 0 15px;
+      }
+
+      .invoice-box {
+        background: #f9fafb;
+        padding: 18px;
+        border-radius: 10px;
+        margin: 25px 0;
+        font-size: 14px;
+      }
+
+      .invoice-box table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .invoice-box td {
+        padding: 6px 0;
+      }
+
+      .invoice-box td:first-child {
+        font-weight: bold;
+        color: #0f172a;
+      }
+
+      .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+      }
+
+      .items-table th {
+        background: #f1f5f9;
+        text-align: left;
+        padding: 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #475569;
+      }
+
+      .items-table td {
+        padding: 12px 10px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .items-table td:nth-child(2),
+      .items-table td:nth-child(3),
+      .items-table td:nth-child(4) {
+        text-align: right;
+      }
+
+      .totals {
+        margin-top: 20px;
+        width: 100%;
+      }
+
+      .totals td {
+        padding: 6px 0;
+        text-align: right;
+        font-size: 14px;
+      }
+
+      .totals .label {
+        color: #475569;
+      }
+
+      .totals .value {
+        font-weight: bold;
+        color: #0f172a;
+      }
+
+      .grand-total {
+        font-size: 16px;
+        font-weight: bold;
+        border-top: 2px solid #e2e8f0;
+        padding-top: 10px;
+      }
+
+      .button-wrapper {
+        text-align: center;
+        margin: 30px 0;
+      }
+
+      .button {
+        background: #0f172a;
+        color: white !important;
+        padding: 12px 22px;
+        font-size: 14px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: bold;
+        display: inline-block;
+      }
+
+      .footer {
+        background: #f1f5f9;
+        text-align: center;
+        padding: 18px;
+        font-size: 12px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrapper">
+      <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+          <img
+            src="https://res.cloudinary.com/dtwj3t1s2/image/upload/v1769280636/assets/f253991b70e990235d74d751c219bacaf6a4a12466cc7fb1c9518b48fb3e1988.png"
+            alt="Infants Care"
+          />
+          <h1>Invoice Summary</h1>
+          <p>Order #{{orderId}}</p>
+        </div>
+
+        <!-- CONTENT -->
+        <div class="content">
+          <p>Hello <strong>{{username}}</strong>,</p>
+          <p>
+            Thank you for shopping with Infants Care. Below are your invoice
+            details:
+          </p>
+
+          <!-- ORDER DETAILS -->
+          <div class="invoice-box">
+            <table>
+              <tr>
+                <td>Order Date:</td>
+                <td style="text-align: right">{{orderDate}}</td>
+              </tr>
+              <tr>
+                <td>Status:</td>
+                <td style="text-align: right; text-transform: capitalize">
+                  {{orderStatus}}
+                </td>
+              </tr>
+              <tr>
+                <td>Payment Method:</td>
+                <td style="text-align: right">{{paymentMethod}}</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- ITEMS -->
+          <h3 style="margin-bottom: 10px; color: #0f172a">Items Ordered</h3>
+
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#items}}
+              <tr>
+                <td>{{productName}}</td>
+                <td>{{quantity}}</td>
+                <td>₹{{price}}</td>
+                <td>₹{{itemTotal}}</td>
+              </tr>
+              {{/items}}
+            </tbody>
+          </table>
+
+          <!-- TOTALS -->
+          <table class="totals">
+            <tr>
+              <td class="label">Subtotal:</td>
+              <td class="value">₹{{subtotal}}</td>
+            </tr>
+
+            <tr>
+              <td class="label">Shipping:</td>
+              <td class="value">₹{{shippingCost}}</td>
+            </tr>
+
+            {{#hasDiscount}}
+            <tr>
+              <td class="label" style="color: #dc2626">Discount:</td>
+              <td class="value" style="color: #dc2626">-₹{{discount}}</td>
+            </tr>
+            {{/hasDiscount}}
+
+            <tr>
+              <td class="label grand-total">Total:</td>
+              <td class="value grand-total">₹{{total}}</td>
+            </tr>
+          </table>
+
+          <!-- BUTTON -->
+          <div class="button-wrapper">
+            <a class="button" href="{{frontendUrl}}/orders/{{orderId}}">
+              View Order Details
+            </a>
+          </div>
+
+          <p>
+            If you have any questions, feel free to contact our support team.
+          </p>
+
+          <p>Best regards,<br /><strong>Infants Care Team</strong></p>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+          <p>© 2026 Infants Care. All rights reserved.</p>
+          <p>This is an automated invoice email. Please do not reply.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

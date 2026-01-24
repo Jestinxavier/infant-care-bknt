@@ -36,7 +36,7 @@ const getAllOrders = async (req, res) => {
     const now = new Date();
     const restrictionDaysAgo = new Date(now);
     restrictionDaysAgo.setUTCDate(
-      now.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS
+      now.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
     );
     restrictionDaysAgo.setUTCHours(0, 0, 0, 0); // Start of day in UTC
 
@@ -168,11 +168,10 @@ const getAllOrders = async (req, res) => {
       shippingCost: order.shippingCost,
       discount: order.discount,
       items: order.items.map((item) => ({
-        variantId: item.variantId?._id?.toString(),
-        productId: item.variantId?.productId?._id?.toString(),
-        productName:
-          item.variantId?.productId?.name || item.variantId?.productId?.title,
-        productImage: item.variantId?.productId?.images?.[0],
+        variantId: item.variantId,
+        productId: item.productId,
+        productName: item.name || item.variantId?.productId?.name,
+        productImage: item.image || item.variantId?.productId?.images?.[0],
         quantity: item.quantity,
         price: item.price,
       })),
@@ -323,7 +322,7 @@ const updateOrderStatus = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: `Invalid status. Must be one of: ${validStatuses.join(
-            ", "
+            ", ",
           )}`,
         });
       }
@@ -360,29 +359,127 @@ const updateOrderStatus = async (req, res) => {
     if (deliveryNote !== undefined) updateFields.deliveryNote = deliveryNote;
 
     if (req.body.deliveryPartner !== undefined) {
-      // If "manual" string is sent, look for the 'Other / Manual' partner or set null?
-      // Ideally frontend sends ID. If it sends "manual" and that's not a valid ID, mongoose will throw CastError later.
-      // We'll assume for now frontend logic will be fixed to send valid ObjectId or null.
-      // If it's a valid ObjectId or null, assign it.
-      if (req.body.deliveryPartner === "manual") {
-        // Try to find the seeded "Other / Manual" partner
-        const manualPartner = await mongoose
-          .model("DeliveryPartner")
-          .findOne({ name: { $regex: /manual/i } });
-        if (manualPartner) {
-          updateFields.deliveryPartner = manualPartner._id;
-        } else {
-          return res.status(400).json({
-            success: false,
-            message: "Manual delivery partner not found in database.",
-          });
+      const partnerValue = req.body.deliveryPartner;
+      let trackingUrlFromPartner = null;
+
+      // Handle object format: { name: "DTDC", trackingUrl: "https://..." }
+      if (
+        partnerValue &&
+        typeof partnerValue === "object" &&
+        !Array.isArray(partnerValue)
+      ) {
+        const partnerName = partnerValue.name;
+        trackingUrlFromPartner = partnerValue.trackingUrl;
+
+        // Handle null/empty name
+        if (!partnerName) {
+          updateFields.deliveryPartner = null;
         }
-      } else {
-        updateFields.deliveryPartner = req.body.deliveryPartner || null;
+        // Handle "manual" special case
+        else if (partnerName === "manual") {
+          const manualPartner = await mongoose
+            .model("DeliveryPartner")
+            .findOne({ name: { $regex: /manual/i } });
+          if (manualPartner) {
+            updateFields.deliveryPartner = manualPartner._id;
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: "Manual delivery partner not found in database.",
+            });
+          }
+        }
+        // If it's a valid ObjectId, use it directly
+        else if (mongoose.Types.ObjectId.isValid(partnerName)) {
+          updateFields.deliveryPartner = partnerName;
+        }
+        // Otherwise, treat it as a partner name and look it up
+        else {
+          const foundPartner = await mongoose
+            .model("DeliveryPartner")
+            .findOne({ name: { $regex: new RegExp(`^${partnerName}$`, "i") } });
+
+          if (foundPartner) {
+            updateFields.deliveryPartner = foundPartner._id;
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: `Delivery partner "${partnerName}" not found in database.`,
+            });
+          }
+        }
+
+        // If trackingUrl is provided in the object, add/update it in fulfillmentAdditionalInfo
+        if (trackingUrlFromPartner) {
+          const currentInfo =
+            req.body.fulfillmentAdditionalInfo ||
+            currentOrder.fulfillmentAdditionalInfo ||
+            [];
+          // Check if "Tracking URL" already exists
+          const existingUrlIndex = currentInfo.findIndex(
+            (item) => item.key && item.key.toLowerCase() === "tracking url",
+          );
+
+          if (existingUrlIndex >= 0) {
+            // Update existing
+            currentInfo[existingUrlIndex].value = trackingUrlFromPartner;
+          } else {
+            // Add new
+            currentInfo.push({
+              key: "Tracking URL",
+              value: trackingUrlFromPartner,
+            });
+          }
+          updateFields.fulfillmentAdditionalInfo = currentInfo;
+        }
+      }
+      // Legacy string/ObjectId format handling
+      else {
+        // Handle null/empty case
+        if (!partnerValue || partnerValue === null) {
+          updateFields.deliveryPartner = null;
+        }
+        // Handle "manual" special case
+        else if (partnerValue === "manual") {
+          const manualPartner = await mongoose
+            .model("DeliveryPartner")
+            .findOne({ name: { $regex: /manual/i } });
+          if (manualPartner) {
+            updateFields.deliveryPartner = manualPartner._id;
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: "Manual delivery partner not found in database.",
+            });
+          }
+        }
+        // If it's a valid ObjectId, use it directly
+        else if (mongoose.Types.ObjectId.isValid(partnerValue)) {
+          updateFields.deliveryPartner = partnerValue;
+        }
+        // Otherwise, treat it as a partner name and look it up
+        else {
+          const foundPartner = await mongoose.model("DeliveryPartner").findOne({
+            name: { $regex: new RegExp(`^${partnerValue}$`, "i") },
+          });
+
+          if (foundPartner) {
+            updateFields.deliveryPartner = foundPartner._id;
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: `Delivery partner "${partnerValue}" not found in database.`,
+            });
+          }
+        }
       }
     }
 
-    if (req.body.fulfillmentAdditionalInfo !== undefined)
+    // Handle fulfillmentAdditionalInfo if not already set by deliveryPartner object handling
+    if (
+      req.body.fulfillmentAdditionalInfo !== undefined &&
+      !updateFields.fulfillmentAdditionalInfo
+    )
       updateFields.fulfillmentAdditionalInfo =
         req.body.fulfillmentAdditionalInfo;
 
@@ -409,7 +506,7 @@ const updateOrderStatus = async (req, res) => {
     const order = await Order.findByIdAndUpdate(
       currentOrder._id,
       { $set: updateFields },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email")
       .populate("deliveryPartner")
@@ -449,8 +546,83 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Send invoice email
+ */
+const sendOrderInvoice = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Order ID is required" });
+    }
+
+    // Resolve orderId
+    let query = { orderId: orderId };
+    const sanitizedId = orderId.replace(/^#/, "");
+
+    if (mongoose.Types.ObjectId.isValid(orderId)) {
+      query = {
+        $or: [
+          { _id: orderId },
+          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+        ],
+      };
+    } else {
+      query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
+    }
+
+    const order = await Order.findOne(query)
+      .populate("userId", "username email phone")
+      .populate({
+        path: "items.variantId",
+        populate: { path: "productId", select: "name title" },
+      })
+      .lean();
+
+    if (!order) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
+    }
+
+    if (!order.userId || !order.userId.email) {
+      // Fallback to guest email if stored on order (if applicable) or error
+      // Assuming order.customerEmail might exist for guest checkout in future, but for now strict user check
+      return res.status(400).json({
+        success: false,
+        message: "User email not found for this order. Cannot send invoice.",
+      });
+    }
+
+    // Enhance order items for template (flatten variant structure if needed)
+    // The template expects item.productName and item.price.
+    // The query above populates variants. We need to ensure structure matches.
+    // The email service uses: item.productName || item.productId?.name
+    // Our population matches that mostly.
+
+    // Send Email
+    await emailService.sendInvoiceEmail(order.userId, order);
+
+    res.status(200).json({
+      success: true,
+      message: "Invoice email sent successfully",
+    });
+  } catch (err) {
+    console.error("❌ Admin Error sending invoice:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
+  sendOrderInvoice,
 };

@@ -90,7 +90,7 @@ app.use(
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpec, {
     customCss: ".swagger-ui .topbar { display: none }",
-    customSiteTitle: "Infant Care API Docs",
+    customSiteTitle: "Infants Care API Docs",
   })
 );
 
