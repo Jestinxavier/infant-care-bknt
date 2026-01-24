@@ -1,7 +1,7 @@
 const { getAllProducts, getProductById } = require("./adminProductsController");
 const { getAllOrders, getOrderById, updateOrderStatus } = require("./adminOrdersController");
 const { getAllCategories, getCategoryById } = require("./adminCategoriesController");
-const { getAllCustomers } = require("./adminCustomersController");
+const { getAllCustomers, getCustomerById } = require("./adminCustomersController");
 const { getAllReviews, replyToReview } = require("./adminReviewController");
 
 module.exports = {
@@ -16,6 +16,7 @@ module.exports = {
 
   // Customers
   getAllCustomers,
+  getCustomerById,
 
   // Categories
   getAllCategories,

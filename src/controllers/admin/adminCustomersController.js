@@ -108,8 +108,79 @@ const getAllCustomers = async (req, res) => {
   }
 };
 
+const Address = require("../../models/Address");
+
+/**
+ * Admin: Get customer details and their order history
+ */
+const getCustomerById = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer ID is required",
+      });
+    }
+
+    const user = await User.findById(customerId).lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found",
+      });
+    }
+
+    // Fetch all saved addresses for this customer
+    const savedAddresses = await Address.find({ userId: customerId }).lean();
+
+    // Fetch all orders for this customer
+    const orders = await Order.find({ userId: customerId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Calculate stats
+    const totalSpent = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const orderCount = orders.length;
+
+    res.status(200).json({
+      success: true,
+      customer: {
+        id: user._id?.toString(),
+        _id: user._id?.toString(),
+        name: user.username,
+        email: user.email,
+        phone: user.phone,
+        registeredDate: user.createdAt,
+        totalSpent,
+        orderCount,
+      },
+      addresses: savedAddresses,
+      orders: orders.map(order => ({
+        _id: order._id?.toString(),
+        orderId: order.orderId || order._id?.toString(),
+        date: order.placedAt || order.createdAt,
+        status: order.orderStatus, // Using orderStatus instead of status
+        paymentStatus: order.paymentStatus,
+        total: order.totalAmount,
+        itemCount: order.totalQuantity || order.items.reduce((sum, item) => sum + item.quantity, 0),
+      })),
+    });
+  } catch (error) {
+    console.error("❌ Admin Error fetching customer details:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getAllCustomers,
+  getCustomerById,
 };
 
 
