@@ -15,6 +15,8 @@ const {
   getCustomerById,
   getAllReviews,
   replyToReview,
+  approveReview,
+  rejectReview,
 } = require("../controllers/admin");
 
 const {
@@ -912,7 +914,12 @@ router.post("/customers", verifyToken, requireAdmin, getAllCustomers);
  *       200:
  *         description: Customer details retrieved successfully
  */
-router.get("/customers/:customerId", verifyToken, requireAdmin, getCustomerById);
+router.get(
+  "/customers/:customerId",
+  verifyToken,
+  requireAdmin,
+  getCustomerById,
+);
 
 // ==================== REVIEWS ====================
 
@@ -1372,5 +1379,63 @@ router.delete(
   requireAdmin,
   deleteCategory,
 );
+
+/**
+ * @swagger
+ * /api/v1/admin/reviews/approve:
+ *   post:
+ *     summary: "[Admin] Approve a review"
+ *     description: Mark a review as approved to be visible publicly and count towards ratings.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reviewId
+ *             properties:
+ *               reviewId:
+ *                 type: string
+ *                 description: ID of review to approve
+ *     responses:
+ *       200:
+ *         description: Review approved
+ *       404:
+ *         description: Review not found
+ */
+router.post("/reviews/approve", verifyToken, requireAdmin, approveReview);
+
+/**
+ * @swagger
+ * /api/v1/admin/reviews/reject:
+ *   post:
+ *     summary: "[Admin] Reject a review"
+ *     description: Mark a review as rejected. It will be hidden from public view.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - reviewId
+ *             properties:
+ *               reviewId:
+ *                 type: string
+ *                 description: ID of review to reject
+ *     responses:
+ *       200:
+ *         description: Review rejected
+ *       404:
+ *         description: Review not found
+ */
+router.post("/reviews/reject", verifyToken, requireAdmin, rejectReview);
 
 module.exports = router;

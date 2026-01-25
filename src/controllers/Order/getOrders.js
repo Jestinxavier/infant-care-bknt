@@ -16,12 +16,38 @@ const getOrders = async (req, res) => {
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const status = req.query.status;
     const skip = (page - 1) * limit;
 
-    const totalOrders = await Order.countDocuments({ userId });
+    let query = { userId };
+
+    if (status) {
+      switch (status.toLowerCase()) {
+        case "pending":
+          query.paymentStatus = "pending";
+          break;
+        case "confirmed":
+          query.orderStatus = "processing";
+          query.paymentStatus = { $ne: "pending" };
+          break;
+        case "shipped":
+          query.orderStatus = "shipped";
+          break;
+        case "delivered":
+          query.orderStatus = "delivered";
+          break;
+        case "cancelled":
+          query.orderStatus = "cancelled";
+          break;
+        default:
+          break;
+      }
+    }
+
+    const totalOrders = await Order.countDocuments(query);
     const totalPages = Math.ceil(totalOrders / limit);
 
-    const orders = await Order.find({ userId })
+    const orders = await Order.find(query)
       .populate({
         path: "items.variantId",
         populate: {

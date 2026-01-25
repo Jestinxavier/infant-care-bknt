@@ -3,6 +3,7 @@ const Order = require("../../models/Order");
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const { updateRatings } = require("../../services/ratingService");
+const mongoose = require("mongoose");
 
 /**
  * Get purchased products eligible for review
@@ -33,11 +34,10 @@ const getPurchasedProductsForReview = async (req, res) => {
     const purchasedItems = [];
     for (const order of orders) {
       for (const item of order.items) {
-        // Check if already reviewed
+        // Check if already reviewed (One review per product rule)
         const existingReview = await Review.findOne({
           userId,
-          variantId: item.variantId._id,
-          orderId: order._id,
+          productId: item.variantId.productId._id,
         });
 
         purchasedItems.push({
@@ -66,13 +66,11 @@ const getPurchasedProductsForReview = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching purchased products:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 
@@ -82,13 +80,13 @@ const getPurchasedProductsForReview = async (req, res) => {
 const addReview = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
-    const { productId, variantId, orderId, rating, review } = req.body;
+    const { productId, variantId, orderId, rating, review, title } = req.body;
 
     // Validate required fields
-    if (!productId || !orderId || !rating) {
+    if (!productId || !orderId || !rating || !title) {
       return res.status(400).json({
         success: false,
-        message: "productId, orderId, and rating are required",
+        message: "productId, orderId, rating, and title are required",
       });
     }
 
@@ -128,17 +126,17 @@ const addReview = async (req, res) => {
       });
     }
 
-    // Check if user already reviewed this item in this order
+    // Check if user already reviewed this product (One Review Per Product)
     const existingReview = await Review.findOne({
       userId,
       productId,
-      variantId,
-      orderId,
     });
     if (existingReview) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
         message: "You have already reviewed this product",
+        reviewId: existingReview._id,
+        isExistingReview: true,
       });
     }
 
@@ -149,6 +147,7 @@ const addReview = async (req, res) => {
       orderId,
       rating,
       review,
+      title,
     });
     await newReview.save();
 
@@ -168,13 +167,11 @@ const addReview = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error adding review:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 
@@ -200,13 +197,11 @@ const getMyReviews = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching user reviews:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 
@@ -217,7 +212,7 @@ const updateMyReview = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
     const { reviewId } = req.params;
-    const { rating, review } = req.body;
+    const { rating, review, title } = req.body;
 
     // Validate rating if provided
     if (rating && (rating < 1 || rating > 5)) {
@@ -238,6 +233,7 @@ const updateMyReview = async (req, res) => {
     // Update review
     if (rating) existingReview.rating = rating;
     if (review !== undefined) existingReview.review = review;
+    if (title) existingReview.title = title;
 
     await existingReview.save();
 
@@ -263,13 +259,11 @@ const updateMyReview = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error updating review:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 
@@ -302,37 +296,69 @@ const deleteMyReview = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error deleting review:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 
 const getProductReviews = async (req, res) => {
   try {
     const { productId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
 
-    const reviews = await Review.find({ productId })
+    let targetProductId = productId;
+
+    // Resolve Product ID from SKU or ID
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      const product = await Product.findOne({ sku: productId });
+      if (!product) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Product not found" });
+      }
+      targetProductId = product._id;
+    }
+
+    // Build query with Strict Approval Filter
+    const query = { productId: targetProductId, isApproved: true };
+
+    const reviews = await Review.find(query)
       .populate("userId", "username")
-      .sort({ createdAt: -1 });
+      .populate("variantId", "size color")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
 
-    // Calculate average rating
-    const avgRating =
-      reviews.length > 0
-        ? (
-          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-        ).toFixed(1)
-        : 0;
+    // Calculate average rating based on approved reviews
+    const allApprovedReviews = await Review.find({
+      productId: targetProductId,
+      isApproved: true,
+    });
+
+    let avgRating = 0;
+    if (allApprovedReviews.length > 0) {
+      const sum = allApprovedReviews.reduce((acc, r) => acc + r.rating, 0);
+      avgRating = (sum / allApprovedReviews.length).toFixed(1);
+    }
+
+    const total = await Review.countDocuments(query);
 
     res.status(200).json({
       success: true,
-      totalReviews: reviews.length,
+      totalReviews: total,
       averageRating: parseFloat(avgRating),
       reviews,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (err) {
     console.error("❌ Error fetching product reviews:", err);
@@ -351,7 +377,7 @@ const getVariantReviews = async (req, res) => {
   try {
     const { variantId } = req.params;
 
-    const reviews = await Review.find({ variantId })
+    const reviews = await Review.find({ variantId, isApproved: true })
       .populate("userId", "username")
       .sort({ createdAt: -1 });
 
@@ -359,8 +385,8 @@ const getVariantReviews = async (req, res) => {
     const avgRating =
       reviews.length > 0
         ? (
-          reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-        ).toFixed(1)
+            reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+          ).toFixed(1)
         : 0;
 
     res.status(200).json({
@@ -371,13 +397,11 @@ const getVariantReviews = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching reviews:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 /**
@@ -389,7 +413,10 @@ const getTopReviews = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const minRating = parseInt(req.query.minRating) || 4; // Default to 4+ star reviews
 
-    const reviews = await Review.find({ rating: { $gte: minRating } })
+    const reviews = await Review.find({
+      rating: { $gte: minRating },
+      isApproved: true,
+    })
       .populate("userId", "username firstName lastName")
       .populate({
         path: "variantId",
@@ -418,13 +445,11 @@ const getTopReviews = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching top reviews:", err);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Internal Server Error",
-        error: err.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
   }
 };
 

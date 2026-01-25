@@ -106,6 +106,7 @@ const formatProductResponse = (product) => {
   // Format response
   return {
     id: productObj._id?.toString() || productObj.id,
+    sku: productObj.sku, // ✅ Include SKU in response
     url_key: productObj.url_key,
     title: productObj.title || productObj.name,
     description: productObj.description,

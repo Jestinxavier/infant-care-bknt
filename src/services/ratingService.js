@@ -9,28 +9,35 @@ const mongoose = require("mongoose");
  */
 const updateProductRating = async (productId) => {
   try {
-    // Get all reviews for this product
-    const allReviews = await Review.find({ productId });
+    // Get all approved reviews for this product
+    const allReviews = await Review.find({ productId, isApproved: true });
 
     if (allReviews.length === 0) {
       await Product.findByIdAndUpdate(productId, {
         averageRating: 0,
-        totalReviews: 0
+        totalReviews: 0,
       });
       return { averageRating: 0, totalReviews: 0 };
     }
 
     // Calculate average rating across all product reviews
-    const totalRating = allReviews.reduce((sum, review) => sum + review.rating, 0);
-    const averageRating = parseFloat((totalRating / allReviews.length).toFixed(2));
+    const totalRating = allReviews.reduce(
+      (sum, review) => sum + review.rating,
+      0,
+    );
+    const averageRating = parseFloat(
+      (totalRating / allReviews.length).toFixed(2),
+    );
 
     // Update product
     await Product.findByIdAndUpdate(productId, {
       averageRating: averageRating,
-      totalReviews: allReviews.length
+      totalReviews: allReviews.length,
     });
 
-    console.log(`✅ Updated product ${productId} rating: ${averageRating} (${allReviews.length} reviews)`);
+    console.log(
+      `✅ Updated product ${productId} rating: ${averageRating} (${allReviews.length} reviews)`,
+    );
     return { averageRating, totalReviews: allReviews.length };
   } catch (error) {
     console.error("❌ Error updating product rating:", error);
@@ -47,13 +54,13 @@ const updateVariantRating = async (variantId) => {
     // Only proceed if variantId is a valid MongoDB ObjectId (for standalone Variant collection)
     if (!mongoose.Types.ObjectId.isValid(variantId)) return null;
 
-    // Get all reviews for this variant
-    const reviews = await Review.find({ variantId });
+    // Get all approved reviews for this variant
+    const reviews = await Review.find({ variantId, isApproved: true });
 
     if (reviews.length === 0) {
       await Variant.findByIdAndUpdate(variantId, {
         averageRating: 0,
-        totalReviews: 0
+        totalReviews: 0,
       });
       return { averageRating: 0, totalReviews: 0 };
     }
@@ -63,12 +70,15 @@ const updateVariantRating = async (variantId) => {
 
     await Variant.findByIdAndUpdate(variantId, {
       averageRating: averageRating,
-      totalReviews: reviews.length
+      totalReviews: reviews.length,
     });
 
     return { averageRating, totalReviews: reviews.length };
   } catch (error) {
-    console.warn("⚠️ Standalone variant update failed (possibly not a standalone variant):", variantId);
+    console.warn(
+      "⚠️ Standalone variant update failed (possibly not a standalone variant):",
+      variantId,
+    );
     return null;
   }
 };
@@ -103,5 +113,5 @@ const updateRatings = async (productId, variantId) => {
 module.exports = {
   updateProductRating,
   updateVariantRating,
-  updateRatings
+  updateRatings,
 };

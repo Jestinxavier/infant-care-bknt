@@ -93,16 +93,20 @@ const getOrderById = async (req, res) => {
             isReviewed: !!existingReview,
             review: existingReview
               ? {
+                  _id: existingReview._id,
                   rating: existingReview.rating,
+                  title: existingReview.title,
                   review: existingReview.review,
+                  status: existingReview.status,
                   createdAt: existingReview.createdAt,
                   reply: existingReview.reply,
                   isReplied: existingReview.isReplied,
                   repliedAt: existingReview.repliedAt,
+                  isApproved: existingReview.status === "approved",
                 }
               : null,
           };
-        })
+        }),
       ),
       itemCount: order.items.reduce((sum, item) => sum + item?.quantity, 0),
       address: order.shippingAddress || order.addressId,

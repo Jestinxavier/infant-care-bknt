@@ -13,7 +13,12 @@ const {
   getAllCustomers,
   getCustomerById,
 } = require("./adminCustomersController");
-const { getAllReviews, replyToReview } = require("./adminReviewController");
+const {
+  getAllReviews,
+  replyToReview,
+  approveReview,
+  rejectReview,
+} = require("./adminReviewController");
 
 module.exports = {
   // Products
@@ -37,4 +42,6 @@ module.exports = {
   // Reviews
   getAllReviews,
   replyToReview,
+  approveReview,
+  rejectReview,
 };
