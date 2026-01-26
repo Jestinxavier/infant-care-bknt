@@ -1,4 +1,6 @@
 const Review = require("../../models/Review");
+const Product = require("../../models/Product");
+const { triggerRevalidation } = require("../../services/revalidateService");
 
 /**
  * Get all reviews with pagination and filtering
@@ -188,6 +190,16 @@ const replyToReview = async (req, res) => {
         .json({ success: false, message: "Review not found" });
     }
 
+    // Trigger cache revalidation for the product page
+    const product = await Product.findById(reviewUpdate.productId);
+    if (product?.slug) {
+      await triggerRevalidation({
+        type: "product",
+        resource: product.slug,
+        tag: "reviews",
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: "Reply added successfully",
@@ -226,6 +238,16 @@ const approveReview = async (req, res) => {
 
     const { updateRatings } = require("../../services/ratingService");
     await updateRatings(review.productId, review.variantId);
+
+    // Trigger cache revalidation for the product page
+    const product = await Product.findById(review.productId);
+    if (product?.slug) {
+      await triggerRevalidation({
+        type: "product",
+        resource: product.slug,
+        tag: "reviews",
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -272,6 +294,16 @@ const rejectReview = async (req, res) => {
     // Update ratings to ensure this review is removed from stats
     const { updateRatings } = require("../../services/ratingService");
     await updateRatings(review.productId, review.variantId);
+
+    // Trigger cache revalidation for the product page
+    const product = await Product.findById(review.productId);
+    if (product?.slug) {
+      await triggerRevalidation({
+        type: "product",
+        resource: product.slug,
+        tag: "reviews",
+      });
+    }
 
     res.status(200).json({
       success: true,

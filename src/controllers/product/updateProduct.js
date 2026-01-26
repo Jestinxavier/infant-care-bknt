@@ -8,6 +8,7 @@ const {
 } = require("../../utils/mediaFinalizer");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 const bundleService = require("../../features/product/bundle.service");
+const { triggerRevalidation } = require("../../services/revalidateService");
 
 const updateProduct = async (req, res) => {
   try {
