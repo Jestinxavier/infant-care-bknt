@@ -71,7 +71,7 @@ export default function (data) {
       userId: testUserId,
       items: [{ productId: "507f1f77bcf86cd799439011", quantity: 1 }],
       addressId: testAddressId,
-      paymentMethod: "phonepe",
+      paymentMethod: "PHONEPE",
     });
 
     const params = {

@@ -135,6 +135,9 @@ app.use("/api/v1/cms/products", cmsProductRoutes);
 // Public CMS routes (for frontend)
 app.use("/api/v1/cms", cmsPublicRoutes);
 
+//payment routes
+app.use("/api/v1/payment", paymentRoutes);
+
 // Admin routes - mounted with configurable prefix
 app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
 app.use(`/api/v1${ADMIN_PREFIX}/delivery-partners`, deliveryPartnerRoutes);

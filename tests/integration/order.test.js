@@ -93,7 +93,7 @@ describe("Order API", () => {
           userId: testUser._id.toString(),
           items: [{ productId: testProduct._id.toString(), quantity: 1 }],
           addressId: testAddress?._id.toString(),
-          paymentMethod: "cod",
+          paymentMethod: "COD",
         });
 
       expect(response.status).toBe(400);
@@ -133,7 +133,7 @@ describe("Order API", () => {
         cartId: testCartId,
         items: [{ productId: testProduct._id.toString(), quantity: 1 }],
         addressId: testAddress._id.toString(),
-        paymentMethod: "cod",
+        paymentMethod: "COD",
       };
 
       // First request

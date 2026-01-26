@@ -8,8 +8,8 @@ const REFRESH_TOKEN = "refresh_token";
 
 // Payment method constants
 const PAYMENT_METHODS = {
-  COD: "cod",
-  PHONEPE: "phonepe",
+  COD: "COD",
+  PHONEPE: "PHONEPE",
 };
 
 const TOKEN_EXPIRY = {
