@@ -3,8 +3,9 @@ const mongoose = require("mongoose");
 const User = require("./src/models/user");
 
 const listUsers = async () => {
-  
+
   try {
+    
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("✅ Connected to MongoDB");
 
