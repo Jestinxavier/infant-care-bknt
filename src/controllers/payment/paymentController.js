@@ -3,58 +3,75 @@ const Cart = require("../../models/Cart");
 
 /**
  * GET /api/v1/payment/options
- * Get available payment options based on cart status and global settings.
+ *
+ * Returns enabled payment methods for the current checkout cart.
+ *
+ * Rules:
+ * - cartId is REQUIRED (prevents old cart issues)
+ * - cart must exist and contain items
+ * - payment methods come from global settings
  */
 const getPaymentOptions = async (req, res) => {
   try {
-    const userId = req.user?._id;
-    const cartId = req.header("x-cart-id"); // Assuming standard header for cart ID
+    // ✅ 1. Read Cart ID (Checkout must always be cart-specific)
+    const cartId = req.header("x-cart-id");
 
-    // 1. Validation: "Check the cart has items"
-    // We need to find the cart first.
-    let cart = null;
-    const commonQuery = { status: { $in: ["active", "checkout"] } };
-
-    if (userId) {
-      cart = await Cart.findOne({ userId, ...commonQuery });
-    } else if (cartId) {
-      cart = await Cart.findOne({ cartId, ...commonQuery });
-    }
-
-    if (!cart || !cart.items || cart.items.length === 0) {
+    if (!cartId) {
       return res.status(400).json({
         success: false,
-        message: "Cart is empty. Cannot fetch payment options.",
-        options: [],
+        message: "Cart ID is required for payment options",
       });
     }
 
-    // 2. Fetch Global Setting
-    const setting = await SiteSetting.findOne({ key: "payment_methods" });
+    // ✅ 2. Fetch Checkout Cart
+    const cart = await Cart.findOne({
+      cartId,
+      status: { $in: ["active", "checkout"] },
+    });
 
-    if (!setting || !setting.value || !setting.value.methods) {
-      // Fallback or empty if not configured
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Cart not found or expired",
+      });
+    }
+
+    // ✅ 3. Ensure Cart Has Items
+    if (!cart.items || cart.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cart is empty. Cannot load payment options.",
+      });
+    }
+
+    // ✅ 4. Load Payment Settings
+    const paymentSetting = await SiteSetting.findOne({
+      key: "payment_methods",
+    });
+
+    const methods = paymentSetting?.value?.methods || [];
+
+    if (methods.length === 0) {
       return res.json({
         success: true,
         options: [],
+        message: "No payment methods configured",
       });
     }
 
-    // 3. Filter Enabled Options
-    const enabledOptions = setting.value.methods.filter(
-      (method) => method.isEnabled,
-    );
+    // ✅ 5. Filter Enabled Methods
+    const enabledMethods = methods.filter((method) => method.isEnabled);
 
-    res.json({
+    return res.json({
       success: true,
-      options: enabledOptions,
+      options: enabledMethods,
     });
   } catch (error) {
-    console.error("Error fetching payment options:", error);
-    res.status(500).json({
+    console.error("[Payment Options Error]:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch payment options",
-      error: error.message,
     });
   }
 };
