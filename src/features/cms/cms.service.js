@@ -97,16 +97,16 @@ class CmsService {
     const pageConfig = this.modelMap[page];
     if (!pageConfig) {
       throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
+        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`,
       );
     }
 
-    // For homepage, always fetch all documents (widgets are stored as separate documents)
+    // For homepage and about page, always fetch all documents (widgets are stored as separate documents)
     // Similar to how /api/v1/homepage endpoint works
-    if (page === "home") {
-      const allDocuments = await pageConfig.model.find({});
+    if (page === "home" || page === "about") {
+      const allDocuments = await pageConfig.model.find({}).sort({ order: 1 });
       console.log(
-        `✅ [CMS Service] Homepage: Found ${allDocuments.length} widget documents`
+        `✅ [CMS Service] ${page}: Found ${allDocuments.length} widget documents`,
       );
 
       if (allDocuments.length === 0) {
@@ -121,7 +121,8 @@ class CmsService {
       const content = allDocuments.map((doc) => {
         const docObj = doc.toObject ? doc.toObject() : doc;
         const { _id, __v, createdAt, updatedAt, ...rest } = docObj;
-        return rest;
+        // Ensure ID is passed for frontend matching
+        return { ...rest, id: _id.toString() };
       });
 
       return {
@@ -139,7 +140,7 @@ class CmsService {
     if (!document) {
       allDocuments = await pageConfig.model.find({});
       console.log(
-        `🔍 [CMS Service] No single document found, found ${allDocuments.length} documents`
+        `🔍 [CMS Service] No single document found, found ${allDocuments.length} documents`,
       );
     }
 
@@ -147,7 +148,7 @@ class CmsService {
     // This allows the frontend to work with empty pages and create new content
     if (!document && allDocuments.length === 0) {
       console.log(
-        `⚠️ [CMS Service] No content found for page '${page}', returning empty structure`
+        `⚠️ [CMS Service] No content found for page '${page}', returning empty structure`,
       );
 
       // Return appropriate empty structure based on page type
@@ -223,7 +224,7 @@ class CmsService {
         // Return ALL policy documents
         const allPolicies = await pageConfig.model.find({});
         console.log(
-          `✅ [CMS Service] Found ${allPolicies.length} policy documents`
+          `✅ [CMS Service] Found ${allPolicies.length} policy documents`,
         );
 
         // Return as an array of { slug, title, content }
@@ -248,7 +249,7 @@ class CmsService {
     ) {
       content = docObject.content;
       console.log(
-        `✅ [CMS Service] Extracted content array with ${content.length} blocks`
+        `✅ [CMS Service] Extracted content array with ${content.length} blocks`,
       );
 
       // Log first few blocks for debugging
@@ -259,7 +260,7 @@ class CmsService {
             block_type: block.block_type,
             enabled: block.enabled,
             hasContent: !!block.content,
-          }))
+          })),
         );
       }
     }
@@ -287,7 +288,7 @@ class CmsService {
         return docObj;
       });
       console.log(
-        `✅ [CMS Service] Extracted ${content.length} blocks from multiple documents`
+        `✅ [CMS Service] Extracted ${content.length} blocks from multiple documents`,
       );
     }
     // Case 4: Single document without content field (use entire document)
@@ -317,7 +318,7 @@ class CmsService {
     const pageConfig = this.modelMap[page];
     if (!pageConfig) {
       throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
+        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`,
       );
     }
 
@@ -335,13 +336,13 @@ class CmsService {
       // This avoids ID churn and cleaner handling of existing data structure issues
 
       console.log(
-        `[CMS Service] Synchronizing content for page '${page}' with ${contentData.length} blocks`
+        `[CMS Service] Synchronizing content for page '${page}' with ${contentData.length} blocks`,
       );
 
       // 1. Fetch all existing documents
       const existingDocs = await pageConfig.model.find({});
       const existingDocsMap = new Map(
-        existingDocs.map((d) => [d._id.toString(), d])
+        existingDocs.map((d) => [d._id.toString(), d]),
       );
       const processedIds = new Set();
 
@@ -357,21 +358,33 @@ class CmsService {
 
         // Strategy 1: Match by valid MongoDB _id
         if (block.id && mongoose.isValidObjectId(block.id)) {
-          match = existingDocsMap.get(block.id);
+          // Verify this ID hasn't been processed yet to prevent duplicate/collision
+          if (!processedIds.has(block.id)) {
+            match = existingDocsMap.get(block.id);
+          } else {
+            console.warn(
+              `[CMS Service] ID collision or duplicate detected for ${block.id}. Treating as new/separate item.`,
+            );
+          }
         }
 
         // Strategy 2: Match by block_type (fallback) if we haven't used this doc yet
         // This is crucial for initial sync or if IDs are temp strings (e.g. "block-0-...")
-        if (!match && block.block_type) {
+        // Also safeguard: if block_type is missing, try to use component (legacy support for Our Story)
+        const targetBlockType = block.block_type || block.component;
+
+        if (!match && targetBlockType) {
           match = existingDocs.find(
             (d) =>
-              d.block_type === block.block_type &&
-              !processedIds.has(d._id.toString())
+              (d.block_type === targetBlockType ||
+                d.component === targetBlockType) &&
+              !processedIds.has(d._id.toString()),
           );
         }
 
         const blockPayload = {
           ...block,
+          block_type: targetBlockType, // Ensure block_type is set
           order,
           // Ensure we don't accidentally save the frontend 'id' as '_id' if it's not a MongoID
           // But we DO want to strip 'id' from payload if we are saving to Mongo to avoid confusion
@@ -399,7 +412,7 @@ class CmsService {
 
       if (idsToDelete.length > 0) {
         console.log(
-          `[CMS Service] Deleting ${idsToDelete.length} removed blocks`
+          `[CMS Service] Deleting ${idsToDelete.length} removed blocks`,
         );
         await pageConfig.model.deleteMany({ _id: { $in: idsToDelete } });
       }
@@ -447,7 +460,7 @@ class CmsService {
         const result = await pageConfig.model.findOneAndUpdate(
           filter,
           updateData,
-          { new: true, upsert: true }
+          { new: true, upsert: true },
         );
         updatedContent = result.content; // Return just the content string as per legacy expectation? Or object?
         // Frontend expects consistent return. Let's return the content string for now as it maps to the editor state.
@@ -467,19 +480,19 @@ class CmsService {
             contentData.navigation.menu
           ) {
             console.log(
-              "[CMS Service] Validating header navigation menu structure"
+              "[CMS Service] Validating header navigation menu structure",
             );
             const validationResult = menuValidator.validateMenu(
-              contentData.navigation.menu
+              contentData.navigation.menu,
             );
 
             if (!validationResult.valid) {
               console.error(
                 "[CMS Service] Menu validation failed:",
-                validationResult.errors
+                validationResult.errors,
               );
               throw ApiError.badRequest(
-                `Menu validation failed: ${validationResult.errors.join("; ")}`
+                `Menu validation failed: ${validationResult.errors.join("; ")}`,
               );
             }
 
@@ -537,23 +550,23 @@ class CmsService {
     const pageConfig = this.modelMap[page];
     if (!pageConfig) {
       throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
+        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`,
       );
     }
 
     // Only block-based pages support single block updates
     if (page !== "home" && page !== "about") {
       throw ApiError.badRequest(
-        `Single block updates are only supported for 'home' and 'about' pages`
+        `Single block updates are only supported for 'home' and 'about' pages`,
       );
     }
 
     console.log(
-      `[CMS Service] Updating block '${blockType}' for page '${page}'`
+      `[CMS Service] Updating block '${blockType}' for page '${page}'`,
     );
     console.log(
       `[CMS Service] Incoming blockData:`,
-      JSON.stringify(blockData, null, 2)
+      JSON.stringify(blockData, null, 2),
     );
 
     // Helper function to clean image metadata - keep url and alt (from Cloudinary original filename)
@@ -609,7 +622,7 @@ class CmsService {
       // Frontend sends { content: [...] } - use it directly
       transformedContent = blockData.content;
       console.log(
-        `[CMS Service] Using direct content array with ${transformedContent.length} items`
+        `[CMS Service] Using direct content array with ${transformedContent.length} items`,
       );
     } else if (blockData.banners) {
       // For banner-based blocks (heroBanner, promoBanner, banner_grid)
@@ -655,32 +668,32 @@ class CmsService {
 
     console.log(
       `[CMS Service] Transformed flat document:`,
-      JSON.stringify(flatDocument, null, 2)
+      JSON.stringify(flatDocument, null, 2),
     );
 
     let result;
     if (!existing) {
       // Create new document with flat structure
       console.log(
-        `[CMS Service] Creating new document for block '${blockType}'`
+        `[CMS Service] Creating new document for block '${blockType}'`,
       );
       result = await pageConfig.model.create(flatDocument);
     } else {
       // Update existing document with flat structure
       console.log(
-        `[CMS Service] Updating existing document for block '${blockType}'`
+        `[CMS Service] Updating existing document for block '${blockType}'`,
       );
       result = await pageConfig.model.findOneAndUpdate(
         { block_type: blockType },
         { $set: flatDocument },
-        { new: true }
+        { new: true },
       );
     }
 
     const resultObj = result.toObject ? result.toObject() : result;
 
     console.log(
-      `✅ [CMS Service] Successfully saved block '${blockType}' with flat structure`
+      `✅ [CMS Service] Successfully saved block '${blockType}' with flat structure`,
     );
 
     return {
@@ -698,7 +711,7 @@ class CmsService {
     const pageConfig = this.modelMap[page];
     if (!pageConfig) {
       throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
+        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`,
       );
     }
 

@@ -13,78 +13,115 @@ class CmsProductController {
    * GET /api/v1/cms/products
    */
   getProductsForCms = asyncHandler(async (req, res) => {
-    const { category, limit = 10, status = "published" } = req.query;
+    const {
+      category: categoryCode,
+      limit = 10,
+      status = "published",
+    } = req.query;
 
-    // Build filter
-    const filter = { status };
-    if (category) {
-      filter.category = category;
-    }
+    // Look up category by code and convert to ObjectId for filtering
+    let filters = {
+      limit: parseInt(limit),
+      status,
+      page: 1,
+    };
 
-    // Fetch products with minimal fields
-    const result = await productService.getAllProducts(
-      {
-        category,
-        limit: parseInt(limit),
-        status,
-        page: 1,
-      },
-      { isAdmin: false }
-    );
+    if (categoryCode) {
+      const Category = require("../../models/Category");
+      const category = await Category.findOne({
+        code: categoryCode.toLowerCase(),
+      });
 
-    // Transform to minimal format
-    const minimalProducts = result.data.map((product) => {
-      // Get first image
-      const image = product.images?.[0] || "";
-
-      // Get price and discountPrice from first variant or product level
-      let price = 0;
-      let discountPrice = 0;
-      let stock = 0;
-
-      if (product.variants && product.variants.length > 0) {
-        // Get price and stock from first available variant
-        const firstVariant = product.variants[0];
-        price = firstVariant.pricing?.price || firstVariant.price || 0;
-        discountPrice =
-          firstVariant.pricing?.discountPrice ||
-          firstVariant.discountPrice ||
-          0;
-        stock =
-          firstVariant.stockObj?.available !== undefined
-            ? firstVariant.stockObj.available
-            : firstVariant.stock || 0;
-      } else {
-        // Simple product - get from product level
-        price = product.pricing?.price || product.price || 0;
-        discountPrice =
-          product.pricing?.discountPrice || product.discountPrice || 0;
-        stock =
-          product.stockObj?.available !== undefined
-            ? product.stockObj.available
-            : product.stock || 0;
+      if (!category) {
+        return res
+          .status(404)
+          .json(ApiResponse.error("Category not found", 404).toJSON());
       }
 
-      return {
-        id: product._id || product.id,
-        title: product.title || product.name,
-        slug: product.url_key,
-        price,
-        discountPrice,
-        image,
-        stock,
-        tags: product.tags || [],
-      };
-    });
+      // Products store category as ObjectId reference
+      filters.category = category._id;
+    }
 
-    // Filter out products with no stock
-    const inStockProducts = minimalProducts.filter((p) => p.stock > 0);
+    // Fetch full product data (not aggregated items)
+    const Product = require("./product.model");
+    const products = await Product.find(
+      filters.category
+        ? {
+            category: filters.category,
+            status: filters.status,
+            product_type: { $in: ["SIMPLE", "CONFIGURABLE"] },
+          }
+        : {
+            status: filters.status,
+            product_type: { $in: ["SIMPLE", "CONFIGURABLE"] },
+          },
+    )
+      .limit(filters.limit * 3) // Fetch more to account for filtering
+      .lean();
+
+    // Transform and filter products
+    const minimalProducts = products
+      .map((product) => {
+        let price = 0;
+        let discountPrice = 0;
+        let stock = 0;
+        let image = "";
+
+        if (
+          product.product_type === "CONFIGURABLE" &&
+          product.variants?.length > 0
+        ) {
+          // CONFIGURABLE: Check if ANY variant has stock
+          const availableVariants = product.variants.filter((v) => {
+            const variantStock = v.stockObj?.available ?? v.stock ?? 0;
+            return variantStock > 0;
+          });
+
+          if (availableVariants.length === 0) {
+            return null; // Skip this product - no variants in stock
+          }
+
+          // Use first available variant for display
+          const firstVariant = availableVariants[0];
+          price = firstVariant.price ?? 0;
+          discountPrice = firstVariant.offerPrice ?? 0;
+          stock = firstVariant.stockObj?.available ?? firstVariant.stock ?? 0;
+          image =
+            firstVariant.images?.[0]?.url || product.images?.[0]?.url || "";
+        } else if (product.product_type === "SIMPLE") {
+          // SIMPLE: Check product-level stock
+          stock = product.stockObj?.available ?? product.stock ?? 0;
+
+          if (stock === 0) {
+            return null; // Skip this product - out of stock
+          }
+
+          price = product.price ?? 0;
+          discountPrice = product.offerPrice ?? 0;
+          image = product.images?.[0]?.url || "";
+        } else {
+          return null; // Skip other product types
+        }
+
+        return {
+          id: product._id.toString(),
+          title: product.title,
+          slug: product.url_key,
+          price,
+          discountPrice,
+          image,
+          stock,
+          tags: product.tags || [],
+        };
+      })
+      .filter((p) => p !== null) // Remove nulls
+      .slice(0, filters.limit); // Limit to requested amount
 
     res.status(200).json(
       ApiResponse.success("Products fetched successfully", {
-        data: inStockProducts,
-        total: inStockProducts.length,
-      }).toJSON()
+        data: minimalProducts,
+        total: minimalProducts.length,
+      }).toJSON(),
     );
   });
 }
