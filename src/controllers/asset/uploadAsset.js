@@ -4,7 +4,10 @@ const { cloudinary } = require("../../config/cloudinary");
 const Asset = require("../../models/Asset");
 
 // Use memory storage to access buffer for hashing
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 /**
  * Upload asset with hash-based deduplication and full metadata support
