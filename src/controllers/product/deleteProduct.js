@@ -1,9 +1,6 @@
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Review = require("../../models/Review");
-const { cloudinary } = require("../../config/cloudinary");
-const { extractImagePublicIds } = require("../../utils/mediaFinalizer");
-const Media = require("../../models/Media");
 
 /**
  * Delete a product and all its variants, reviews, and related data
@@ -61,6 +58,9 @@ const deleteProduct = async (req, res) => {
     );
 
     // Step 4: Extract and delete only UNUSED images from Cloudinary and DB
+    // DISABLED: Automatic image deletion is dangerous as assets might be shared or untracked.
+    // Images should be managed via Media Library cleanup, not on product delete.
+    /*
     let deletedImagesCount = 0;
     let skippedImagesCount = 0;
     try {
@@ -82,7 +82,8 @@ const deleteProduct = async (req, res) => {
 
           if (!asset) {
             // Asset not tracked in DB - legacy image, safe to delete
-            safeToDeleteIds.push(publicId);
+            // safeToDeleteIds.push(publicId); 
+             console.log(`⚠️ Skipping untracked image deletion: ${publicId}`);
           } else {
             // Check if used by other entities
             const usedByOthers = asset.usedBy.some(
@@ -129,6 +130,8 @@ const deleteProduct = async (req, res) => {
       console.error("❌ Error processing images:", imageError);
       // Continue with product deletion even if images fail
     }
+    */
+    let deletedImagesCount = 0; // Stub values for response compatibility
 
     // Step 5: Delete the product
     await Product.findByIdAndDelete(productId);

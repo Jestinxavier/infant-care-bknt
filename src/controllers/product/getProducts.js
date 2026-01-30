@@ -336,6 +336,34 @@ const getProductByUrlKey = async (req, res) => {
       };
     }
 
+    // Enrich bundle gift slot with images
+    if (
+      productObj.product_type === "BUNDLE" &&
+      productObj.bundle_config?.gift_slot?.enabled &&
+      productObj.bundle_config.gift_slot.options?.length > 0
+    ) {
+      const giftSkus = productObj.bundle_config.gift_slot.options.map(
+        (o) => o.sku,
+      );
+
+      // Fetch images for these SKUs
+      const giftProducts = await Product.find({
+        sku: { $in: giftSkus },
+      }).select("sku images");
+
+      // Map images back to options
+      if (giftProducts && giftProducts.length > 0) {
+        const giftMap = new Map(giftProducts.map((p) => [p.sku, p]));
+
+        productObj.bundle_config.gift_slot.options.forEach((option) => {
+          const gp = giftMap.get(option.sku);
+          if (gp && gp.images?.length > 0) {
+            option.image = gp.images[0];
+          }
+        });
+      }
+    }
+
     // Format response in new structure
     const formattedProduct = formatProductResponse(
       product.product_type === "BUNDLE" ? productObj : product,

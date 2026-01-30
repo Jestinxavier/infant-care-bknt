@@ -19,7 +19,12 @@ const cartHasBundles = (cart) => {
  * @param {Map} bundleStocks - Map of productId -> bundleAvailableQty for BUNDLE products
  * @param {Map} itemPrices - Map of itemId -> pricing info from calculateTotals
  */
-const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
+const formatCartResponse = (
+  cart,
+  bundleStocks = null,
+  itemPrices = null,
+  giftProductsMap = null,
+) => {
   if (!cart) return null;
 
   // Enforce bundleStocks for carts with bundles (prevents regressions)
@@ -92,7 +97,37 @@ const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
         ? Object.fromEntries(item.attributesSnapshot)
         : null,
       selectedGiftSku: item.selectedGiftSku || null,
+      selectedGift: null, // Default
     };
+
+    // Enrich with selected gift details if applicable
+    if (item.selectedGiftSku) {
+      let label = null;
+      let image = "";
+      let title = "";
+
+      // 1. Get label from bundle config (if available)
+      if (item.productId && item.productId.bundle_config?.gift_slot?.options) {
+        const option = item.productId.bundle_config.gift_slot.options.find(
+          (o) => o.sku === item.selectedGiftSku,
+        );
+        if (option) label = option.label;
+      }
+
+      // 2. Get image/title from fetched gift products map
+      if (giftProductsMap && giftProductsMap.has(item.selectedGiftSku)) {
+        const data = giftProductsMap.get(item.selectedGiftSku);
+        image = data.image;
+        title = data.title;
+      }
+
+      itemObj.selectedGift = {
+        sku: item.selectedGiftSku,
+        label: label || "Free Gift",
+        image,
+        title,
+      };
+    }
 
     // Include populated product data if available
     if (item.productId?._id) {

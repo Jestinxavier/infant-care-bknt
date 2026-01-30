@@ -34,12 +34,44 @@ class ProductService {
       minPrice,
       maxPrice,
       inStock,
-      sortBy = "createdAt",
-      sortOrder = "desc",
     } = filters;
+
+    let { sortBy = "createdAt", sortOrder = "desc" } = filters;
+
+    // Handle combined "sort" parameter (e.g. price_low, price_high, newest)
+    // Check raw filters to avoid default "createdAt" unless explicitly checking
+    const sortParam = filters.sort || filters.sortBy;
+
+    if (sortParam) {
+      const parts = sortParam.split("_");
+      if (parts.length >= 2) {
+        sortBy = parts[0];
+        // "low" usually means ASC (Cheapest first), "high" means DESC (Expensive first)
+        if (parts[1] === "low" || parts[1] === "asc") sortOrder = "asc";
+        else if (parts[1] === "high" || parts[1] === "desc") sortOrder = "desc";
+      } else if (sortParam === "newest") {
+        sortBy = "createdAt";
+        sortOrder = "desc";
+      } else if (sortParam === "oldest") {
+        sortBy = "createdAt";
+        sortOrder = "asc";
+      } else {
+        sortBy = sortParam;
+      }
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitVal = parseInt(limit);
+
+    // Map sort keys
+    const sortMap = {
+      price: "price",
+      createdAt: "createdAt",
+      rating: "averageRating",
+      title: "title",
+      name: "title",
+    };
+    const mappedSortKey = sortMap[sortBy] || sortBy;
 
     // 1. Initial Match Stage - Filter Parent Products
     const matchStage = {};
@@ -399,7 +431,7 @@ class ProductService {
       },
 
       // Sorting
-      { $sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 } },
+      { $sort: { [mappedSortKey]: sortOrder === "asc" ? 1 : -1 } },
 
       // Pagination with Facet
       {

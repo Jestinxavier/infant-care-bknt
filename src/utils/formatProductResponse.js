@@ -132,6 +132,7 @@ const formatProductResponse = (product) => {
                   ).map((opt) => ({
                     sku: opt.sku,
                     label: opt.label,
+                    image: opt.image,
                   })),
                 }
               : undefined,

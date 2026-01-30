@@ -283,6 +283,37 @@ const computeBundleStocks = async (req, cart) => {
   const { bundleStocks } = await computeBundleStocksAndIssues(req, cart);
   return bundleStocks;
 };
+
+/**
+ * Fetch gift products by SKU to get images and titles
+ * Returns Map: sku -> { title, image }
+ */
+const fetchGiftProducts = async (items) => {
+  const giftSkus = new Set();
+  if (items) {
+    items.forEach((item) => {
+      if (item.selectedGiftSku) {
+        giftSkus.add(item.selectedGiftSku);
+      }
+    });
+  }
+
+  if (giftSkus.size === 0) return new Map();
+
+  const products = await Product.find({ sku: { $in: [...giftSkus] } })
+    .select("sku title images")
+    .lean();
+
+  return new Map(
+    products.map((p) => [
+      p.sku,
+      {
+        title: p.title,
+        image: p.images?.[0] || "",
+      },
+    ]),
+  );
+};
 /**
  * POST /api/v1/cart/create
  * Create cart server-side (optional)
@@ -327,10 +358,13 @@ const createCart = async (req, res) => {
           const totals = await calculateTotals(existingCart.items);
           const itemPrices = totals.itemPrices;
           const bundleStocks = await computeBundleStocks(req, existingCart);
+          // Fetch gift products
+          const giftProducts = await fetchGiftProducts(existingCart.items);
           const formatted = formatCartResponse(
             existingCart,
             bundleStocks,
             itemPrices,
+            giftProducts,
           );
           return res.status(200).json({
             success: true,
@@ -481,7 +515,13 @@ const getCart = async (req, res) => {
     );
 
     // Pass bundleStocks and itemPrices so formatCartResponse has all pricing data
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     // Cart validation result per bundle spec:
     // isValid: false blocks checkout, issues array explains why
@@ -665,7 +705,13 @@ const addItem = async (req, res) => {
 
     // Get bundle stocks for bundle products
     const bundleStocks = await computeBundleStocks(req, cartDoc);
-    const formatted = formatCartResponse(cartDoc, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cartDoc.items);
+    const formatted = formatCartResponse(
+      cartDoc,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -746,7 +792,13 @@ const updateItem = async (req, res) => {
     await cart.save();
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -810,7 +862,13 @@ const removeItem = async (req, res) => {
     await cart.save();
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -933,8 +991,14 @@ const getItems = async (req, res) => {
 
     // Compute bundle stocks for BUNDLE products
     const bundleStocks = await computeBundleStocks(req, cart);
+    const giftProducts = await fetchGiftProducts(cart.items);
 
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -1000,7 +1064,13 @@ const getPriceSummary = async (req, res) => {
     const itemPrices = totals.itemPrices;
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -1139,7 +1209,13 @@ const getSummary = async (req, res) => {
     const itemPrices = totals.itemPrices;
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -1258,7 +1334,13 @@ const mergeCart = async (req, res) => {
       await userCart.save();
 
       const bundleStocks = await computeBundleStocks(req, userCart);
-      const formatted = formatCartResponse(userCart, bundleStocks, itemPrices);
+      const giftProducts = await fetchGiftProducts(userCart.items);
+      const formatted = formatCartResponse(
+        userCart,
+        bundleStocks,
+        itemPrices,
+        giftProducts,
+      );
       return res.status(200).json({
         success: true,
         cart: formatted,
@@ -1283,7 +1365,13 @@ const mergeCart = async (req, res) => {
       const totals = await calculateTotals(userCart.items);
       const itemPrices = totals.itemPrices;
       const bundleStocks = await computeBundleStocks(req, userCart);
-      const formatted = formatCartResponse(userCart, bundleStocks, itemPrices);
+      const giftProducts = await fetchGiftProducts(userCart.items);
+      const formatted = formatCartResponse(
+        userCart,
+        bundleStocks,
+        itemPrices,
+        giftProducts,
+      );
       return res.status(200).json({
         success: true,
         cart: formatted,
@@ -1323,6 +1411,7 @@ const mergeCart = async (req, res) => {
           guestCart,
           bundleStocks,
           itemPrices,
+          await fetchGiftProducts(guestCart.items),
         );
         return res.status(200).json({
           success: true,
@@ -1346,7 +1435,13 @@ const mergeCart = async (req, res) => {
       const totals = await calculateTotals(guestCart.items);
       const itemPrices = totals.itemPrices;
       const bundleStocks = await computeBundleStocks(req, guestCart);
-      const formatted = formatCartResponse(guestCart, bundleStocks, itemPrices);
+      const giftProducts = await fetchGiftProducts(guestCart.items);
+      const formatted = formatCartResponse(
+        guestCart,
+        bundleStocks,
+        itemPrices,
+        giftProducts,
+      );
       return res.status(200).json({
         success: true,
         cart: formatted,
@@ -1510,7 +1605,13 @@ const applyCoupon = async (req, res) => {
     await cart.save();
 
     const bundleStocks = await computeBundleStocks(req, cart);
-    const formatted = formatCartResponse(cart, bundleStocks, itemPrices);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      itemPrices,
+      giftProducts,
+    );
 
     res.status(200).json({
       success: true,
@@ -1633,6 +1734,98 @@ const getAvailableCoupons = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/v1/cart/recover
+ * Recover locked cart (clone to new ID)
+ */
+const recoverCart = async (req, res) => {
+  try {
+    const lockedCart = req.cart;
+
+    // If no cart to recover, just create a new one
+    if (!lockedCart) {
+      return createCart(req, res);
+    }
+
+    // Generate new cart ID
+    const newCartId = generateCartId();
+    const userId =
+      req.user?.id || (lockedCart.userId ? lockedCart.userId : null);
+
+    // Clone items
+    const newItems = lockedCart.items.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId,
+      quantity: item.quantity,
+      titleSnapshot: item.titleSnapshot,
+      imageSnapshot: item.imageSnapshot,
+      skuSnapshot: item.skuSnapshot,
+      attributesSnapshot: item.attributesSnapshot,
+      selectedGiftSku: item.selectedGiftSku,
+    }));
+
+    // Create new active cart
+    const newCart = await Cart.create({
+      cartId: newCartId,
+      userId,
+      items: newItems,
+      status: "active",
+      coupon: undefined, // Do not carry over coupon to be safe/clean
+    });
+
+    // Set new cookie
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      path: "/",
+    };
+    res.cookie(CART_ID, newCartId, cookieOptions);
+
+    // Populate for response
+    if (newCart.items.length > 0) {
+      await newCart.populate({
+        path: "items.productId",
+        select:
+          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+      });
+
+      const totals = await calculateTotals(newCart.items);
+      newCart.subtotal = totals.subtotal;
+      newCart.tax = totals.tax;
+      newCart.shippingEstimate = totals.shippingEstimate;
+      newCart.total = totals.total;
+      const itemPrices = totals.itemPrices;
+      await newCart.save();
+
+      const bundleStocks = await computeBundleStocks(req, newCart);
+      const formatted = formatCartResponse(newCart, bundleStocks, itemPrices);
+
+      return res.status(200).json({
+        success: true,
+        cart: formatted,
+        message: "Cart recovered successfully",
+      });
+    }
+
+    // Empty cart response
+    const formatted = formatCartResponse(newCart, null, null);
+    return res.status(200).json({
+      success: true,
+      cart: formatted,
+      message: "Cart recovered successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error recovering cart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createCart,
   getCart,
@@ -1649,4 +1842,5 @@ module.exports = {
   applyCoupon,
   removeCoupon,
   getAvailableCoupons,
+  recoverCart,
 };

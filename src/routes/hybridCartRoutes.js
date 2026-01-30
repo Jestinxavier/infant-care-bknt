@@ -14,10 +14,12 @@ const {
   getPriceSummary,
   getProductData,
   getSummary,
+
   mergeCart,
   applyCoupon,
   removeCoupon,
   getAvailableCoupons,
+  recoverCart,
 } = require("../controllers/cart/hybridCartController");
 const startCheckout = require("../controllers/cart/startCheckout");
 const verifyToken = require("../middlewares/authMiddleware");
@@ -227,13 +229,13 @@ router.get(
   "/price-summary",
   optionalVerifyToken,
   validateCart,
-  getPriceSummary
+  getPriceSummary,
 );
 router.post(
   "/price-summary",
   optionalVerifyToken,
   validateCart,
-  getPriceSummary
+  getPriceSummary,
 );
 
 /**
@@ -327,7 +329,7 @@ router.delete(
   "/remove-coupon",
   optionalVerifyToken,
   validateCart,
-  removeCoupon
+  removeCoupon,
 );
 
 /**
@@ -366,5 +368,17 @@ router.post("/start-checkout", startCheckout);
  *         description: List of available coupons
  */
 router.get("/coupons", getAvailableCoupons);
+
+/**
+ * @swagger
+ * /api/v1/cart/recover:
+ *   post:
+ *     summary: Recover locked cart (clone to new ID)
+ *     tags: [Cart]
+ *     responses:
+ *       200:
+ *         description: Cart recovered successfully
+ */
+router.post("/recover", optionalVerifyToken, validateCart, recoverCart);
 
 module.exports = router;

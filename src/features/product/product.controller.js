@@ -23,8 +23,8 @@ class ProductController {
         ApiResponse.paginated(
           "Products fetched successfully",
           result.data,
-          result.pagination
-        ).toJSON()
+          result.pagination,
+        ).toJSON(),
       );
   });
 
@@ -38,7 +38,7 @@ class ProductController {
     res
       .status(200)
       .json(
-        ApiResponse.success("Product fetched successfully", product).toJSON()
+        ApiResponse.success("Product fetched successfully", product).toJSON(),
       );
   });
 
@@ -54,7 +54,7 @@ class ProductController {
     res
       .status(200)
       .json(
-        ApiResponse.success("Product fetched successfully", product).toJSON()
+        ApiResponse.success("Product fetched successfully", product).toJSON(),
       );
   });
 
@@ -75,8 +75,8 @@ class ProductController {
         ApiResponse.paginated(
           "Products found",
           result.data,
-          result.pagination
-        ).toJSON()
+          result.pagination,
+        ).toJSON(),
       );
   });
 }

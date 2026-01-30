@@ -4,6 +4,7 @@ const {
   getAssets,
   deleteAsset,
   promoteAsset,
+  bulkDeleteAssets,
 } = require("../controllers/asset");
 const verifyToken = require("../middlewares/authMiddleware");
 const { executeCleanup } = require("../jobs/cleanupExpiredAssets");
@@ -117,6 +118,34 @@ router.delete("/:id", verifyToken, deleteAsset);
 
 /**
  * @swagger
+ * /api/admin/assets/bulk-delete:
+ *   post:
+ *     summary: Bulk delete assets
+ *     tags: [Assets]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - ids
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               force:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Assets deleted successfully
+ */
+router.post("/bulk-delete", verifyToken, bulkDeleteAssets);
+
+/**
+ * @swagger
  * /api/admin/assets/promote:
  *   post:
  *     summary: Promote asset from temp to permanent
@@ -224,7 +253,7 @@ router.post("/cleanup", verifyToken, async (req, res) => {
     console.log(
       `🧹 [Manual Cleanup] Triggered by ${
         req.user?.email || "unknown"
-      } (dryRun: ${dryRun})`
+      } (dryRun: ${dryRun})`,
     );
 
     const results = await executeCleanup({ dryRun });
