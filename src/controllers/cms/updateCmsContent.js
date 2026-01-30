@@ -46,7 +46,7 @@ const updateCmsContent = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Invalid page. Must be one of: ${Object.keys(
-          pageModelMap
+          pageModelMap,
         ).join(", ")}`,
       });
     }
@@ -98,19 +98,26 @@ const updateCmsContent = async (req, res) => {
           upsert: true,
           runValidators: true,
           setDefaultsOnInsert: true,
-        }
+        },
       );
     } else {
       // Legacy single-doc update
       if (existingDoc) {
-        const mergedData = { ...existingDoc.toObject(), ...content };
+        // FIX: Don't spread content if it's an array (like Our Story sections)
+        const mergedData = Array.isArray(content)
+          ? { ...existingDoc.toObject(), content }
+          : { ...existingDoc.toObject(), ...content };
+        console.log(
+          `📝 [CMS] Saving ${page} with ${Array.isArray(content) ? "array" : "object"} content`,
+        );
         updatedContent = await pageConfig.model.findOneAndUpdate(
           filter,
           mergedData,
-          { new: true, runValidators: true }
+          { new: true, runValidators: true },
         );
       } else {
-        updatedContent = await pageConfig.model.create(content);
+        const docData = Array.isArray(content) ? { content } : content;
+        updatedContent = await pageConfig.model.create(docData);
       }
     }
 
@@ -124,20 +131,28 @@ const updateCmsContent = async (req, res) => {
 
       // Extract from the updated content to ensure we only capture what was saved
       const imagePublicIds = extractPublicIdsFromObject(
-        updatedContent.toObject()
+        updatedContent.toObject(),
+      );
+
+      console.log(
+        `🔍 [CMS] Extracted ${imagePublicIds.length} image public_ids from ${page}:`,
+        imagePublicIds,
       );
 
       if (imagePublicIds.length > 0) {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "cms",
-          updatedContent._id
+          updatedContent._id,
         );
         console.log(`✅ [CMS] Finalized images for ${page}:`, {
           total: imagePublicIds.length,
           succeeded: finalizeResult.success.length,
           failed: finalizeResult.failed.length,
+          failedDetails: finalizeResult.failed,
         });
+      } else {
+        console.log(`⚠️ [CMS] No images found to finalize in ${page}`);
       }
     } catch (finalizeError) {
       console.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
@@ -198,7 +213,7 @@ const deleteCmsContent = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Invalid page. Must be one of: ${Object.keys(
-          pageModelMap
+          pageModelMap,
         ).join(", ")}`,
       });
     }

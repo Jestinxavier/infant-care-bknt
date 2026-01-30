@@ -175,12 +175,12 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
 
   // Process variant options in a consistent order - Aligned with frontend
   const orderedKeys = ["color", "size", "age", "material", "style"].filter(
-    (key) => variantOptions[key]
+    (key) => variantOptions[key],
   );
 
   // Add any remaining keys not in the ordered list
   const remainingKeys = Object.keys(variantOptions).filter(
-    (key) => !orderedKeys.includes(key) && variantOptions[key]
+    (key) => !orderedKeys.includes(key) && variantOptions[key],
   );
 
   const allKeys = [...orderedKeys, ...remainingKeys];
@@ -217,41 +217,91 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
  * @param {string} excludeId - Optional ID to exclude from uniqueness check (for updates)
  * @returns {Promise<string>} - Unique SKU
  */
-const generateUniqueSku = async (baseSku, checkExists, excludeId = null) => {
-  if (!baseSku || typeof baseSku !== "string") {
-    throw new Error("Base SKU is required to generate unique SKU");
-  }
+/**
+ * Generate a structured SKU: CATEGORYCODE-PRODUCTCODE-RANDOMHEX
+ * @param {string} categoryCode - Category code (e.g. "BY")
+ * @param {string} productName - Product name
+ * @returns {string} - Generated SKU
+ */
+const generateStructuredSku = (categoryCode, productName) => {
+  const catPrefix = (categoryCode || "GEN").toUpperCase().substring(0, 4); // Max 4 chars
 
+  // Extract 4-char product code from name
+  // Remove vowels and special chars to make it compact
+  const cleanedName = (productName || "PROD")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "") // Remove non-alphanumeric
+    .replace(/[AEIOU]/g, ""); // Remove vowels
+
+  const prodCode = (
+    cleanedName.length >= 3
+      ? cleanedName
+      : (productName || "PROD").toUpperCase().replace(/[^A-Z0-9]/g, "")
+  )
+    .substring(0, 4)
+    .padEnd(3, "X");
+
+  // Generate 6-char random hex
+  const randomHex = crypto.randomBytes(3).toString("hex").toUpperCase();
+
+  return `${catPrefix}-${prodCode}-${randomHex}`;
+};
+
+/**
+ * Generate unique SKU by appending counter or retrying random hex
+ * @param {string} baseSku - Base SKU or product info for structured generation
+ * @param {Function} checkExists - Async function to check if SKU exists: (sku) => Promise<boolean>
+ * @param {string} excludeId - Optional ID to exclude from uniqueness check query
+ * @param {Object} options - Options for generation
+ * @returns {Promise<string>} - Unique SKU
+ */
+const generateUniqueSku = async (
+  baseSku,
+  checkExists,
+  excludeId = null,
+  options = {},
+) => {
   if (typeof checkExists !== "function") {
     throw new Error("checkExists function is required");
   }
 
-  let uniqueSku = baseSku;
-  let counter = 1;
+  // If using structured strategy, baseSku might be an object { categoryCode, productName, strategy: 'structured' }
+  // OR standard baseSku string for 'counter' strategy
+  const strategy = options.strategy || "counter";
 
-  // Check if base SKU exists
-  const exists = await checkExists(uniqueSku, excludeId);
+  let uniqueSku;
+  let attempts = 0;
+  const maxAttempts = 10;
 
-  if (!exists) {
-    return uniqueSku;
-  }
+  if (strategy === "structured") {
+    const { categoryCode, productName } = options;
 
-  // If exists, append counter until unique
-  while (counter <= 999) {
-    uniqueSku = `${baseSku}-${counter.toString().padStart(2, "0")}`;
-    const keyExists = await checkExists(uniqueSku, excludeId);
-
-    if (!keyExists) {
-      return uniqueSku;
+    // Retry loop for random hex generation
+    while (attempts < maxAttempts) {
+      uniqueSku = generateStructuredSku(categoryCode, productName);
+      const exists = await checkExists(uniqueSku, excludeId);
+      if (!exists) return uniqueSku;
+      attempts++;
     }
+  } else {
+    // Legacy/Counter strategy
+    uniqueSku = baseSku;
+    if (!uniqueSku)
+      throw new Error("Base SKU is required for counter strategy");
 
-    counter++;
+    const exists = await checkExists(uniqueSku, excludeId);
+    if (!exists) return uniqueSku;
+
+    let counter = 1;
+    while (counter <= 999) {
+      uniqueSku = `${baseSku}-${counter.toString().padStart(2, "0")}`;
+      const keyExists = await checkExists(uniqueSku, excludeId);
+      if (!keyExists) return uniqueSku;
+      counter++;
+    }
   }
 
-  // If we've tried 999 variations, throw an error
-  throw new Error(
-    `Unable to generate unique SKU after 999 attempts for base: ${baseSku}`
-  );
+  throw new Error(`Unable to generate unique SKU after attempts`);
 };
 
 /**

@@ -62,7 +62,7 @@ const createOrder = async (req, res) => {
 
     if (existingOrder) {
       console.log(
-        `♻️ Idempotent order creation: Returning existing order ${existingOrder.orderId}`
+        `♻️ Idempotent order creation: Returning existing order ${existingOrder.orderId}`,
       );
       return res.status(200).json({
         success: true,
@@ -78,13 +78,13 @@ const createOrder = async (req, res) => {
     // Step 1: Load and validate cart (must be in checkout status)
     // Note: startCheckout finds/locks cart by userId, so we query the same way
     const cart = await Cart.findOne({ userId, status: "checkout" }).session(
-      session
+      session,
     );
 
     console.log(
       `🛒 Looking for checkout cart for user: ${userId}`,
       `Found: ${cart ? cart.cartId : "null"}`,
-      `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`
+      `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`,
     );
 
     if (!cart) {
@@ -152,18 +152,19 @@ const createOrder = async (req, res) => {
 
         // Compute bundle availability from children
         const bundleAvailability = await bundleService.getBundleAvailability(
-          product.bundle_config
+          product.bundle_config,
         );
         stock = bundleAvailability.availableQty;
 
         // Prepare child stock deductions
         bundleChildDeductions = bundleService.calculateBundleStockDeductions(
           product.bundle_config,
-          item.quantity
+          item.quantity,
         );
       } else if (item.variantId) {
         variantData = product.variants?.find(
-          (v) => v.id === item.variantId || v._id?.toString() === item.variantId
+          (v) =>
+            v.id === item.variantId || v._id?.toString() === item.variantId,
         );
 
         if (!variantData) {
@@ -183,7 +184,7 @@ const createOrder = async (req, res) => {
         const pricingResult = computeCartItemPricing(
           product,
           variantData,
-          item.quantity
+          item.quantity,
         );
         unitPrice = pricingResult.unitPrice;
       } else {
@@ -195,7 +196,7 @@ const createOrder = async (req, res) => {
         const pricingResult = computeCartItemPricing(
           product,
           null,
-          item.quantity
+          item.quantity,
         );
         unitPrice = pricingResult.unitPrice;
       }
@@ -206,11 +207,18 @@ const createOrder = async (req, res) => {
         const iPid = item.productId;
         const ciVid = ci.variantId;
         const iVid = item.variantId;
+        const ciGift = ci.selectedGiftSku || null;
+        const iGift = item.selectedGiftSku || null;
 
-        return ciPid === iPid && (ciVid === iVid || (!ciVid && !iVid));
+        return (
+          ciPid === iPid &&
+          (ciVid === iVid || (!ciVid && !iVid)) &&
+          ciGift === iGift
+        );
       });
 
       const variantAttributes = cartItem ? cartItem.attributesSnapshot : null;
+      const selectedGiftSku = cartItem ? cartItem.selectedGiftSku : null;
 
       // Validate stock BEFORE atomic update
       if (stock < item.quantity) {
@@ -238,6 +246,7 @@ const createOrder = async (req, res) => {
         quantity: itemQuantity,
         price: unitPrice, // Resolved price after quantity tiers
         regularPrice: regularPrice, // Original price for display
+        selectedGiftSku: selectedGiftSku, // Persist gift choice on main item
 
         // Product Snapshot
         name: product.name || product.title,
@@ -256,6 +265,66 @@ const createOrder = async (req, res) => {
           : null,
         variantAttributes: variantAttributes,
       });
+
+      // === EXPAND GIFT ITEM ===
+      if (
+        product.product_type === PRODUCT_TYPES.BUNDLE &&
+        selectedGiftSku &&
+        product.bundle_config?.gift_slot?.enabled
+      ) {
+        // Validate gift choice against config
+        const isValidGift = product.bundle_config.gift_slot.options.some(
+          (opt) => opt.sku === selectedGiftSku,
+        );
+
+        if (isValidGift) {
+          // Fetch gift product (Simple product)
+          const giftProduct = await Product.findOne({
+            sku: selectedGiftSku,
+          }).session(session);
+
+          if (!giftProduct) {
+            throw {
+              code: "GIFT_PRODUCT_NOT_FOUND",
+              message: `Gift product with SKU ${selectedGiftSku} not found`,
+            };
+          }
+
+          // Check gift stock
+          const giftStock =
+            giftProduct.stockObj?.available ?? giftProduct.stock ?? 0;
+          if (giftStock < itemQuantity) {
+            throw {
+              code: "OUT_OF_STOCK",
+              productId: giftProduct._id,
+              productName: giftProduct.title,
+              available: giftStock,
+              requested: itemQuantity,
+              message: `Free gift "${giftProduct.title}" is out of stock`,
+            };
+          }
+
+          // Add Gift Line Item (Free)
+          orderItems.push({
+            productId: giftProduct._id,
+            quantity: itemQuantity,
+            price: 0,
+            regularPrice: giftProduct.pricing?.price || giftProduct.price || 0,
+            name: `[Free Gift] ${giftProduct.title}`,
+            sku: giftProduct.sku,
+            image: giftProduct.images?.[0] || "",
+            urlKey: giftProduct.url_key,
+            isGift: true, // Marker for UI if needed
+          });
+
+          // Deduct Gift Stock
+          stockUpdates.push({
+            type: "REGULAR",
+            productId: giftProduct._id,
+            quantity: itemQuantity,
+          });
+        }
+      }
 
       // For bundles, add child stock deductions; for others, add regular stock update
       if (
@@ -302,7 +371,7 @@ const createOrder = async (req, res) => {
               stock: -update.quantity,
             },
           },
-          { session, new: true }
+          { session, new: true },
         );
 
         if (!result) {
@@ -330,7 +399,7 @@ const createOrder = async (req, res) => {
               "variants.$.stock": -update.quantity,
             },
           },
-          { session, new: true }
+          { session, new: true },
         );
 
         if (!result) {
@@ -339,7 +408,7 @@ const createOrder = async (req, res) => {
             .select("name sku variants")
             .session(session);
           const variantInfo = productInfo?.variants?.find(
-            (v) => v.id === update.variantId
+            (v) => v.id === update.variantId,
           );
           throw {
             code: "OUT_OF_STOCK",
@@ -367,7 +436,7 @@ const createOrder = async (req, res) => {
               stock: -update.quantity,
             },
           },
-          { session, new: true }
+          { session, new: true },
         );
 
         if (!result) {
@@ -413,14 +482,14 @@ const createOrder = async (req, res) => {
 
     if (cart.coupon && cart.coupon.code) {
       console.log(
-        `🎟️ Attempting to consume coupon ${cart.coupon.code} with value ${totalAfterDiscount} (userId: ${userId})`
+        `🎟️ Attempting to consume coupon ${cart.coupon.code} with value ${totalAfterDiscount} (userId: ${userId})`,
       );
 
       const consumption = await consumeCoupon(
         cart.coupon.code,
         totalAfterDiscount,
         userId,
-        session
+        session,
       );
 
       console.log(`🎟️ Consumption result:`, JSON.stringify(consumption));
@@ -442,14 +511,14 @@ const createOrder = async (req, res) => {
       };
 
       console.log(
-        `✅ Coupon ${cart.coupon.code} consumed atomically. Discount: ₹${couponDiscount}`
+        `✅ Coupon ${cart.coupon.code} consumed atomically. Discount: ₹${couponDiscount}`,
       );
     }
 
     const totalAmount = totalAfterDiscount + shippingAmount - couponDiscount;
 
     console.log(
-      `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`
+      `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`,
     );
 
     // Step 6: Handle address
@@ -462,9 +531,8 @@ const createOrder = async (req, res) => {
       finalAddressId = savedAddress._id;
       shippingAddressData = savedAddress.toObject();
     } else if (addressId) {
-      const existingAddress = await Address.findById(addressId).session(
-        session
-      );
+      const existingAddress =
+        await Address.findById(addressId).session(session);
       if (!existingAddress) {
         throw { code: "ADDRESS_NOT_FOUND", message: "Address not found" };
       }
@@ -536,17 +604,13 @@ const createOrder = async (req, res) => {
       cartUpdate.status = "checkout";
     }
 
-    await Cart.findByIdAndUpdate(
-      cart._id,
-      cartUpdate,
-      { session }
-    );
+    await Cart.findByIdAndUpdate(cart._id, cartUpdate, { session });
 
     // === COMMIT TRANSACTION ===
     await session.commitTransaction();
 
     console.log(
-      `✅ Order ${order.orderId} created successfully in transaction`
+      `✅ Order ${order.orderId} created successfully in transaction`,
     );
 
     // Step 10: Return response based on payment method
@@ -593,7 +657,7 @@ const createOrder = async (req, res) => {
                     "stockObj.available": update.quantity,
                     stock: update.quantity,
                   },
-                }
+                },
               );
             } else if (update.variantId) {
               await Product.findOneAndUpdate(
@@ -603,7 +667,7 @@ const createOrder = async (req, res) => {
                     "variants.$.stockObj.available": update.quantity,
                     "variants.$.stock": update.quantity,
                   },
-                }
+                },
               );
             } else {
               await Product.findOneAndUpdate(
@@ -613,7 +677,7 @@ const createOrder = async (req, res) => {
                     "stockObj.available": update.quantity,
                     stock: update.quantity,
                   },
-                }
+                },
               );
             }
           }
@@ -633,7 +697,7 @@ const createOrder = async (req, res) => {
         } catch (cleanupError) {
           console.error(
             "🔥 CRITICAL: Failed to cleanup order after payment error:",
-            cleanupError
+            cleanupError,
           );
           // Alert admin/sentry here
         }
@@ -652,9 +716,10 @@ const createOrder = async (req, res) => {
     emitEvent("newOrder", {
       orderId: order.orderId,
       totalAmount: order.totalAmount,
-      customerName: shippingAddressData.firstName + " " + shippingAddressData.lastName,
+      customerName:
+        shippingAddressData.firstName + " " + shippingAddressData.lastName,
       itemsCount: totalQuantity,
-      createdAt: order.createdAt
+      createdAt: order.createdAt,
     });
 
     return res.status(201).json({
@@ -662,7 +727,7 @@ const createOrder = async (req, res) => {
       message: "Order placed successfully",
       paymentMode: "cod",
       orderId: order.orderId,
-      requiresPayment: false
+      requiresPayment: false,
     });
   } catch (error) {
     await session.abortTransaction();

@@ -3,6 +3,7 @@ const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const { generateUniqueSku, validateSku } = require("../../utils/skuGenerator");
 const {
   extractImagePublicIds,
   finalizeImages,
@@ -241,6 +242,31 @@ const createProduct = async (req, res) => {
       );
     }
 
+    // Generate SKU if not provided
+    let productSku = sku;
+    if (!productSku || (typeof productSku === "string" && !productSku.trim())) {
+      const checkSkuExists = async (s) => {
+        // Check global SKU uniqueness in products and variants
+        const existing = await Product.findOne({
+          $or: [{ sku: s }, { "variants.sku": s }],
+        });
+        return !!existing;
+      };
+
+      try {
+        productSku = await generateUniqueSku(null, checkSkuExists, null, {
+          strategy: "structured",
+          categoryCode: categoryCode || "GEN",
+          productName: productTitle,
+        });
+        console.log("✅ Auto-generated SKU:", productSku);
+      } catch (skuError) {
+        console.error("Failed to generate SKU:", skuError);
+        // Verify if we should throw or allow draft save?
+        // If we fail generation, we should probably allow draft save but with empty SKU.
+      }
+    }
+
     // Process product images
     let productImages = [];
 
@@ -460,7 +486,7 @@ const createProduct = async (req, res) => {
       if (!productTitle || !productTitle.trim()) {
         missingFields.push("title");
       }
-      if (!sku || !sku.trim()) {
+      if (!productSku || !productSku.trim()) {
         missingFields.push("sku");
       }
       if (!categoryId) {
@@ -479,8 +505,14 @@ const createProduct = async (req, res) => {
       }
 
       // Check stock - support both structures (allow 0)
+      // Exception: BUNDLE and CONFIGURABLE products derive stock dynamically
+      const isBundleOrConfigurable =
+        product_type === "BUNDLE" || product_type === "CONFIGURABLE";
+
       const hasStock =
-        stockObj?.available !== undefined || parsedBody.stock !== undefined;
+        isBundleOrConfigurable ||
+        stockObj?.available !== undefined ||
+        parsedBody.stock !== undefined;
       if (!hasStock) {
         missingFields.push("stock");
       }
@@ -512,7 +544,7 @@ const createProduct = async (req, res) => {
       categoryCode: categoryCode,
       url_key: productUrlKey,
       status: normalizedStatus,
-      sku: sku || null,
+      sku: productSku || null,
       // Strip hex values from variantOptions.values - uiMeta handles hex separately
       // Also capitalize variant option names and add "M" suffix for size patterns
       variantOptions: variantOptions

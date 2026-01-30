@@ -10,7 +10,8 @@ const {
   createOptionsHash,
   validateVariantOptions,
 } = require("./variantValidator");
-const { generateSKU } = require("./skuGenerator");
+const { generateVariantSku } = require("./skuGenerator");
+const { generateSlug } = require("./slugGenerator");
 
 /**
  * Export product variants to CSV
@@ -142,12 +143,24 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
         stock: row.Stock ? parseInt(row.Stock) : 0,
         sku:
           row.SKU ||
-          (await generateSKU(
-            product.slug || product.title,
-            options,
-            productId
-          )),
+          generateVariantSku(
+            product.sku ||
+              product.slug ||
+              product.title.toUpperCase().substring(0, 5),
+            Object.fromEntries(options), // Convert Map to Object
+          ),
         _optionsHash: createOptionsHash(options),
+        url_key:
+          row.UrlKey ||
+          row["URL Key"] ||
+          row.URL_KEY ||
+          // Generate from Product Slug + Options
+          `${product.url_key || product.slug || generateSlug(product.title)}-${Object.keys(
+            Object.fromEntries(options),
+          )
+            .sort()
+            .map((k) => options.get(k))
+            .join("-")}`.toLowerCase(),
         images: [],
       };
 
@@ -183,7 +196,7 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
         }
       } else {
         variantData.id = `variant-${Date.now()}-${index}`;
-        variantData.url_key = variantData.sku.toLowerCase();
+
         product.variants.push(variantData);
         results.created++;
       }
@@ -214,20 +227,20 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "product",
-          product._id
+          product._id,
         );
         console.log(
           `✅ [CSV Import] Finalized images for product ${product.slug}:`,
           {
             total: imagePublicIds.length,
             succeeded: finalizeResult.success.length,
-          }
+          },
         );
       }
     } catch (finalizeError) {
       console.warn(
         "⚠️ [CSV Import] Failed to finalize images:",
-        finalizeError.message
+        finalizeError.message,
       );
       // Non-critical, don't fail the import
     }

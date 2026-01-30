@@ -121,7 +121,20 @@ const formatProductResponse = (product) => {
               qty: item.qty,
               title: item.title,
               url_key: item.url_key,
+              isFree: item.isFree,
             })),
+            gift_slot: productObj.bundle_config.gift_slot
+              ? {
+                  enabled: productObj.bundle_config.gift_slot.enabled,
+                  qty: productObj.bundle_config.gift_slot.qty,
+                  options: (
+                    productObj.bundle_config.gift_slot.options || []
+                  ).map((opt) => ({
+                    sku: opt.sku,
+                    label: opt.label,
+                  })),
+                }
+              : undefined,
           },
         }
       : {}),

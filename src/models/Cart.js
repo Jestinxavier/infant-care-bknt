@@ -39,8 +39,13 @@ const cartItemSchema = new mongoose.Schema(
       type: Map,
       of: String,
     },
+    // Gift slot selection (for BUNDLE products with gift_slot enabled)
+    selectedGiftSku: {
+      type: String,
+      default: null,
+    },
   },
-  { _id: true, timestamps: false }
+  { _id: true, timestamps: false },
 );
 
 // Cart Schema
@@ -127,7 +132,7 @@ const cartSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 // Pre-save middleware
@@ -179,13 +184,15 @@ cartSchema.methods.addItem = function (itemData) {
     imageSnapshot,
     skuSnapshot,
     attributesSnapshot,
+    selectedGiftSku,
   } = itemData;
 
-  // Check if item already exists (same productId and variantId)
+  // Check if item already exists (same productId, variantId, AND selectedGiftSku)
   const existingItemIndex = this.items.findIndex(
     (item) =>
       item.productId.toString() === productId.toString() &&
-      item.variantId === variantId
+      item.variantId === variantId &&
+      item.selectedGiftSku === (selectedGiftSku || null),
   );
 
   if (existingItemIndex !== -1) {
@@ -201,6 +208,7 @@ cartSchema.methods.addItem = function (itemData) {
       imageSnapshot,
       skuSnapshot: skuSnapshot || null,
       attributesSnapshot: attributesSnapshot || null,
+      selectedGiftSku: selectedGiftSku || null,
     });
   }
 

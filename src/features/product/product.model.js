@@ -124,6 +124,38 @@ const bundleItemSchema = new mongoose.Schema(
   {
     sku: { type: String, required: true },
     qty: { type: Number, required: true, min: 1 },
+    isFree: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
+// Gift Option Schema (for bundle_config.gift_slot.options)
+const giftOptionSchema = new mongoose.Schema(
+  {
+    sku: { type: String, required: true },
+    label: { type: String, required: true }, // Display label e.g., "Free Socks"
+  },
+  { _id: false },
+);
+
+// Gift Slot Schema (for bundle_config.gift_slot)
+// Allows bundles to offer a customer choice of free gifts
+const giftSlotSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    qty: { type: Number, default: 1, min: 1 }, // How many of the selected gift
+    options: {
+      type: [giftOptionSchema],
+      default: [],
+      validate: {
+        validator: function (v) {
+          // If enabled, must have at least 2 gift choices
+          if (this.enabled) return v.length >= 2;
+          return true;
+        },
+        message: "Gift slot must contain at least 2 gift options when enabled.",
+      },
+    },
   },
   { _id: false },
 );
@@ -133,6 +165,11 @@ const bundleConfigSchema = new mongoose.Schema(
   {
     pricing: { type: String, enum: ["FIXED"], default: "FIXED" },
     items: [bundleItemSchema],
+    // Gift Choice Slot - allows customer to pick one free gift from options
+    gift_slot: {
+      type: giftSlotSchema,
+      default: { enabled: false },
+    },
   },
   { _id: false },
 );

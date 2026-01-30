@@ -49,7 +49,7 @@ const deleteProduct = async (req, res) => {
       });
       deletedReviewsCount = deleteReviewsResult.deletedCount;
       console.log(
-        `Deleted ${deletedReviewsCount} reviews for ${variantIds.length} variants`
+        `Deleted ${deletedReviewsCount} reviews for ${variantIds.length} variants`,
       );
     }
 
@@ -57,25 +57,76 @@ const deleteProduct = async (req, res) => {
     const deleteVariantsResult = await Variant.deleteMany({ productId });
     const deletedVariantsCount = deleteVariantsResult.deletedCount;
     console.log(
-      `Deleted ${deletedVariantsCount} variants for product ${productId}`
+      `Deleted ${deletedVariantsCount} variants for product ${productId}`,
     );
 
-    // Step 4: Extract and delete all images from Cloudinary and DB
+    // Step 4: Extract and delete only UNUSED images from Cloudinary and DB
     let deletedImagesCount = 0;
+    let skippedImagesCount = 0;
     try {
       const publicIds = extractImagePublicIds(product);
 
       if (publicIds.length > 0) {
-        console.log(`Deleting ${publicIds.length} images...`);
+        console.log(`Checking usage for ${publicIds.length} images...`);
 
-        const { deleteAssets } = require("../../utils/mediaFinalizer");
-        const results = await deleteAssets(publicIds);
+        // Query Asset DB to check usage
+        const Asset = require("../../models/Asset");
+        const assets = await Asset.find({ publicId: { $in: publicIds } });
 
-        deletedImagesCount = results.deleted.length;
-        console.log(`Deleted ${deletedImagesCount} images successfully`);
+        // Filter: only delete images that are EXCLUSIVELY used by this product
+        const safeToDeleteIds = [];
+        const sharedImageIds = [];
+
+        for (const publicId of publicIds) {
+          const asset = assets.find((a) => a.publicId === publicId);
+
+          if (!asset) {
+            // Asset not tracked in DB - legacy image, safe to delete
+            safeToDeleteIds.push(publicId);
+          } else {
+            // Check if used by other entities
+            const usedByOthers = asset.usedBy.some(
+              (usage) =>
+                usage.entity !== "product" || !usage.id.equals(product._id),
+            );
+
+            if (usedByOthers || asset.usedBy.length > 1) {
+              // Image is shared with other products/entities - skip deletion
+              console.log(
+                `⚠️ Skipping deletion of shared image: ${publicId} (used by ${asset.usedBy.length} entities)`,
+              );
+              sharedImageIds.push(publicId);
+              skippedImagesCount++;
+
+              // Remove only THIS product's reference from usedBy
+              asset.usedBy = asset.usedBy.filter(
+                (usage) =>
+                  usage.entity !== "product" || !usage.id.equals(product._id),
+              );
+              await asset.save();
+            } else {
+              // Image is only used by this product - safe to delete
+              safeToDeleteIds.push(publicId);
+            }
+          }
+        }
+
+        if (safeToDeleteIds.length > 0) {
+          console.log(`Deleting ${safeToDeleteIds.length} exclusive images...`);
+          const { deleteAssets } = require("../../utils/mediaFinalizer");
+          const results = await deleteAssets(safeToDeleteIds);
+          deletedImagesCount = results.deleted.length + results.archived.length;
+          console.log(`Deleted ${deletedImagesCount} images successfully`);
+        }
+
+        if (sharedImageIds.length > 0) {
+          console.log(
+            `✓ Protected ${sharedImageIds.length} shared images from deletion`,
+          );
+        }
       }
     } catch (imageError) {
-      console.error("❌ Error deleting images:", imageError);
+      console.error("❌ Error processing images:", imageError);
       // Continue with product deletion even if images fail
     }
 

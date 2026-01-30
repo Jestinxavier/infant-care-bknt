@@ -109,6 +109,37 @@ const detailSchema = new mongoose.Schema(
   { _id: false, strict: false },
 );
 
+// Gift Option Schema (for bundle_config.gift_slot.options)
+const giftOptionSchema = new mongoose.Schema(
+  {
+    sku: { type: String, required: true },
+    label: { type: String, required: true }, // Display label e.g., "Free Socks"
+  },
+  { _id: false },
+);
+
+// Gift Slot Schema (for bundle_config.gift_slot)
+// Allows bundles to offer a customer choice of free gifts
+const giftSlotSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    qty: { type: Number, default: 1, min: 1 }, // How many of the selected gift
+    options: {
+      type: [giftOptionSchema],
+      default: [],
+      validate: {
+        validator: function (v) {
+          // If enabled, must have at least 2 gift choices
+          if (this.enabled) return v.length >= 2;
+          return true;
+        },
+        message: "Gift slot must contain at least 2 gift options when enabled.",
+      },
+    },
+  },
+  { _id: false },
+);
+
 const productSchema = new mongoose.Schema(
   {
     // Primary fields
@@ -172,18 +203,14 @@ const productSchema = new mongoose.Schema(
           isFree: { type: Boolean, default: false }, // Mark item as free in bundle
         },
       ],
+      // Gift Choice Slot - allows customer to pick one free gift from options
+      gift_slot: {
+        type: giftSlotSchema,
+        default: { enabled: false },
+      },
     },
 
-    // Choice configuration (only for CHOICE_GROUP product_type)
-    // CHOICE_GROUP products are NOT sellable - they reference bundle products that ARE sellable
-    choice_config: {
-      choices: [
-        {
-          bundle_id: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
-          label: { type: String }, // Display label e.g., "Free Jabala", "Free Towel"
-        },
-      ],
-    },
+    // choice_config REMOVED - Legacy structure replaced by bundle_config.gift_slot
 
     // Product-level pricing (discountPrice is computed at runtime, not stored)
     price: { type: Number, min: 0 },

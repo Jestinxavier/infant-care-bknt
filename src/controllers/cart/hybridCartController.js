@@ -528,7 +528,7 @@ const addItem = async (req, res) => {
     // CHOICE_GROUP products are NOT sellable - they reference bundle products
     // Customer must select a specific bundle on PDP before adding to cart
     const productCheck = await Product.findById(item.productId).select(
-      "product_type",
+      "product_type bundle_config",
     );
     if (productCheck?.product_type === PRODUCT_TYPES.CHOICE_GROUP) {
       return res.status(400).json({
@@ -536,6 +536,34 @@ const addItem = async (req, res) => {
         errorCode: "CHOICE_GROUP_NOT_SELLABLE",
         message: "Please select a gift option before adding to cart",
       });
+    }
+
+    // Validate Gift Selection for Bundles
+    if (
+      productCheck?.product_type === PRODUCT_TYPES.BUNDLE &&
+      productCheck.bundle_config?.gift_slot?.enabled
+    ) {
+      if (!item.selectedGiftSku) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "GIFT_SELECTION_REQUIRED",
+          message: "Please select a free gift before adding to cart",
+        });
+      }
+
+      // Verify the selected gift is a valid option
+      const isValidGift = productCheck.bundle_config.gift_slot.options.some(
+        (opt) => opt.sku === item.selectedGiftSku,
+      );
+
+      if (!isValidGift) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_GIFT_SELECTION",
+          message:
+            "The selected gift is not valid for this bundle. Please choose another.",
+        });
+      }
     }
 
     // Create cart if it doesn't exist
@@ -618,6 +646,7 @@ const addItem = async (req, res) => {
       imageSnapshot: productData.image,
       skuSnapshot: item.sku || null,
       attributesSnapshot: item.attributes || null,
+      selectedGiftSku: item.selectedGiftSku || null,
     };
 
     // Add item to cart

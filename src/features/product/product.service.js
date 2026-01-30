@@ -470,9 +470,17 @@ class ProductService {
   /**
    * Create product
    */
-  async createProduct(productData) {
+  async createProduct(inputData) {
+    console.log("=== createProduct called ===");
+    console.log("Input SKU:", inputData.sku);
+
+    // Clone input
+    const productData = { ...inputData };
+
+    // ... (URL Key logic) ...
     // Generate URL key if not provided
     if (!productData.url_key && productData.title) {
+      // ... existing URL logic ...
       const checkUrlKeyExists = async (urlKey) => {
         const existing = await productRepository.findByUrlKey(urlKey);
         return !!existing;
@@ -483,14 +491,44 @@ class ProductService {
       );
     }
 
-    // Validate and generate SKU if needed
-    if (productData.sku) {
+    // ... (Category logic) ...
+    if (!productData.categoryCode && productData.category) {
+      const Category = mongoose.model("Category");
+      const category = await Category.findById(productData.category);
+      if (category) {
+        productData.categoryCode = category.code;
+        productData.categoryName = category.name;
+      }
+    }
+
+    // Auto-generate SKU
+    if (
+      !productData.sku ||
+      (typeof productData.sku === "string" && !productData.sku.trim())
+    ) {
+      console.log(">>> Auto-generating SKU...");
+      // Check SKU uniqueness helper
+      const checkSkuExists = async (sku) => {
+        const Product = require("./product.model");
+        const existing = await Product.findOne({
+          $or: [{ sku: sku }, { "variants.sku": sku }],
+        });
+        return !!existing;
+      };
+
+      productData.sku = await generateUniqueSku(null, checkSkuExists, null, {
+        strategy: "structured",
+        categoryCode: productData.categoryCode,
+        productName: productData.title,
+      });
+      console.log(">>> Generated SKU:", productData.sku);
+    } else {
+      // ... existing else block ...
       const skuValidation = validateSku(productData.sku);
       if (!skuValidation.valid) {
         throw ApiError.validation(`Invalid SKU: ${skuValidation.error}`);
       }
 
-      // Check SKU uniqueness
       const checkSkuExists = async (sku) => {
         const Product = require("./product.model");
         const existing = await Product.findOne({
@@ -505,7 +543,12 @@ class ProductService {
       }
     }
 
-    // Generate productId upfront to use for variant IDs
+    if (!productData.sku) {
+      console.error("!!! SKU is null after generation !!!");
+      throw ApiError.internal("Failed to generate product SKU");
+    }
+
+    // ... existing ...
     const productId = new mongoose.Types.ObjectId();
     productData._id = productId;
 
@@ -514,15 +557,10 @@ class ProductService {
       const allVariantSkus = [];
 
       for (const variant of productData.variants) {
-        // ✅ NEW: Enforce Variant ID Format: ParentID-ConfigurationCode
-        // Generate configuration code (e.g. from SKU suffix or attributes)
-        // If we don't have a specific code, we try to derive it or fallback to random string
-        // User said: "append the configuration values code like we generate the sku and url keys for variants"
-        // Let's try to get a code from attributes or existing sku suffix
+        // Enforce Variant ID Format: ParentID-ConfigurationCode
         let configCode = "";
 
         if (variant.attributes && typeof variant.attributes === "object") {
-          // Try to construct code from attributes (e.g. RED-S)
           const parts = [];
           if (variant.attributes.color)
             parts.push(variant.attributes.color.substring(0, 3).toUpperCase());
@@ -532,7 +570,6 @@ class ProductService {
         }
 
         if (!configCode) {
-          // Fallback: use SKU suffix or random 4 chars
           configCode = Math.random().toString(36).substring(2, 6).toUpperCase();
         }
 
@@ -541,6 +578,37 @@ class ProductService {
 
         // Link to parent
         variant.parentId = productId;
+
+        // Auto-generate Variant SKU if missing
+        if (!variant.sku) {
+          variant.sku = generateVariantSku(
+            productData.sku,
+            variant.attributes || variant.options || {},
+          );
+        }
+
+        // Auto-generate Variant URL Key if missing
+        if (!variant.url_key) {
+          const baseSlug = productData.url_key;
+          let suffix = "";
+
+          if (variant.attributes && typeof variant.attributes === "object") {
+            const keys = Object.keys(variant.attributes).sort();
+            const values = keys.map((k) => variant.attributes[k]);
+            suffix = values.join("-");
+          } else if (variant.options && typeof variant.options === "object") {
+            const keys = Object.keys(variant.options).sort();
+            const values = keys.map((k) => variant.options[k]);
+            suffix = values.join("-");
+          }
+
+          if (suffix) {
+            const { generateSlug } = require("../../utils/slugGenerator");
+            variant.url_key = `${baseSlug}-${generateSlug(suffix)}`;
+          } else {
+            variant.url_key = `${baseSlug}-${configCode.toLowerCase()}`;
+          }
+        }
 
         // Validate pricing
         const price = variant.pricing?.price || variant.price;
@@ -574,6 +642,15 @@ class ProductService {
 
           // Check for duplicate SKUs within this product
           if (allVariantSkus.includes(variant.sku)) {
+            // Logic to handle internal duplicates if needed
+            // For now, strict:
+            if (
+              !productData.variants.some(
+                (v) => v !== variant && v.sku === variant.sku,
+              )
+            ) {
+              // ...
+            }
             throw ApiError.validation(`Duplicate variant SKU: ${variant.sku}`);
           }
           allVariantSkus.push(variant.sku);
@@ -604,11 +681,58 @@ class ProductService {
   /**
    * Update product
    */
-  async updateProduct(productId, updateData) {
+  async updateProduct(productId, inputData) {
+    const updateData = { ...inputData };
     const product = await productRepository.findById(productId);
 
     if (!product) {
       throw ApiError.notFound("Product not found");
+    }
+
+    // Auto-generate SKU if missing in DB or if explicit empty string provided
+    const isSkuEmptyUpdate =
+      updateData.sku !== undefined &&
+      (!updateData.sku ||
+        (typeof updateData.sku === "string" && !updateData.sku.trim()));
+    const isSkuMissingInDb = !product.sku;
+
+    if (
+      isSkuEmptyUpdate ||
+      (updateData.sku === undefined && isSkuMissingInDb)
+    ) {
+      // Resolve Category Code
+      let categoryCode = product.categoryCode; // Try to use existing
+      let categoryId = updateData.category || product.category;
+
+      // If we don't have code but have ID, fetch it (unless it's null)
+      if (!categoryCode && categoryId) {
+        const Category = mongoose.model("Category");
+        const category = await Category.findById(categoryId);
+        if (category) categoryCode = category.code;
+      }
+
+      const checkSkuExists = async (sku, excludeId) => {
+        const Product = require("./product.model");
+        const query = {
+          $or: [{ sku: sku }, { "variants.sku": sku }],
+        };
+        if (excludeId) {
+          query._id = { $ne: excludeId };
+        }
+        const existing = await Product.findOne(query);
+        return !!existing;
+      };
+
+      updateData.sku = await generateUniqueSku(
+        product.sku, // Pass null/empty as base
+        async (s) => checkSkuExists(s, productId),
+        productId,
+        {
+          strategy: "structured",
+          categoryCode: categoryCode,
+          productName: updateData.title || product.title,
+        },
+      );
     }
 
     // Check SKU locking if updating product SKU

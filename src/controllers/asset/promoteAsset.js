@@ -1,4 +1,5 @@
 const Asset = require("../../models/Asset");
+const mongoose = require("mongoose");
 
 /**
  * Promote asset from temp to permanent and add usage tracking
@@ -27,12 +28,24 @@ const promoteAsset = async (req, res) => {
       });
     }
 
-    // Promote using instance method
-    await asset.promoteToPermanent(entity, entityId);
+    // Check if entityId is a valid ObjectId
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(entityId);
 
-    console.log(
-      `✅ Asset promoted: ${asset.publicId} → permanent, used by ${entity}:${entityId}`
-    );
+    if (isValidObjectId) {
+      // Promote using instance method with real entity
+      await asset.promoteToPermanent(entity, entityId);
+      console.log(
+        `✅ Asset promoted: ${asset.publicId} → permanent, used by ${entity}:${entityId}`,
+      );
+    } else {
+      // Manual promotion without real entity (e.g., from gallery)
+      asset.status = "permanent";
+      asset.expiresAt = null;
+      await asset.save();
+      console.log(
+        `✅ Asset manually promoted: ${asset.publicId} → permanent (no entity link)`,
+      );
+    }
 
     res.status(200).json({
       success: true,

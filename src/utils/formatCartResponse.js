@@ -91,6 +91,7 @@ const formatCartResponse = (cart, bundleStocks = null, itemPrices = null) => {
       attributesSnapshot: item.attributesSnapshot
         ? Object.fromEntries(item.attributesSnapshot)
         : null,
+      selectedGiftSku: item.selectedGiftSku || null,
     };
 
     // Include populated product data if available

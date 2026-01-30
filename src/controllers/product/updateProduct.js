@@ -2,6 +2,7 @@ const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const { generateUniqueSku, validateSku } = require("../../utils/skuGenerator");
 const {
   extractImagePublicIds,
   finalizeImages,
@@ -127,6 +128,11 @@ const updateProduct = async (req, res) => {
     if (offerStartAt !== undefined) product.offerStartAt = offerStartAt;
     if (offerEndAt !== undefined) product.offerEndAt = offerEndAt;
 
+    // CLEANUP: Explicitly remove choice_config if it exists (deprecated/misplaced)
+    if (product.toObject().choice_config) {
+      product.choice_config = undefined;
+    }
+
     // Update quantity-based tier pricing
     if (quantityRules !== undefined) {
       let parsedRules = quantityRules;
@@ -228,7 +234,37 @@ const updateProduct = async (req, res) => {
     }
 
     // Update additional fields
+    // Update SKU with auto-generation fallback
     if (sku !== undefined) product.sku = sku;
+
+    if (
+      !product.sku ||
+      (typeof product.sku === "string" && !product.sku.trim())
+    ) {
+      const checkSkuExists = async (s) => {
+        const existing = await Product.findOne({
+          $or: [{ sku: s }, { "variants.sku": s }],
+          _id: { $ne: productId },
+        });
+        return !!existing;
+      };
+
+      try {
+        if (!product.categoryCode && product.category) {
+          const foundCat = await Category.findById(product.category);
+          if (foundCat) product.categoryCode = foundCat.code;
+        }
+
+        product.sku = await generateUniqueSku(null, checkSkuExists, null, {
+          strategy: "structured",
+          categoryCode: product.categoryCode || "GEN",
+          productName: product.title,
+        });
+        console.log("✅ Auto-generated SKU in update:", product.sku);
+      } catch (e) {
+        console.error("Failed generate SKU update:", e);
+      }
+    }
     if (url_key !== undefined) product.url_key = url_key;
     if (subtitle !== undefined) product.subtitle = subtitle;
     if (shortDescription !== undefined)
@@ -444,7 +480,13 @@ const updateProduct = async (req, res) => {
       }
 
       // Check stock - support both structures (allow 0)
+      // Exception: BUNDLE and CONFIGURABLE products derive stock dynamically
+      const isBundleOrConfigurable =
+        product.product_type === "BUNDLE" ||
+        product.product_type === "CONFIGURABLE";
+
       const hasStock =
+        isBundleOrConfigurable ||
         product.stockObj?.available !== undefined ||
         stockObj?.available !== undefined;
       if (!hasStock) {
