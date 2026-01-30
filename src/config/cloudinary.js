@@ -102,9 +102,18 @@ const tempStorage = new CloudinaryStorage({
   },
 });
 
-const parser = multer({ storage: productStorage });
-const mediaParser = multer({ storage: mediaStorage });
-const tempParser = multer({ storage: tempStorage });
+const parser = multer({ 
+  storage: productStorage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+const mediaParser = multer({ 
+  storage: mediaStorage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+const tempParser = multer({ 
+  storage: tempStorage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 module.exports = {
   cloudinary,
