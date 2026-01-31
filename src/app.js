@@ -12,6 +12,7 @@ console.log(process.env.DASHBOARD_URL, " 😂 ");
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
+  process.env.FRONTEND_URL_WWW,
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
