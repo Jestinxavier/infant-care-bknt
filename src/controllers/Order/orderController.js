@@ -62,7 +62,7 @@ const createOrder = async (req, res) => {
 
     if (existingOrder) {
       console.log(
-        `♻️ Idempotent order creation: Returning existing order ${existingOrder.orderId}`,
+        `♻️ Idempotent order creation: Returning existing order ${existingOrder.orderId}`
       );
       return res.status(200).json({
         success: true,
@@ -78,13 +78,13 @@ const createOrder = async (req, res) => {
     // Step 1: Load and validate cart (must be in checkout status)
     // Note: startCheckout finds/locks cart by userId, so we query the same way
     const cart = await Cart.findOne({ userId, status: "checkout" }).session(
-      session,
+      session
     );
 
     console.log(
       `🛒 Looking for checkout cart for user: ${userId}`,
       `Found: ${cart ? cart.cartId : "null"}`,
-      `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`,
+      `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`
     );
 
     if (!cart) {
@@ -144,27 +144,31 @@ const createOrder = async (req, res) => {
       let bundleChildDeductions = []; // For bundle child stock deductions
       let unitPrice; // Resolved price after quantity tiers (for non-bundles)
 
-      // Handle BUNDLE products (no quantity tiers)
+      // Handle BUNDLE products (use same logic as cart for offer pricing)
       if (product.product_type === PRODUCT_TYPES.BUNDLE) {
-        regularPrice = product.pricing?.price || product.price || 0;
-        offerPrice = product.pricing?.discountPrice || regularPrice;
-        unitPrice = offerPrice; // Bundles don't support quantity tiers
+        const pricingResult = computeCartItemPricing(
+          product,
+          null,
+          item.quantity
+        );
+        regularPrice = pricingResult.originalPrice;
+        offerPrice = pricingResult.basePrice;
+        unitPrice = pricingResult.unitPrice;
 
         // Compute bundle availability from children
         const bundleAvailability = await bundleService.getBundleAvailability(
-          product.bundle_config,
+          product.bundle_config
         );
         stock = bundleAvailability.availableQty;
 
         // Prepare child stock deductions
         bundleChildDeductions = bundleService.calculateBundleStockDeductions(
           product.bundle_config,
-          item.quantity,
+          item.quantity
         );
       } else if (item.variantId) {
         variantData = product.variants?.find(
-          (v) =>
-            v.id === item.variantId || v._id?.toString() === item.variantId,
+          (v) => v.id === item.variantId || v._id?.toString() === item.variantId
         );
 
         if (!variantData) {
@@ -184,7 +188,7 @@ const createOrder = async (req, res) => {
         const pricingResult = computeCartItemPricing(
           product,
           variantData,
-          item.quantity,
+          item.quantity
         );
         unitPrice = pricingResult.unitPrice;
       } else {
@@ -196,19 +200,19 @@ const createOrder = async (req, res) => {
         const pricingResult = computeCartItemPricing(
           product,
           null,
-          item.quantity,
+          item.quantity
         );
         unitPrice = pricingResult.unitPrice;
       }
 
-      // Find matching item in cart to get attributes
-      const cartItem = cart.items.find((ci) => {
+      // Find matching item in cart to get attributes and selectedGiftSku
+      let cartItem = cart.items.find((ci) => {
         const ciPid = ci.productId.toString();
         const iPid = item.productId;
         const ciVid = ci.variantId;
         const iVid = item.variantId;
         const ciGift = ci.selectedGiftSku || null;
-        const iGift = item.selectedGiftSku || null;
+        const iGift = item.selectedGiftSku ?? null;
 
         return (
           ciPid === iPid &&
@@ -217,8 +221,22 @@ const createOrder = async (req, res) => {
         );
       });
 
+      // Fallback: match by productId+variantId only (when frontend omits selectedGiftSku)
+      // Use when exactly one cart item matches - ensures gift stock is deducted
+      if (!cartItem) {
+        const matches = cart.items.filter((ci) => {
+          const ciPid = ci.productId.toString();
+          const iPid = item.productId;
+          const ciVid = ci.variantId ?? null;
+          const iVid = item.variantId ?? null;
+          return ciPid === iPid && ciVid === iVid;
+        });
+        if (matches.length === 1) cartItem = matches[0];
+      }
+
       const variantAttributes = cartItem ? cartItem.attributesSnapshot : null;
-      const selectedGiftSku = cartItem ? cartItem.selectedGiftSku : null;
+      const selectedGiftSku =
+        item.selectedGiftSku ?? (cartItem ? cartItem.selectedGiftSku : null);
 
       // Validate stock BEFORE atomic update
       if (stock < item.quantity) {
@@ -274,7 +292,7 @@ const createOrder = async (req, res) => {
       ) {
         // Validate gift choice against config
         const isValidGift = product.bundle_config.gift_slot.options.some(
-          (opt) => opt.sku === selectedGiftSku,
+          (opt) => opt.sku === selectedGiftSku
         );
 
         if (isValidGift) {
@@ -302,6 +320,23 @@ const createOrder = async (req, res) => {
               requested: itemQuantity,
               message: `Free gift "${giftProduct.title}" is out of stock`,
             };
+          }
+
+          // Build selectedGift snapshot for the bundle item (for order details UI)
+          const giftOption = product.bundle_config.gift_slot.options.find(
+            (o) => o.sku === selectedGiftSku
+          );
+          const selectedGift = {
+            sku: selectedGiftSku,
+            label: giftOption?.label || giftProduct.title,
+            image: giftProduct.images?.[0] || giftOption?.image || "",
+            title: giftProduct.title || giftProduct.name,
+          };
+
+          // Update the bundle order item (last pushed) with selectedGift
+          const bundleOrderItem = orderItems[orderItems.length - 1];
+          if (bundleOrderItem) {
+            bundleOrderItem.selectedGift = selectedGift;
           }
 
           // Add Gift Line Item (Free)
@@ -371,7 +406,7 @@ const createOrder = async (req, res) => {
               stock: -update.quantity,
             },
           },
-          { session, new: true },
+          { session, new: true }
         );
 
         if (!result) {
@@ -399,7 +434,7 @@ const createOrder = async (req, res) => {
               "variants.$.stock": -update.quantity,
             },
           },
-          { session, new: true },
+          { session, new: true }
         );
 
         if (!result) {
@@ -408,7 +443,7 @@ const createOrder = async (req, res) => {
             .select("name sku variants")
             .session(session);
           const variantInfo = productInfo?.variants?.find(
-            (v) => v.id === update.variantId,
+            (v) => v.id === update.variantId
           );
           throw {
             code: "OUT_OF_STOCK",
@@ -425,10 +460,14 @@ const createOrder = async (req, res) => {
           };
         }
       } else {
+        // Simple product (or gift) - handle both stockObj.available and legacy stock
         const result = await Product.findOneAndUpdate(
           {
             _id: update.productId,
-            "stockObj.available": { $gte: update.quantity },
+            $or: [
+              { "stockObj.available": { $gte: update.quantity } },
+              { stock: { $gte: update.quantity } },
+            ],
           },
           {
             $inc: {
@@ -436,7 +475,7 @@ const createOrder = async (req, res) => {
               stock: -update.quantity,
             },
           },
-          { session, new: true },
+          { session, new: true }
         );
 
         if (!result) {
@@ -482,14 +521,14 @@ const createOrder = async (req, res) => {
 
     if (cart.coupon && cart.coupon.code) {
       console.log(
-        `🎟️ Attempting to consume coupon ${cart.coupon.code} with value ${totalAfterDiscount} (userId: ${userId})`,
+        `🎟️ Attempting to consume coupon ${cart.coupon.code} with value ${totalAfterDiscount} (userId: ${userId})`
       );
 
       const consumption = await consumeCoupon(
         cart.coupon.code,
         totalAfterDiscount,
         userId,
-        session,
+        session
       );
 
       console.log(`🎟️ Consumption result:`, JSON.stringify(consumption));
@@ -511,14 +550,14 @@ const createOrder = async (req, res) => {
       };
 
       console.log(
-        `✅ Coupon ${cart.coupon.code} consumed atomically. Discount: ₹${couponDiscount}`,
+        `✅ Coupon ${cart.coupon.code} consumed atomically. Discount: ₹${couponDiscount}`
       );
     }
 
     const totalAmount = totalAfterDiscount + shippingAmount - couponDiscount;
 
     console.log(
-      `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`,
+      `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`
     );
 
     // Step 6: Handle address
@@ -531,8 +570,9 @@ const createOrder = async (req, res) => {
       finalAddressId = savedAddress._id;
       shippingAddressData = savedAddress.toObject();
     } else if (addressId) {
-      const existingAddress =
-        await Address.findById(addressId).session(session);
+      const existingAddress = await Address.findById(addressId).session(
+        session
+      );
       if (!existingAddress) {
         throw { code: "ADDRESS_NOT_FOUND", message: "Address not found" };
       }
@@ -610,7 +650,7 @@ const createOrder = async (req, res) => {
     await session.commitTransaction();
 
     console.log(
-      `✅ Order ${order.orderId} created successfully in transaction`,
+      `✅ Order ${order.orderId} created successfully in transaction`
     );
 
     // Step 10: Return response based on payment method
@@ -657,7 +697,7 @@ const createOrder = async (req, res) => {
                     "stockObj.available": update.quantity,
                     stock: update.quantity,
                   },
-                },
+                }
               );
             } else if (update.variantId) {
               await Product.findOneAndUpdate(
@@ -667,7 +707,7 @@ const createOrder = async (req, res) => {
                     "variants.$.stockObj.available": update.quantity,
                     "variants.$.stock": update.quantity,
                   },
-                },
+                }
               );
             } else {
               await Product.findOneAndUpdate(
@@ -677,7 +717,7 @@ const createOrder = async (req, res) => {
                     "stockObj.available": update.quantity,
                     stock: update.quantity,
                   },
-                },
+                }
               );
             }
           }
@@ -697,7 +737,7 @@ const createOrder = async (req, res) => {
         } catch (cleanupError) {
           console.error(
             "🔥 CRITICAL: Failed to cleanup order after payment error:",
-            cleanupError,
+            cleanupError
           );
           // Alert admin/sentry here
         }
@@ -717,7 +757,9 @@ const createOrder = async (req, res) => {
       orderId: order.orderId,
       totalAmount: order.totalAmount,
       customerName:
-        shippingAddressData.firstName + " " + shippingAddressData.lastName,
+        shippingAddressData?.fullName ||
+        shippingAddressData?.name ||
+        "Customer",
       itemsCount: totalQuantity,
       createdAt: order.createdAt,
     });

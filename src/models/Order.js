@@ -41,11 +41,17 @@ const orderItemSchema = new mongoose.Schema(
       type: Map,
       of: String,
     },
-    // Gift Slot Data
+    // Gift Slot Data (bundle with gift choice)
     selectedGiftSku: { type: String },
+    selectedGift: {
+      sku: String,
+      label: String,
+      image: String,
+      title: String,
+    },
     isGift: { type: Boolean, default: false },
   },
-  { _id: false },
+  { _id: false }
 );
 
 const orderSchema = new mongoose.Schema(
@@ -170,7 +176,7 @@ const orderSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
 module.exports = mongoose.model("Order", orderSchema);

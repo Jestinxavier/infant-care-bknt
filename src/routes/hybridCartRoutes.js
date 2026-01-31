@@ -111,11 +111,15 @@ router.post("/add-item", optionalVerifyToken, validateCart, addItem);
  *           schema:
  *             type: object
  *             required:
- *               - itemId
+ *               - sku
  *               - changes
  *             properties:
- *               itemId:
+ *               sku:
  *                 type: string
+ *                 description: Product/variant SKU (skuSnapshot)
+ *               selectedGiftSku:
+ *                 type: string
+ *                 description: For bundle with gift slot
  *               changes:
  *                 type: object
  *                 properties:
@@ -140,10 +144,14 @@ router.patch("/update-item", optionalVerifyToken, validateCart, updateItem);
  *           schema:
  *             type: object
  *             required:
- *               - itemId
+ *               - sku
  *             properties:
- *               itemId:
+ *               sku:
  *                 type: string
+ *                 description: Product/variant SKU (skuSnapshot)
+ *               selectedGiftSku:
+ *                 type: string
+ *                 description: For bundle with gift slot
  *     responses:
  *       200:
  *         description: Item removed successfully
@@ -229,13 +237,13 @@ router.get(
   "/price-summary",
   optionalVerifyToken,
   validateCart,
-  getPriceSummary,
+  getPriceSummary
 );
 router.post(
   "/price-summary",
   optionalVerifyToken,
   validateCart,
-  getPriceSummary,
+  getPriceSummary
 );
 
 /**
@@ -329,7 +337,7 @@ router.delete(
   "/remove-coupon",
   optionalVerifyToken,
   validateCart,
-  removeCoupon,
+  removeCoupon
 );
 
 /**

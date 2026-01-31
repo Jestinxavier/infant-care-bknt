@@ -15,7 +15,7 @@ const client = StandardCheckoutClient.getInstance(
   phonePeConfig.credentials.clientId,
   phonePeConfig.credentials.clientSecret,
   phonePeConfig.credentials.clientVersion,
-  phonePeConfig.env,
+  phonePeConfig.env
 );
 
 const initiatePayment = async ({ orderId, amount }) => {
@@ -29,7 +29,7 @@ const initiatePayment = async ({ orderId, amount }) => {
     const redirectToken = jwt.sign(
       { orderId, purpose: "PHONEPE_REDIRECT" },
       phonePeConfig.credentials.redirectSecret,
-      { expiresIn: "1h" },
+      { expiresIn: "1h" }
     );
 
     const request = CreateSdkOrderRequest.StandardCheckoutBuilder()
@@ -45,19 +45,18 @@ const initiatePayment = async ({ orderId, amount }) => {
     return { redirectUrl: response.redirectUrl };
   } catch (err) {
     if (err instanceof PhonePeException) {
-       
-       await Order.updateOne(
-         { orderId: orderId },
-         { $set: { paymentStatus: "failed", status: "cancelled" } },
-       );
+      await Order.updateOne(
+        { orderId: orderId },
+        { $set: { paymentStatus: "failed", status: "cancelled" } }
+      );
 
-       await Cart.findOneAndUpdate(
-         { orderId: orderId },
-         {
-           $set: { status: "active", completedAt: null },
-           $unset: { orderId: "" },
-         },
-       );
+      await Cart.findOneAndUpdate(
+        { orderId: orderId },
+        {
+          $set: { status: "active", completedAt: null },
+          $unset: { orderId: "" },
+        }
+      );
       console.error("PhonePe SDK error", {
         code: err.code,
         httpStatusCode: err.httpStatusCode,
@@ -75,7 +74,7 @@ const checkOrderStatus = async (req, res) => {
     const { token } = req.query;
     if (!token) {
       return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`,
+        `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`
       );
     }
 
@@ -84,17 +83,17 @@ const checkOrderStatus = async (req, res) => {
     const order = await Order.findOne({ orderId: decoded.orderId }).lean();
     if (!order) {
       return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`,
+        `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`
       );
     }
 
     return res.redirect(
       `${process.env.FRONTEND_URL}/order-confirmation` +
-        `?status=${order.paymentStatus}&orderId=${order.orderId}`,
+        `?status=${order.paymentStatus}&orderId=${order.orderId}`
     );
   } catch {
     return res.redirect(
-      `${process.env.FRONTEND_URL}/order-confirmation?status=expired`,
+      `${process.env.FRONTEND_URL}/order-confirmation?status=expired`
     );
   }
 };
@@ -105,7 +104,7 @@ const phonepeWebhook = async (req, res) => {
     const authorizationHeader = req.headers["authorization"];
     console.log(
       "authorizationHeader  ****** 🪝🪝🪝🪝 ",
-      req.headers["authorization"],
+      req.headers["authorization"]
     );
 
     if (!authorizationHeader || !req.rawBody) {
@@ -120,7 +119,7 @@ const phonepeWebhook = async (req, res) => {
       phonePeConfig.credentials.username,
       phonePeConfig.credentials.password,
       authorizationHeader,
-      req.rawBody,
+      req.rawBody
     );
     console.log("PhonePe callback type:", callbackResponse.type);
     console.log("PhonePe payload:", callbackResponse.payload);
@@ -154,22 +153,25 @@ const phonepeWebhook = async (req, res) => {
               phonepeTransactionId: paymentAttempt?.transactionId ?? null,
             },
           },
-          { new: true }, // returns updated document ̰
+          { new: true } // returns updated document ̰
         );
         console.log(updatedOrder, "😂*****");
 
         await Cart.findOneAndUpdate(
           { orderId: updatedOrder._id },
-          { status: "ordered", completedAt: new Date() },
+          { status: "ordered", completedAt: new Date() }
         );
 
         const { emitEvent } = require("../../services/socketService");
         emitEvent("newOrder", {
           orderId: updatedOrder.orderId,
           totalAmount: updatedOrder.totalAmount,
-          customerName: updatedOrder.shippingAddress?.firstName + " " + updatedOrder.shippingAddress?.lastName,
+          customerName:
+            updatedOrder.shippingAddress?.fullName ||
+            updatedOrder.shippingAddress?.name ||
+            "Customer",
           itemsCount: updatedOrder.totalQuantity,
-          createdAt: updatedOrder.createdAt
+          createdAt: updatedOrder.createdAt,
         });
         break;
       }
@@ -177,7 +179,7 @@ const phonepeWebhook = async (req, res) => {
       case "CHECKOUT_ORDER_FAILED": {
         await Order.updateOne(
           { orderId: merchantOrderId },
-          { $set: { paymentStatus: "failed", status: "cancelled" } },
+          { $set: { paymentStatus: "failed", status: "cancelled" } }
         );
 
         await Cart.findOneAndUpdate(
@@ -185,7 +187,7 @@ const phonepeWebhook = async (req, res) => {
           {
             $set: { status: "active", completedAt: null },
             $unset: { orderId: "" },
-          },
+          }
         );
 
         for (const item of order.items) {
@@ -197,7 +199,7 @@ const phonepeWebhook = async (req, res) => {
                   "variants.$.stockObj.available": item.quantity,
                   "variants.$.stock": item.quantity,
                 },
-              },
+              }
             );
           } else {
             await Product.updateOne(
@@ -207,7 +209,7 @@ const phonepeWebhook = async (req, res) => {
                   "stockObj.available": item.quantity,
                   stock: item.quantity,
                 },
-              },
+              }
             );
           }
         }
@@ -224,7 +226,7 @@ const phonepeWebhook = async (req, res) => {
     const body = JSON.parse(req.rawBody);
     await Order.updateOne(
       { orderId: body.payload.merchantOrderId },
-      { $set: { paymentStatus: "failed", status: "cancelled" } },
+      { $set: { paymentStatus: "failed", status: "cancelled" } }
     );
 
     await Cart.findOneAndUpdate(
@@ -232,7 +234,7 @@ const phonepeWebhook = async (req, res) => {
       {
         $set: { status: "active", completedAt: null },
         $unset: { orderId: "" },
-      },
+      }
     );
 
     return res.status(400).send("INVALID CALLBACK");

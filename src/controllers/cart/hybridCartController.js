@@ -63,7 +63,7 @@ const calculateTotals = async (items) => {
     // Always fetch product directly for pricing fields (populate may not return quantityRules)
     const product = await Product.findById(productId)
       .select(
-        "price offerPrice offerStartAt offerEndAt quantityRules variants product_type",
+        "price offerPrice offerStartAt offerEndAt quantityRules variants product_type"
       )
       .lean();
 
@@ -128,12 +128,13 @@ const getProductDataForCart = async (productId, variantId = null) => {
   // Handle BUNDLE products - compute stock from children
   if (product.product_type === PRODUCT_TYPES.BUNDLE) {
     const bundleAvailability = await bundleService.getBundleAvailability(
-      product.bundle_config,
+      product.bundle_config
     );
     return {
       id: product._id.toString(),
       title: product.title,
       image: product.images?.[0] || "",
+      sku: product.sku || null,
       price: product.pricing?.price || product.price || 0,
       discountPrice:
         product.pricing?.discountPrice || product.discountPrice || null,
@@ -151,6 +152,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
       id: product._id.toString(),
       title: product.title,
       image: product.images?.[0] || "",
+      sku: product.sku || null,
       price: product.pricing?.price || product.price || 0,
       discountPrice:
         product.pricing?.discountPrice || product.discountPrice || null,
@@ -171,6 +173,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
     id: variant.id,
     title: product.title, // Use product title
     image: variant.images?.[0] || product.images?.[0] || "",
+    sku: variant.sku || product.sku || null,
     price: variant.pricing?.price || variant.price || 0,
     discountPrice:
       variant.pricing?.discountPrice || variant.discountPrice || null,
@@ -204,7 +207,7 @@ const getCachedBundleAvailability = async (req, product) => {
 
   // Compute and cache
   const availability = await bundleService.getBundleAvailability(
-    product.bundle_config,
+    product.bundle_config
   );
   req.bundleAvailabilityCache.set(key, availability);
 
@@ -236,7 +239,7 @@ const computeBundleStocksAndIssues = async (req, cart) => {
     // Fail fast if not populated - caller must populate first
     if (!productDoc || !productDoc._id) {
       console.error(
-        "❌ computeBundleStocksAndIssues: Cart items must be populated with productId",
+        "❌ computeBundleStocksAndIssues: Cart items must be populated with productId"
       );
       continue; // Skip unpopulated items
     }
@@ -311,7 +314,7 @@ const fetchGiftProducts = async (items) => {
         title: p.title,
         image: p.images?.[0] || "",
       },
-    ]),
+    ])
   );
 };
 /**
@@ -353,7 +356,7 @@ const createCart = async (req, res) => {
           await existingCart.populate({
             path: "items.productId",
             select:
-              "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+              "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
           });
           const totals = await calculateTotals(existingCart.items);
           const itemPrices = totals.itemPrices;
@@ -364,7 +367,7 @@ const createCart = async (req, res) => {
             existingCart,
             bundleStocks,
             itemPrices,
-            giftProducts,
+            giftProducts
           );
           return res.status(200).json({
             success: true,
@@ -504,6 +507,10 @@ const getCart = async (req, res) => {
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
+    // Apply coupon discount to total (calculateTotals does not consider coupon)
+    if (cart.coupon?.discountAmount > 0) {
+      cart.total = Math.max(0, cart.total - cart.coupon.discountAmount);
+    }
     const itemPrices = totals.itemPrices;
 
     await cart.save();
@@ -511,7 +518,7 @@ const getCart = async (req, res) => {
     // Compute bundle stocks AND validation issues in ONE pass (no N+1)
     const { bundleStocks, issues } = await computeBundleStocksAndIssues(
       req,
-      cart,
+      cart
     );
 
     // Pass bundleStocks and itemPrices so formatCartResponse has all pricing data
@@ -520,7 +527,7 @@ const getCart = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     // Cart validation result per bundle spec:
@@ -568,7 +575,7 @@ const addItem = async (req, res) => {
     // CHOICE_GROUP products are NOT sellable - they reference bundle products
     // Customer must select a specific bundle on PDP before adding to cart
     const productCheck = await Product.findById(item.productId).select(
-      "product_type bundle_config",
+      "product_type bundle_config"
     );
     if (productCheck?.product_type === PRODUCT_TYPES.CHOICE_GROUP) {
       return res.status(400).json({
@@ -593,7 +600,7 @@ const addItem = async (req, res) => {
 
       // Verify the selected gift is a valid option
       const isValidGift = productCheck.bundle_config.gift_slot.options.some(
-        (opt) => opt.sku === item.selectedGiftSku,
+        (opt) => opt.sku === item.selectedGiftSku
       );
 
       if (!isValidGift) {
@@ -656,7 +663,7 @@ const addItem = async (req, res) => {
     // Get product data
     const productData = await getProductDataForCart(
       item.productId,
-      item.variantId || null,
+      item.variantId || null
     );
 
     const requestedQty = item.quantity || 1;
@@ -678,13 +685,14 @@ const addItem = async (req, res) => {
     }
 
     // Prepare item data (no price snapshots - prices computed dynamically)
+    // skuSnapshot from product/variant - stable identifier for remove/update after cart recovery
     const itemData = {
       productId: item.productId,
       variantId: item.variantId || null,
       quantity: requestedQty,
       titleSnapshot: productData.title,
       imageSnapshot: productData.image,
-      skuSnapshot: item.sku || null,
+      skuSnapshot: productData.sku || item.sku || null,
       attributesSnapshot: item.attributes || null,
       selectedGiftSku: item.selectedGiftSku || null,
     };
@@ -700,7 +708,7 @@ const addItem = async (req, res) => {
     await cartDoc.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Get bundle stocks for bundle products
@@ -710,7 +718,7 @@ const addItem = async (req, res) => {
       cartDoc,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -733,14 +741,28 @@ const addItem = async (req, res) => {
  */
 const updateItem = async (req, res) => {
   try {
-    const cart = req.cart;
-    if (cart && cart.status !== "active") {
+    let cart = req.cart;
+
+    // Auto-recover when cart is in checkout
+    if (cart && cart.status === "checkout") {
+      cart = await performRecoverCart(req, res, cart);
+      if (!cart) {
+        return res.status(200).json({
+          success: false,
+          message: "Cart recovered but no items to modify",
+          cart: null,
+        });
+      }
+      req.cart = cart;
+    } else if (cart && cart.status !== "active") {
       return res.status(409).json({
         success: false,
         message: "Cart modification not allowed during checkout",
       });
     }
-    const { itemId, changes } = req.body;
+
+    const { sku, selectedGiftSku, itemId, productId, variantId, changes } =
+      req.body;
 
     if (!cart) {
       return res.status(404).json({
@@ -749,10 +771,24 @@ const updateItem = async (req, res) => {
       });
     }
 
-    if (!itemId) {
+    if (!sku && !productId && !itemId) {
       return res.status(400).json({
         success: false,
-        message: "Item ID is required",
+        message: "sku is required (or productId/itemId as fallback)",
+      });
+    }
+
+    const targetItemId = findCartItem(cart, {
+      sku,
+      selectedGiftSku,
+      itemId,
+      productId,
+      variantId,
+    });
+    if (!targetItemId) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in cart",
       });
     }
 
@@ -760,11 +796,9 @@ const updateItem = async (req, res) => {
 
     if (quantity !== undefined) {
       if (quantity <= 0) {
-        // Remove item
-        cart.items.pull(itemId);
+        cart.items.pull(targetItemId);
       } else {
-        // Update quantity
-        const item = cart.items.id(itemId);
+        const item = cart.items.id(targetItemId);
         if (!item) {
           return res.status(404).json({
             success: false,
@@ -779,7 +813,7 @@ const updateItem = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
@@ -797,7 +831,7 @@ const updateItem = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -815,19 +849,82 @@ const updateItem = async (req, res) => {
 };
 
 /**
+ * Find cart item by SKU (primary) or by legacy identifiers.
+ * Uses skuSnapshot for stable identification independent of MongoDB _id.
+ *
+ * @param {Object} cart - Cart document
+ * @param {Object} opts - { sku, selectedGiftSku?, itemId?, productId?, variantId? }
+ * @returns {ObjectId|null} - Mongoose subdocument _id for cart.items.id() / pull()
+ */
+const findCartItem = (
+  cart,
+  { sku, selectedGiftSku, itemId, productId, variantId }
+) => {
+  if (!cart?.items?.length) return null;
+
+  // 1. Primary: find by SKU (skuSnapshot) - stable across recovery, no Mongo dependency
+  if (sku) {
+    const skuStr = String(sku).trim();
+    const giftVal = selectedGiftSku ?? null;
+    const match = cart.items.find(
+      (it) =>
+        (it.skuSnapshot || it.sku) === skuStr &&
+        (it.selectedGiftSku ?? null) === giftVal
+    );
+    if (match) return match._id;
+  }
+
+  // 2. Legacy fallback: itemId (MongoDB subdocument _id)
+  if (itemId) {
+    const byId = cart.items.id(itemId);
+    if (byId) return byId._id;
+  }
+
+  // 3. Legacy fallback: productId + variantId + selectedGiftSku
+  if (productId) {
+    const prodStr = productId.toString?.() || String(productId);
+    const varVal = variantId ?? null;
+    const giftVal = selectedGiftSku ?? null;
+    const match = cart.items.find(
+      (it) =>
+        it.productId?.toString() === prodStr &&
+        (it.variantId ?? null) === varVal &&
+        (it.selectedGiftSku ?? null) === giftVal
+    );
+    if (match) return match._id;
+  }
+
+  return null;
+};
+
+/**
  * DELETE /api/v1/cart/remove-item
- * Remove item from cart
+ * Remove item from cart.
+ * Accepts sku (preferred), or fallbacks: productId+variantId+selectedGiftSku, itemId.
  */
 const removeItem = async (req, res) => {
   try {
-    const cart = req.cart;
-    if (cart && cart.status !== "active") {
+    let cart = req.cart;
+
+    // Auto-recover when cart is in checkout (user abandoned checkout, wants to modify)
+    if (cart && cart.status === "checkout") {
+      cart = await performRecoverCart(req, res, cart);
+      if (!cart) {
+        return res.status(200).json({
+          success: false,
+          message: "Cart recovered but no items to modify",
+          cart: null,
+        });
+      }
+      req.cart = cart;
+    } else if (cart && cart.status !== "active") {
       return res.status(409).json({
         success: false,
         message: "Cart modification not allowed during checkout",
       });
     }
-    const { itemId } = req.body;
+
+    const { sku, selectedGiftSku, itemId, productId, variantId } = req.body;
 
     if (!cart) {
       return res.status(404).json({
@@ -836,20 +933,34 @@ const removeItem = async (req, res) => {
       });
     }
 
-    if (!itemId) {
+    if (!sku && !productId && !itemId) {
       return res.status(400).json({
         success: false,
-        message: "Item ID is required",
+        message: "sku is required (or productId/itemId as fallback)",
       });
     }
 
-    cart.items.pull(itemId);
+    const targetItemId = findCartItem(cart, {
+      sku,
+      selectedGiftSku,
+      itemId,
+      productId,
+      variantId,
+    });
+    if (!targetItemId) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in cart",
+      });
+    }
+
+    cart.items.pull(targetItemId);
 
     // Ensure product data is populated first (needed for pricing)
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Recalculate totals dynamically
@@ -867,7 +978,7 @@ const removeItem = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -982,7 +1093,7 @@ const getItems = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Compute totals with itemPrices
@@ -997,7 +1108,7 @@ const getItems = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -1056,7 +1167,7 @@ const getPriceSummary = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Compute totals with itemPrices
@@ -1069,7 +1180,7 @@ const getPriceSummary = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -1201,7 +1312,7 @@ const getSummary = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Compute totals with itemPrices
@@ -1214,7 +1325,7 @@ const getSummary = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -1291,7 +1402,7 @@ const mergeCart = async (req, res) => {
         const existingIndex = userCart.items.findIndex(
           (item) =>
             item.productId.toString() === guestItem.productId.toString() &&
-            item.variantId === guestItem.variantId,
+            item.variantId === guestItem.variantId
         );
 
         if (existingIndex !== -1) {
@@ -1321,7 +1432,7 @@ const mergeCart = async (req, res) => {
       await userCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
       // Recalculate totals dynamically
@@ -1339,7 +1450,7 @@ const mergeCart = async (req, res) => {
         userCart,
         bundleStocks,
         itemPrices,
-        giftProducts,
+        giftProducts
       );
       return res.status(200).json({
         success: true,
@@ -1358,7 +1469,7 @@ const mergeCart = async (req, res) => {
       await userCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
       // Compute totals with itemPrices
@@ -1370,7 +1481,7 @@ const mergeCart = async (req, res) => {
         userCart,
         bundleStocks,
         itemPrices,
-        giftProducts,
+        giftProducts
       );
       return res.status(200).json({
         success: true,
@@ -1401,7 +1512,7 @@ const mergeCart = async (req, res) => {
         await guestCart.populate({
           path: "items.productId",
           select:
-            "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+            "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
         });
 
         const totals = await calculateTotals(guestCart.items);
@@ -1411,7 +1522,7 @@ const mergeCart = async (req, res) => {
           guestCart,
           bundleStocks,
           itemPrices,
-          await fetchGiftProducts(guestCart.items),
+          await fetchGiftProducts(guestCart.items)
         );
         return res.status(200).json({
           success: true,
@@ -1429,7 +1540,7 @@ const mergeCart = async (req, res) => {
       await guestCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
       const totals = await calculateTotals(guestCart.items);
@@ -1440,7 +1551,7 @@ const mergeCart = async (req, res) => {
         guestCart,
         bundleStocks,
         itemPrices,
-        giftProducts,
+        giftProducts
       );
       return res.status(200).json({
         success: true,
@@ -1563,7 +1674,7 @@ const applyCoupon = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
     });
 
     // Compute totals dynamically
@@ -1596,11 +1707,11 @@ const applyCoupon = async (req, res) => {
       discountAmount: discountAmount,
     };
 
-    // Update totals with new discount
+    // Update totals with coupon discount applied
     cart.subtotal = totals.subtotal;
     cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
-    // total will be recalculated in pre-save hook minus coupon discount
+    cart.total = Math.max(0, totals.total - discountAmount);
 
     await cart.save();
 
@@ -1610,7 +1721,7 @@ const applyCoupon = async (req, res) => {
       cart,
       bundleStocks,
       itemPrices,
-      giftProducts,
+      giftProducts
     );
 
     res.status(200).json({
@@ -1651,31 +1762,34 @@ const removeCoupon = async (req, res) => {
 
     cart.coupon = undefined;
 
+    // Populate for formatCartResponse
+    await cart.populate({
+      path: "items.productId",
+      select:
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+    });
+
     // Recalculate totals (without coupon)
-    const totals = calculateTotals(cart.items);
+    const totals = await calculateTotals(cart.items);
     cart.subtotal = totals.subtotal;
-    cart.tax = 0;
+    cart.tax = totals.tax;
     cart.shippingEstimate = totals.shippingEstimate;
     cart.total = totals.total;
 
     await cart.save();
 
-    // Return lightweight response (no items, no tax)
-    const cartResponse = {
-      cartId: cart.cartId,
-      userId: cart.userId,
-      subtotal: cart.subtotal,
-      shippingEstimate: cart.shippingEstimate,
-      total: cart.total,
-      itemCount: cart.items.length,
-      coupon: null,
-      createdAt: cart.createdAt,
-      updatedAt: cart.updatedAt,
-    };
+    const bundleStocks = await computeBundleStocks(req, cart);
+    const giftProducts = await fetchGiftProducts(cart.items);
+    const formatted = formatCartResponse(
+      cart,
+      bundleStocks,
+      totals.itemPrices,
+      giftProducts
+    );
 
     res.status(200).json({
       success: true,
-      cart: cartResponse,
+      cart: formatted,
       message: "Coupon removed successfully",
     });
   } catch (error) {
@@ -1735,6 +1849,51 @@ const getAvailableCoupons = async (req, res) => {
 };
 
 /**
+ * Internal: Recover a locked/checkout cart into a new active cart.
+ * Sets cookie and returns the new cart. Used by recoverCart and auto-recover on modification.
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response (for setting cookie)
+ * @param {Object} lockedCart - Cart in checkout/ordered/abandoned status
+ * @returns {Object|null} New active cart or null if nothing to recover
+ */
+const performRecoverCart = async (req, res, lockedCart) => {
+  if (!lockedCart?.items?.length) return null;
+
+  const newCartId = generateCartId();
+  const userId = req.user?.id || (lockedCart.userId ? lockedCart.userId : null);
+
+  const newItems = lockedCart.items.map((item) => ({
+    _id: item._id, // Preserve for seamless frontend (itemId still works after recovery)
+    productId: item.productId,
+    variantId: item.variantId,
+    quantity: item.quantity,
+    titleSnapshot: item.titleSnapshot,
+    imageSnapshot: item.imageSnapshot,
+    skuSnapshot: item.skuSnapshot,
+    attributesSnapshot: item.attributesSnapshot,
+    selectedGiftSku: item.selectedGiftSku,
+  }));
+
+  const newCart = await Cart.create({
+    cartId: newCartId,
+    userId,
+    items: newItems,
+    status: "active",
+    coupon: undefined,
+  });
+
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: "/",
+  };
+  res.cookie(CART_ID, newCartId, cookieOptions);
+  return newCart;
+};
+
+/**
  * POST /api/v1/cart/recover
  * Recover locked cart (clone to new ID)
  */
@@ -1747,48 +1906,44 @@ const recoverCart = async (req, res) => {
       return createCart(req, res);
     }
 
-    // Generate new cart ID
-    const newCartId = generateCartId();
-    const userId =
-      req.user?.id || (lockedCart.userId ? lockedCart.userId : null);
+    // Use internal helper for recovery logic
+    const newCart =
+      lockedCart.items?.length > 0
+        ? await performRecoverCart(req, res, lockedCart)
+        : null;
 
-    // Clone items
-    const newItems = lockedCart.items.map((item) => ({
-      productId: item.productId,
-      variantId: item.variantId,
-      quantity: item.quantity,
-      titleSnapshot: item.titleSnapshot,
-      imageSnapshot: item.imageSnapshot,
-      skuSnapshot: item.skuSnapshot,
-      attributesSnapshot: item.attributesSnapshot,
-      selectedGiftSku: item.selectedGiftSku,
-    }));
-
-    // Create new active cart
-    const newCart = await Cart.create({
-      cartId: newCartId,
-      userId,
-      items: newItems,
-      status: "active",
-      coupon: undefined, // Do not carry over coupon to be safe/clean
-    });
-
-    // Set new cookie
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      path: "/",
-    };
-    res.cookie(CART_ID, newCartId, cookieOptions);
+    if (!newCart) {
+      // Empty cart - create fresh
+      const newCartId = generateCartId();
+      const userId =
+        req.user?.id || (lockedCart.userId ? lockedCart.userId : null);
+      const emptyCart = await Cart.create({
+        cartId: newCartId,
+        userId,
+        items: [],
+        status: "active",
+      });
+      res.cookie(CART_ID, newCartId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+      const formatted = formatCartResponse(emptyCart, null, null);
+      return res.status(200).json({
+        success: true,
+        cart: formatted,
+        message: "Cart recovered successfully",
+      });
+    }
 
     // Populate for response
     if (newCart.items.length > 0) {
       await newCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
       });
 
       const totals = await calculateTotals(newCart.items);

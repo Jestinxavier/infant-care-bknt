@@ -1,5 +1,6 @@
 const Order = require("../../models/Order");
 const Review = require("../../models/Review");
+const Product = require("../../models/Product");
 
 /**
  * Get single order by ID for the authenticated user
@@ -71,25 +72,54 @@ const getOrderById = async (req, res) => {
         subtotal: order?.subtotal,
         shippingCost: order?.shippingCost,
         discount: order?.discount,
+        couponDiscount: order?.coupon?.discountAmount ?? 0,
+        productDiscount:
+          (order?.discount ?? 0) - (order?.coupon?.discountAmount ?? 0),
       },
+      coupon: order?.coupon
+        ? {
+            code: order.coupon.code,
+            discountAmount: order.coupon.discountAmount,
+          }
+        : null,
       items: await Promise.all(
         order?.items?.map(async (item) => {
           // Check if this item was already reviewed in this order
           const existingReview = await Review.findOne({
             userId,
             orderId: order._id,
-            productId: item.productId?._id,
+            productId: item.productId?._id ?? item.productId,
             variantId: item.variantId,
           });
 
+          // Resolve selectedGift for bundle items (legacy: item has selectedGiftSku but no selectedGift)
+          let selectedGift = item?.selectedGift || null;
+          if (item?.selectedGiftSku && !selectedGift && !item?.isGift) {
+            const giftProduct = await Product.findOne({
+              sku: item.selectedGiftSku,
+            })
+              .select("title name images")
+              .lean();
+            if (giftProduct) {
+              selectedGift = {
+                sku: item.selectedGiftSku,
+                label: giftProduct.title || giftProduct.name,
+                image: giftProduct.images?.[0] || "",
+                title: giftProduct.title || giftProduct.name || "",
+              };
+            }
+          }
+
           return {
             variantId: item?.variantId,
-            productId: item?.productId?._id,
+            productId: item?.productId?._id ?? item?.productId,
             productName: item?.variantName ?? item?.name,
             quantity: item?.quantity,
             productImage: item?.variantImage ?? item?.image,
             price: item?.price,
             variantAttributes: item?.variantAttributes,
+            selectedGift,
+            isGift: item?.isGift || false,
             isReviewed: !!existingReview,
             review: existingReview
               ? {
@@ -106,7 +136,7 @@ const getOrderById = async (req, res) => {
                 }
               : null,
           };
-        }),
+        })
       ),
       itemCount: order.items.reduce((sum, item) => sum + item?.quantity, 0),
       address: order.shippingAddress || order.addressId,

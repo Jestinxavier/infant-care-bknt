@@ -23,14 +23,14 @@ const formatCartResponse = (
   cart,
   bundleStocks = null,
   itemPrices = null,
-  giftProductsMap = null,
+  giftProductsMap = null
 ) => {
   if (!cart) return null;
 
   // Enforce bundleStocks for carts with bundles (prevents regressions)
   if (!bundleStocks && cartHasBundles(cart)) {
     console.error(
-      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products",
+      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products"
     );
   }
 
@@ -89,10 +89,10 @@ const formatCartResponse = (
             isOfferActive: pricing.isOfferActive,
           }
         : null,
-      // Display snapshots
+      // Display snapshots (fallback to product.sku when skuSnapshot missing on legacy items)
       titleSnapshot: item.titleSnapshot,
       imageSnapshot: item.imageSnapshot,
-      skuSnapshot: item.skuSnapshot || null,
+      skuSnapshot: item.skuSnapshot || product?.sku || null,
       attributesSnapshot: item.attributesSnapshot
         ? Object.fromEntries(item.attributesSnapshot)
         : null,
@@ -106,10 +106,12 @@ const formatCartResponse = (
       let image = "";
       let title = "";
 
-      // 1. Get label from bundle config (if available)
-      if (item.productId && item.productId.bundle_config?.gift_slot?.options) {
-        const option = item.productId.bundle_config.gift_slot.options.find(
-          (o) => o.sku === item.selectedGiftSku,
+      // 1. Get label from bundle config (productId may be Mongoose doc or plain object)
+      const product = item.productId?._doc ?? item.productId;
+      const bundleConfig = product?.bundle_config;
+      if (bundleConfig?.gift_slot?.options) {
+        const option = bundleConfig.gift_slot.options.find(
+          (o) => o.sku === item.selectedGiftSku
         );
         if (option) label = option.label;
       }
@@ -117,8 +119,8 @@ const formatCartResponse = (
       // 2. Get image/title from fetched gift products map
       if (giftProductsMap && giftProductsMap.has(item.selectedGiftSku)) {
         const data = giftProductsMap.get(item.selectedGiftSku);
-        image = data.image;
-        title = data.title;
+        image = data.image ?? "";
+        title = data.title ?? "";
       }
 
       itemObj.selectedGift = {
@@ -129,7 +131,7 @@ const formatCartResponse = (
       };
     }
 
-    // Include populated product data if available
+    // Include populated product data if available (no bundle_config - selectedGift is enough)
     if (item.productId?._id) {
       itemObj.product = {
         _id: item.productId._id.toString(),
@@ -143,7 +145,7 @@ const formatCartResponse = (
                   // Handle actual object case (as before)
                   try {
                     const sortedKeys = Object.keys(img).sort(
-                      (a, b) => parseInt(a) - parseInt(b),
+                      (a, b) => parseInt(a) - parseInt(b)
                     );
                     return sortedKeys.map((k) => img[k]).join("");
                   } catch (e) {
@@ -176,7 +178,7 @@ const formatCartResponse = (
               })
               .filter(
                 (url) =>
-                  url && typeof url === "string" && url.startsWith("http"),
+                  url && typeof url === "string" && url.startsWith("http")
               )
           : [],
       };
@@ -201,18 +203,9 @@ const formatCartResponse = (
 
 const generatePriceSummary = (cart, formattedItems) => {
   const lines = [];
-  const subtotal = cart.subtotal || 0;
+  const offerPriceSubtotal = cart.subtotal || 0;
 
-  // 1. Subtotal (MRP/original prices)
-  lines.push({
-    key: "items_subtotal",
-    label: "Subtotal",
-    amount: subtotal,
-    type: "base",
-    order: 1,
-  });
-
-  // Calculate discounts from dynamic pricing fields
+  // Calculate totals from item pricing
   let totalOriginalPrice = 0;
   let totalUnitPrice = 0;
   let totalTierSavings = 0;
@@ -225,14 +218,22 @@ const generatePriceSummary = (cart, formattedItems) => {
     totalOriginalPrice += originalPrice * item.quantity;
     totalUnitPrice += unitPrice * item.quantity;
 
-    // Tier savings from pricingMeta
     if (item.pricingMeta?.savings) {
       totalTierSavings += item.pricingMeta.savings;
     }
   });
 
-  // Discount on MRP (offer discount = originalPrice - basePrice before tier)
-  const offerDiscount = subtotal - totalUnitPrice - totalTierSavings;
+  // 1. Subtotal = MRP/original price total (strikethrough baseline)
+  lines.push({
+    key: "items_subtotal",
+    label: "Subtotal",
+    amount: totalOriginalPrice,
+    type: "base",
+    order: 1,
+  });
+
+  // Discount on MRP (offer discount = MRP - offer price)
+  const offerDiscount = totalOriginalPrice - offerPriceSubtotal;
   if (offerDiscount > 0) {
     lines.push({
       key: "discount_on_mrp",
@@ -275,12 +276,19 @@ const generatePriceSummary = (cart, formattedItems) => {
     order: 3,
   });
 
+  // Compute payable from breakdown so coupon is always deducted (defense in depth)
+  const couponDiscount = cart.coupon?.discountAmount || 0;
+  let payableAmount =
+    totalOriginalPrice - offerDiscount - totalTierSavings - couponDiscount;
+  payableAmount += cart.shippingEstimate || 0;
+  payableAmount = Math.max(0, Math.round(payableAmount * 100) / 100);
+
   return {
     currency: "INR",
     lines: lines,
     payable: {
       label: "Total Payable",
-      amount: cart.total || 0,
+      amount: payableAmount,
     },
     appliedCoupon: cart.coupon
       ? {
