@@ -1,17 +1,16 @@
 const Product = require("../../models/Product");
-const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
-const { generateUniqueSku, validateSku } = require("../../utils/skuGenerator");
+const {
+  generateUniqueSku,
+  generateVariantSku,
+} = require("../../utils/skuGenerator");
 const {
   extractImagePublicIds,
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
-const {
-  createOptionsHash,
-  validateVariantData,
-} = require("../../utils/variantValidator");
+const { createOptionsHash } = require("../../utils/variantValidator");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 const bundleService = require("../../features/product/bundle.service");
 
@@ -107,7 +106,6 @@ const createProduct = async (req, res) => {
       refreshSlug = false,
       // Legacy fields (for backward compatibility)
       name,
-      variants: legacyVariants,
       // Additional fields
       sku,
       url_key,
@@ -166,8 +164,9 @@ const createProduct = async (req, res) => {
 
     // Validate bundle configuration for BUNDLE products
     if (product_type === "BUNDLE") {
-      const bundleValidation =
-        await bundleService.validateBundleConfig(bundle_config);
+      const bundleValidation = await bundleService.validateBundleConfig(
+        bundle_config
+      );
       if (!bundleValidation.valid) {
         return res.status(400).json({
           success: false,
@@ -238,7 +237,7 @@ const createProduct = async (req, res) => {
       };
       productUrlKey = await generateUniqueUrlKey(
         productTitle,
-        checkUrlKeyExists,
+        checkUrlKeyExists
       );
     }
 
@@ -286,7 +285,7 @@ const createProduct = async (req, res) => {
           console.error("Error parsing images JSON:", e);
           console.error(
             "Images string value:",
-            parsedBody.images.substring(0, 200),
+            parsedBody.images.substring(0, 200)
           );
           // If parsing fails, try to extract URL if it's a simple string
           if (parsedBody.images.startsWith("http")) {
@@ -310,7 +309,7 @@ const createProduct = async (req, res) => {
           (f.fieldname.startsWith("product_image_") ||
             f.fieldname.startsWith("images")) &&
           !f.fieldname.includes("variant_") &&
-          !f.fieldname.includes("variant"),
+          !f.fieldname.includes("variant")
       );
 
       // Files are already uploaded to Cloudinary by multer-cloudinary
@@ -330,7 +329,9 @@ const createProduct = async (req, res) => {
     // Process variants (new structure)
     let processedVariants = [];
     if (variantsArray && Array.isArray(variantsArray)) {
-      processedVariants = variantsArray.map((v, index) => {
+      const usedVariantSkus = new Set();
+      for (let index = 0; index < variantsArray.length; index++) {
+        const v = variantsArray[index];
         // Process variant images
         let variantImages = [];
 
@@ -400,6 +401,27 @@ const createProduct = async (req, res) => {
         // ✅ Generate options hash for duplicate detection
         const optionsHash = createOptionsHash(attributesMap);
 
+        // ✅ Auto-generate variant SKU when missing (align with product.service)
+        let variantSku = v.sku;
+        if (
+          !variantSku ||
+          (typeof variantSku === "string" && !variantSku.trim())
+        ) {
+          const attrsObj = Object.fromEntries(attributesMap);
+          variantSku = generateVariantSku(productSku, attrsObj);
+          // Ensure uniqueness within this product's variants
+          let uniqueSku = variantSku;
+          let suffix = 2;
+          while (usedVariantSkus.has(uniqueSku)) {
+            uniqueSku = `${variantSku}-${suffix}`;
+            suffix++;
+          }
+          usedVariantSkus.add(uniqueSku);
+          variantSku = uniqueSku;
+        } else {
+          usedVariantSkus.add(variantSku);
+        }
+
         // ✅ Generate unique URL key for variant
         let variantUrlKey = v.url_key;
         if (!variantUrlKey) {
@@ -412,12 +434,12 @@ const createProduct = async (req, res) => {
           const baseSlug = `${productUrlKey}${
             colorCode ? "-" + colorCode : ""
           }${sizeCode ? "-" + sizeCode : ""}`;
-          variantUrlKey = `${baseSlug}-${v.sku || index}`;
+          variantUrlKey = `${baseSlug}-${variantSku || index}`;
         }
 
-        return {
+        processedVariants.push({
           id: v.id || `variant-${crypto.randomUUID()}`,
-          sku: v.sku,
+          sku: variantSku,
           url_key: variantUrlKey,
           // Keep direct fields for backward compatibility
           price: price,
@@ -440,20 +462,8 @@ const createProduct = async (req, res) => {
           length: v.length,
           height: v.height,
           width: v.width,
-        };
-      });
-    }
-
-    // Process legacy variants (backward compatibility)
-    let legacyVariantsArray = [];
-    if (legacyVariants && typeof legacyVariants === "string") {
-      try {
-        legacyVariantsArray = JSON.parse(legacyVariants);
-      } catch (e) {
-        legacyVariantsArray = [];
+        });
       }
-    } else if (Array.isArray(legacyVariants)) {
-      legacyVariantsArray = legacyVariants;
     }
 
     // Tags - keep as single string (comma-separated if multiple)
@@ -521,8 +531,8 @@ const createProduct = async (req, res) => {
       if (missingFields.length > 0) {
         console.log(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
-            ", ",
-          )}`,
+            ", "
+          )}`
         );
         console.log("   → Auto-saving as 'draft' instead");
         normalizedStatus = "draft";
@@ -556,42 +566,47 @@ const createProduct = async (req, res) => {
       variants: processedVariants,
       optionsLocked: optionsLocked, // ✅ NEW: Lock if variants exist
       details: details
-        ? details.map((section) => {
-            const cleanedSection = {
-              title: section.title,
-              type: section.type,
-            };
+        ? details
+            .filter((s) => s && (s.title || "").trim())
+            .map((section) => {
+              const cleanedSection = {
+                title: section.title,
+                type: section.type,
+              };
 
-            // Only include description for description-type sections and if not empty
-            if (section.type === "description" && section.description) {
-              cleanedSection.description = section.description;
-            }
-
-            // Clean fields based on their structure
-            cleanedSection.fields = (section.fields || []).map((field) => {
-              // If field has 'type' property (list/badge), only include type and data
-              if (
-                field.type &&
-                (field.type === "list" || field.type === "badge")
-              ) {
-                return {
-                  type: field.type,
-                  data: field.data || [],
-                };
+              // Only include description for description-type sections and if not empty
+              if (section.type === "description" && section.description) {
+                cleanedSection.description = section.description;
               }
-              // Otherwise it's a label-value pair, only include label and value
-              else if (field.label !== undefined && field.value !== undefined) {
-                return {
-                  label: field.label,
-                  value: field.value,
-                };
-              }
-              // Fallback: return as-is
-              return field;
-            });
 
-            return cleanedSection;
-          })
+              // Clean fields based on their structure
+              cleanedSection.fields = (section.fields || []).map((field) => {
+                // If field has 'type' property (list/badge), only include type and data
+                if (
+                  field.type &&
+                  (field.type === "list" || field.type === "badge")
+                ) {
+                  return {
+                    type: field.type,
+                    data: field.data || [],
+                  };
+                }
+                // Otherwise it's a label-value pair, only include label and value
+                else if (
+                  field.label !== undefined &&
+                  field.value !== undefined
+                ) {
+                  return {
+                    label: field.label,
+                    value: field.value,
+                  };
+                }
+                // Fallback: return as-is
+                return field;
+              });
+
+              return cleanedSection;
+            })
         : [],
       pricing: pricing || null, // Parent-level pricing
       stockObj: stockObj || null, // Parent-level stock
@@ -634,7 +649,7 @@ const createProduct = async (req, res) => {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "product",
-          product._id,
+          product._id
         );
         console.log("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
@@ -646,7 +661,7 @@ const createProduct = async (req, res) => {
       // Non-critical error - log but don't fail the request
       console.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
-        finalizeError,
+        finalizeError
       );
     }
 
@@ -670,7 +685,7 @@ const createProduct = async (req, res) => {
     console.error("Error name:", err.name);
     console.error("Error code:", err.code);
 
-    // Handle validation errors
+    // Handle validation errors (Mongoose ValidationError)
     if (err.name === "ValidationError") {
       const validationErrors = Object.keys(err.errors || {}).map((key) => ({
         field: key,
@@ -678,9 +693,9 @@ const createProduct = async (req, res) => {
       }));
       return res.status(400).json({
         success: false,
-        message: "Validation Error",
+        message: err.message,
+        error: "Validation Error",
         errors: validationErrors,
-        error: err.message,
       });
     }
 
@@ -696,8 +711,8 @@ const createProduct = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Internal Server Error",
-      error: err.message,
+      message: err.message,
+      error: "Internal Server Error",
       ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
     });
   }

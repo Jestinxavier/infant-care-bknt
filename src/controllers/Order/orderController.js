@@ -608,7 +608,7 @@ const createOrder = async (req, res) => {
       // addressId removed
       shippingAddress: shippingAddressData,
       paymentMethod: paymentMethod,
-      status: "pending",
+      orderStatus: "pending",
       pricingSnapshot: {
         itemsSubtotal: subtotal,
         productDiscount: discountAmount,
@@ -680,7 +680,7 @@ const createOrder = async (req, res) => {
 
           // 1. Cancel the order
           await Order.findByIdAndUpdate(order._id, {
-            status: "cancelled",
+            orderStatus: "cancelled",
             paymentStatus: "failed",
             "statusHistory.0.note":
               "Payment initiation failed - Auto-cancelled",

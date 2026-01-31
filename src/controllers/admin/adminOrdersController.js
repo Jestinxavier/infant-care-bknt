@@ -3,6 +3,8 @@ const User = require("../../models/user");
 const mongoose = require("mongoose");
 const emailService = require("../../services/emailService");
 const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
+const { PAYMENT_METHODS } = require("../../../resources/constants");
+const { restoreOrderStock } = require("../../utils/orderStockRestore");
 
 /**
  * Admin: Get all orders (not filtered by user)
@@ -36,7 +38,7 @@ const getAllOrders = async (req, res) => {
     const now = new Date();
     const restrictionDaysAgo = new Date(now);
     restrictionDaysAgo.setUTCDate(
-      now.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
+      now.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS
     );
     restrictionDaysAgo.setUTCHours(0, 0, 0, 0); // Start of day in UTC
 
@@ -267,8 +269,7 @@ const getOrderById = async (req, res) => {
  */
 const updateOrderStatus = async (req, res) => {
   try {
-    const { orderId } = req.params;
-    const { status, trackingId, deliveryNote } = req.body;
+    const { orderId, status, trackingId, deliveryNote } = req.body;
 
     if (!orderId) {
       return res.status(400).json({
@@ -322,7 +323,7 @@ const updateOrderStatus = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: `Invalid status. Must be one of: ${validStatuses.join(
-            ", ",
+            ", "
           )}`,
         });
       }
@@ -352,6 +353,15 @@ const updateOrderStatus = async (req, res) => {
       }
 
       updateFields.orderStatus = status;
+
+      // COD: Auto-complete payment when status switches to delivered
+      if (
+        status === "delivered" &&
+        currentOrder.paymentMethod === PAYMENT_METHODS.COD &&
+        currentOrder.paymentStatus === "pending"
+      ) {
+        updateFields.paymentStatus = "paid";
+      }
     }
 
     // Tracking & Note & Partner Update Logic
@@ -417,7 +427,7 @@ const updateOrderStatus = async (req, res) => {
             [];
           // Check if "Tracking URL" already exists
           const existingUrlIndex = currentInfo.findIndex(
-            (item) => item.key && item.key.toLowerCase() === "tracking url",
+            (item) => item.key && item.key.toLowerCase() === "tracking url"
           );
 
           if (existingUrlIndex >= 0) {
@@ -502,11 +512,33 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
+    // Restore product stock when cancelling order (simple, variant, bundle, gift)
+    if (
+      status === "cancelled" &&
+      currentOrder.orderStatus !== "cancelled" &&
+      currentOrder.items?.length > 0
+    ) {
+      try {
+        await restoreOrderStock(currentOrder);
+      } catch (restoreErr) {
+        console.error(
+          "❌ Failed to restore stock on order cancel:",
+          restoreErr
+        );
+        return res.status(500).json({
+          success: false,
+          message:
+            "Order status could not be updated. Stock restore failed. Please try again.",
+          error: restoreErr.message,
+        });
+      }
+    }
+
     // 3. Perform Update using the resolved _id
     const order = await Order.findByIdAndUpdate(
       currentOrder._id,
       { $set: updateFields },
-      { new: true },
+      { new: true }
     )
       .populate("userId", "username email")
       .populate("deliveryPartner")

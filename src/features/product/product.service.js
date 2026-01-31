@@ -98,8 +98,8 @@ class ProductService {
             .filter((id) => mongoose.Types.ObjectId.isValid(id))
             .map((id) => new mongoose.Types.ObjectId(id))
         : mongoose.Types.ObjectId.isValid(filters.subCategories)
-          ? [new mongoose.Types.ObjectId(filters.subCategories)]
-          : [];
+        ? [new mongoose.Types.ObjectId(filters.subCategories)]
+        : [];
 
       if (subCatIds.length > 0) {
         matchStage.subCategories = { $in: subCatIds };
@@ -509,21 +509,18 @@ class ProductService {
     // Clone input
     const productData = { ...inputData };
 
-    // ... (URL Key logic) ...
     // Generate URL key if not provided
     if (!productData.url_key && productData.title) {
-      // ... existing URL logic ...
       const checkUrlKeyExists = async (urlKey) => {
         const existing = await productRepository.findByUrlKey(urlKey);
         return !!existing;
       };
       productData.url_key = await generateUniqueUrlKey(
         productData.title,
-        checkUrlKeyExists,
+        checkUrlKeyExists
       );
     }
 
-    // ... (Category logic) ...
     if (!productData.categoryCode && productData.category) {
       const Category = mongoose.model("Category");
       const category = await Category.findById(productData.category);
@@ -555,7 +552,6 @@ class ProductService {
       });
       console.log(">>> Generated SKU:", productData.sku);
     } else {
-      // ... existing else block ...
       const skuValidation = validateSku(productData.sku);
       if (!skuValidation.valid) {
         throw ApiError.validation(`Invalid SKU: ${skuValidation.error}`);
@@ -580,7 +576,6 @@ class ProductService {
       throw ApiError.internal("Failed to generate product SKU");
     }
 
-    // ... existing ...
     const productId = new mongoose.Types.ObjectId();
     productData._id = productId;
 
@@ -615,7 +610,7 @@ class ProductService {
         if (!variant.sku) {
           variant.sku = generateVariantSku(
             productData.sku,
-            variant.attributes || variant.options || {},
+            variant.attributes || variant.options || {}
           );
         }
 
@@ -668,21 +663,12 @@ class ProductService {
           const skuValidation = validateSku(variant.sku);
           if (!skuValidation.valid) {
             throw ApiError.validation(
-              `Invalid variant SKU: ${skuValidation.error}`,
+              `Invalid variant SKU: ${skuValidation.error}`
             );
           }
 
           // Check for duplicate SKUs within this product
           if (allVariantSkus.includes(variant.sku)) {
-            // Logic to handle internal duplicates if needed
-            // For now, strict:
-            if (
-              !productData.variants.some(
-                (v) => v !== variant && v.sku === variant.sku,
-              )
-            ) {
-              // ...
-            }
             throw ApiError.validation(`Duplicate variant SKU: ${variant.sku}`);
           }
           allVariantSkus.push(variant.sku);
@@ -699,7 +685,7 @@ class ProductService {
           const skuExists = await checkSkuExists(variant.sku);
           if (skuExists) {
             throw ApiError.validation(
-              `Variant SKU already exists: ${variant.sku}`,
+              `Variant SKU already exists: ${variant.sku}`
             );
           }
         }
@@ -763,7 +749,7 @@ class ProductService {
           strategy: "structured",
           categoryCode: categoryCode,
           productName: updateData.title || product.title,
-        },
+        }
       );
     }
 
@@ -771,7 +757,7 @@ class ProductService {
     if (updateData.sku !== undefined && updateData.sku !== product.sku) {
       if (product.skuLocked) {
         throw ApiError.forbidden(
-          "Cannot change SKU: Product SKU is locked (used in orders)",
+          "Cannot change SKU: Product SKU is locked (used in orders)"
         );
       }
 
@@ -818,7 +804,7 @@ class ProductService {
 
         const urlKeyExists = await checkUrlKeyExists(
           updateData.url_key,
-          productId,
+          productId
         );
         if (urlKeyExists) {
           throw ApiError.validation("URL key already exists");
@@ -837,15 +823,63 @@ class ProductService {
       }
     }
 
-    // Validate variants if being updated
+    // Validate variants if being updated (auto-generate variant SKU/url_key when missing)
     if (updateData.variants && Array.isArray(updateData.variants)) {
       const allVariantSkus = [];
+      const usedVariantSkus = new Set();
+      const productSku =
+        updateData.sku !== undefined ? updateData.sku : product.sku;
+      const productUrlKey =
+        updateData.url_key !== undefined ? updateData.url_key : product.url_key;
+      const { generateSlug } = require("../../utils/slugGenerator");
 
       for (let i = 0; i < updateData.variants.length; i++) {
         const variant = updateData.variants[i];
         const existingVariant = product.variants.find(
-          (v) => v.id === variant.id,
+          (v) => v.id === variant.id
         );
+
+        // Auto-generate variant SKU when missing (align with createProduct / controllers)
+        if (
+          !variant.sku ||
+          (typeof variant.sku === "string" && !variant.sku.trim())
+        ) {
+          const attrs = variant.attributes || variant.options || {};
+          const attrsObj =
+            attrs instanceof Map
+              ? Object.fromEntries(attrs)
+              : { ...(attrs || {}) };
+          variant.sku = generateVariantSku(productSku, attrsObj);
+          let uniqueSku = variant.sku;
+          let suffix = 2;
+          while (usedVariantSkus.has(uniqueSku)) {
+            uniqueSku = `${variant.sku}-${suffix}`;
+            suffix++;
+          }
+          usedVariantSkus.add(uniqueSku);
+          variant.sku = uniqueSku;
+        } else {
+          usedVariantSkus.add(variant.sku);
+        }
+
+        // Auto-generate variant url_key when missing
+        if (
+          !variant.url_key ||
+          (typeof variant.url_key === "string" && !variant.url_key.trim())
+        ) {
+          if (productUrlKey) {
+            const attrs = variant.attributes || variant.options || {};
+            const attrsObj =
+              attrs instanceof Map
+                ? Object.fromEntries(attrs)
+                : { ...(attrs || {}) };
+            const parts = [productUrlKey];
+            if (attrsObj.color) parts.push(generateSlug(attrsObj.color));
+            if (attrsObj.size || attrsObj.age)
+              parts.push(generateSlug(attrsObj.size || attrsObj.age));
+            variant.url_key = parts.join("-") + "-" + (variant.sku || i);
+          }
+        }
 
         // Check variant SKU locking
         if (
@@ -855,7 +889,7 @@ class ProductService {
         ) {
           if (existingVariant.skuLocked) {
             throw ApiError.forbidden(
-              `Cannot change variant SKU: SKU ${existingVariant.sku} is locked (used in orders)`,
+              `Cannot change variant SKU: SKU ${existingVariant.sku} is locked (used in orders)`
             );
           }
         }
@@ -886,7 +920,7 @@ class ProductService {
           const skuValidation = validateSku(variant.sku);
           if (!skuValidation.valid) {
             throw ApiError.validation(
-              `Invalid variant SKU: ${skuValidation.error}`,
+              `Invalid variant SKU: ${skuValidation.error}`
             );
           }
 
@@ -912,7 +946,7 @@ class ProductService {
           const skuExists = await checkSkuExists(variant.sku, productId);
           if (skuExists) {
             throw ApiError.validation(
-              `Variant SKU already exists: ${variant.sku}`,
+              `Variant SKU already exists: ${variant.sku}`
             );
           }
         }
@@ -921,7 +955,7 @@ class ProductService {
 
     const updatedProduct = await productRepository.updateById(
       productId,
-      updateData,
+      updateData
     );
     return updatedProduct;
   }
@@ -953,13 +987,13 @@ class ProductService {
     const validStatuses = ["draft", "published", "archived"];
     if (!validStatuses.includes(status)) {
       throw ApiError.validation(
-        `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        `Invalid status. Must be one of: ${validStatuses.join(", ")}`
       );
     }
 
     const updatedProduct = await productRepository.updateStatus(
       productId,
-      status,
+      status
     );
     return updatedProduct;
   }
@@ -971,7 +1005,7 @@ class ProductService {
     const validStatuses = ["draft", "published", "archived"];
     if (!validStatuses.includes(status)) {
       throw ApiError.validation(
-        `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        `Invalid status. Must be one of: ${validStatuses.join(", ")}`
       );
     }
 

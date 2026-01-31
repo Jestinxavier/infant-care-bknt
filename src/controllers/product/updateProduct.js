@@ -2,14 +2,16 @@ const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
 const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
-const { generateUniqueSku, validateSku } = require("../../utils/skuGenerator");
+const {
+  generateUniqueSku,
+  generateVariantSku,
+} = require("../../utils/skuGenerator");
 const {
   extractImagePublicIds,
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 const bundleService = require("../../features/product/bundle.service");
-const { triggerRevalidation } = require("../../services/revalidateService");
 
 const updateProduct = async (req, res) => {
   try {
@@ -75,8 +77,9 @@ const updateProduct = async (req, res) => {
     const effectiveProductType =
       product_type !== undefined ? product_type : product.product_type;
     if (effectiveProductType === "BUNDLE" && bundle_config !== undefined) {
-      const bundleValidation =
-        await bundleService.validateBundleConfig(bundle_config);
+      const bundleValidation = await bundleService.validateBundleConfig(
+        bundle_config
+      );
       if (!bundleValidation.valid) {
         return res.status(400).json({
           success: false,
@@ -106,7 +109,7 @@ const updateProduct = async (req, res) => {
         product.url_key = await generateUniqueUrlKey(
           newTitle,
           checkUrlKeyExists,
-          product.url_key,
+          product.url_key
         );
       }
     }
@@ -206,8 +209,7 @@ const updateProduct = async (req, res) => {
 
           // Check if any codes changed (by comparing at same index)
           const codesChanged = existingCodes.some(
-            (code, index) =>
-              code && newCodes[index] && code !== newCodes[index],
+            (code, index) => code && newCodes[index] && code !== newCodes[index]
           );
 
           if (codesChanged) {
@@ -227,7 +229,7 @@ const updateProduct = async (req, res) => {
         (opt) => ({
           ...opt,
           values: (opt.values || []).map(({ hex, ...rest }) => rest),
-        }),
+        })
       );
 
       product.variantOptions = cleanedVariantOptions;
@@ -313,8 +315,11 @@ const updateProduct = async (req, res) => {
     // Update variants (new structure)
     if (variantsArray !== undefined && Array.isArray(variantsArray)) {
       const { generateSlug } = require("../../utils/slugGenerator");
+      const usedVariantSkus = new Set();
 
-      const processedVariants = variantsArray.map((v, index) => {
+      const processedVariants = [];
+      for (let index = 0; index < variantsArray.length; index++) {
+        const v = variantsArray[index];
         // Process variant images - handle both file uploads and Cloudinary metadata
         let variantImages = [];
 
@@ -363,8 +368,27 @@ const updateProduct = async (req, res) => {
             ? v.stockObj.isInStock
             : stock > 0;
 
-        // Generate variant url_key: <parent-url-key>-<color>-<size>
-        // Use existing url_key if provided, otherwise generate from attributes
+        // Auto-generate variant SKU when missing (align with createProduct / product.service)
+        let variantSku = v.sku;
+        if (
+          !variantSku ||
+          (typeof variantSku === "string" && !variantSku.trim())
+        ) {
+          const attrsObj = Object.fromEntries(attributesMap);
+          variantSku = generateVariantSku(product.sku, attrsObj);
+          let uniqueSku = variantSku;
+          let suffix = 2;
+          while (usedVariantSkus.has(uniqueSku)) {
+            uniqueSku = `${variantSku}-${suffix}`;
+            suffix++;
+          }
+          usedVariantSkus.add(uniqueSku);
+          variantSku = uniqueSku;
+        } else {
+          usedVariantSkus.add(variantSku);
+        }
+
+        // Generate variant url_key: <parent-url-key>-<color>-<size>-<sku|index> (unique per variant)
         let variantUrlKey = v.url_key;
         if (!variantUrlKey && product.url_key) {
           const attrsObj = Object.fromEntries(attributesMap);
@@ -373,12 +397,13 @@ const updateProduct = async (req, res) => {
           if (attrsObj.size || attrsObj.age)
             parts.push(generateSlug(attrsObj.size || attrsObj.age));
           variantUrlKey = parts.join("-");
+          variantUrlKey = `${variantUrlKey}-${variantSku || index}`;
         }
 
-        return {
+        processedVariants.push({
           id: v.id || `variant-${crypto.randomUUID()}`,
-          url_key: variantUrlKey, // Store url_key in variant
-          sku: v.sku,
+          url_key: variantUrlKey,
+          sku: variantSku,
           // Keep direct fields for backward compatibility
           price: price,
           discountPrice: discountPrice,
@@ -399,8 +424,8 @@ const updateProduct = async (req, res) => {
           length: v.length,
           height: v.height,
           width: v.width,
-        };
-      });
+        });
+      }
 
       product.variants = processedVariants;
 
@@ -410,8 +435,12 @@ const updateProduct = async (req, res) => {
 
     // Update details
     if (details !== undefined) {
+      // Filter out sections with empty title (model requires title)
+      const validDetails = (Array.isArray(details) ? details : []).filter(
+        (s) => s && (s.title || "").trim()
+      );
       // Clean up details by removing empty/irrelevant fields
-      const cleanedDetails = details.map((section) => {
+      const cleanedDetails = validDetails.map((section) => {
         const cleanedSection = {
           title: section.title,
           type: section.type,
@@ -497,8 +526,8 @@ const updateProduct = async (req, res) => {
       if (missingFields.length > 0) {
         console.log(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
-            ", ",
-          )}`,
+            ", "
+          )}`
         );
         console.log("   → Auto-saving as 'draft' instead");
         product.status = "draft";
@@ -518,7 +547,7 @@ const updateProduct = async (req, res) => {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "product",
-          product._id,
+          product._id
         );
         console.log("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
@@ -530,7 +559,7 @@ const updateProduct = async (req, res) => {
       // Non-critical error - log but don't fail the request
       console.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
-        finalizeError,
+        finalizeError
       );
     }
 
@@ -548,10 +577,36 @@ const updateProduct = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error updating product:", err);
+
+    // Handle validation errors (Mongoose ValidationError)
+    if (err.name === "ValidationError") {
+      const validationErrors = Object.keys(err.errors || {}).map((key) => ({
+        field: key,
+        message: err.errors[key].message,
+      }));
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+        error: "Validation Error",
+        errors: validationErrors,
+      });
+    }
+
+    // Handle duplicate key errors
+    if (err.code === 11000) {
+      const duplicateField = Object.keys(err.keyPattern || {})[0];
+      return res.status(400).json({
+        success: false,
+        message: `Duplicate value for ${duplicateField}. This ${duplicateField} already exists.`,
+        error: err.message,
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: "Internal Server Error",
-      error: err.message,
+      message: err.message,
+      error: "Internal Server Error",
+      ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
     });
   }
 };

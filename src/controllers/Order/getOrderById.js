@@ -38,12 +38,12 @@ const getOrderById = async (req, res) => {
         path: "items.variantId",
         populate: {
           path: "productId",
-          select: "name description images category",
+          select: "name description images category url_key",
         },
       })
       .populate({
         path: "items.productId",
-        select: "name description images category",
+        select: "name description images category url_key",
       })
       .populate("deliveryPartner");
 
@@ -110,14 +110,21 @@ const getOrderById = async (req, res) => {
             }
           }
 
+          // Product URL: variant url when variant, else product url (for /product/[slug])
+          const variantUrlKey = item?.variantUrlKey ?? item?.variantId?.url_key;
+          const productUrlKey =
+            item?.urlKey ?? item?.productId?.url_key ?? item?.productId?.urlKey;
+          const productUrl = variantUrlKey || productUrlKey || null;
+
           return {
-            variantId: item?.variantId,
+            variantId: item?.variantId?._id ?? item?.variantId,
             productId: item?.productId?._id ?? item?.productId,
             productName: item?.variantName ?? item?.name,
             quantity: item?.quantity,
             productImage: item?.variantImage ?? item?.image,
             price: item?.price,
             variantAttributes: item?.variantAttributes,
+            productUrl,
             selectedGift,
             isGift: item?.isGift || false,
             isReviewed: !!existingReview,

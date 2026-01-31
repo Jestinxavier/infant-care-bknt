@@ -7,7 +7,7 @@ const {
 const { phonePeConfig } = require("../../config/phonepeConfig");
 const Order = require("../../models/Order");
 const Cart = require("../../models/Cart");
-const Product = require("../../models/Product");
+const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
 
@@ -45,18 +45,20 @@ const initiatePayment = async ({ orderId, amount }) => {
     return { redirectUrl: response.redirectUrl };
   } catch (err) {
     if (err instanceof PhonePeException) {
-      await Order.updateOne(
-        { orderId: orderId },
-        { $set: { paymentStatus: "failed", status: "cancelled" } }
-      );
-
-      await Cart.findOneAndUpdate(
-        { orderId: orderId },
-        {
-          $set: { status: "active", completedAt: null },
-          $unset: { orderId: "" },
-        }
-      );
+      const orderDoc = await Order.findOne({ orderId }).lean();
+      if (orderDoc) {
+        await Order.updateOne(
+          { orderId },
+          { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
+        );
+        await Cart.findOneAndUpdate(
+          { orderId: orderDoc._id },
+          {
+            $set: { status: "active", completedAt: null },
+            $unset: { orderId: "" },
+          }
+        );
+      }
       console.error("PhonePe SDK error", {
         code: err.code,
         httpStatusCode: err.httpStatusCode,
@@ -99,13 +101,8 @@ const checkOrderStatus = async (req, res) => {
 };
 
 const phonepeWebhook = async (req, res) => {
-  console.log("trigger web hook  ****** 🪝🪝🪝🪝 ", req.rawBody);
   try {
     const authorizationHeader = req.headers["authorization"];
-    console.log(
-      "authorizationHeader  ****** 🪝🪝🪝🪝 ",
-      req.headers["authorization"]
-    );
 
     if (!authorizationHeader || !req.rawBody) {
       return res.status(400).send("INVALID CALLBACK");
@@ -113,19 +110,15 @@ const phonepeWebhook = async (req, res) => {
 
     /* ---------------------------------------------------- */
     /* 2. Validate callback authenticity (MANDATORY)        */
-    /* ---------------------------------------------------- */
-    console.log("trigger web hook  ******", req.rawBody);
     const callbackResponse = client.validateCallback(
       phonePeConfig.credentials.username,
       phonePeConfig.credentials.password,
       authorizationHeader,
       req.rawBody
     );
-    console.log("PhonePe callback type:", callbackResponse.type);
-    console.log("PhonePe payload:", callbackResponse.payload);
-
     const { type, payload } = callbackResponse;
-    const merchantOrderId = payload.merchantOrderId;
+    const merchantOrderId =
+      payload.merchantOrderId ?? payload.originalMerchantOrderId;
 
     if (!merchantOrderId) {
       return res.status(200).send("OK");
@@ -136,106 +129,98 @@ const phonepeWebhook = async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    switch (type) {
-      case "CHECKOUT_ORDER_COMPLETED": {
-        const paymentAttempt =
-          Array.isArray(payload.paymentDetails) && payload.paymentDetails.length
-            ? payload.paymentDetails[0]
-            : null;
+    const isOrderCompleted =
+      type === "CHECKOUT_ORDER_COMPLETED" ||
+      type === "checkout.order.completed";
 
-        console.log("paymentAttempt  ****** 🪝🪝🪝🪝 ", paymentAttempt);
-        const updatedOrder = await Order.findOneAndUpdate(
-          { orderId: merchantOrderId },
-          {
-            $set: {
-              paymentStatus: "paid",
-              paymentMethod: PAYMENT_METHODS.PHONEPE,
-              phonepeTransactionId: paymentAttempt?.transactionId ?? null,
-            },
+    if (isOrderCompleted) {
+      const paymentAttempt =
+        Array.isArray(payload.paymentDetails) && payload.paymentDetails.length
+          ? payload.paymentDetails[0]
+          : null;
+
+      const transactionId =
+        paymentAttempt?.transactionId ??
+        paymentAttempt?.transaction_id ??
+        payload?.transactionId ??
+        null;
+
+      const updatedOrder = await Order.findOneAndUpdate(
+        { orderId: merchantOrderId },
+        {
+          $set: {
+            paymentStatus: "paid",
+            orderStatus: "confirmed",
+            paymentMethod: PAYMENT_METHODS.PHONEPE,
+            phonepeTransactionId: transactionId,
           },
-          { new: true } // returns updated document ̰
-        );
-        console.log(updatedOrder, "😂*****");
+        },
+        { new: true } // returns updated document ̰
+      );
 
-        await Cart.findOneAndUpdate(
-          { orderId: updatedOrder._id },
-          { status: "ordered", completedAt: new Date() }
-        );
+      await Cart.findOneAndUpdate(
+        { orderId: updatedOrder._id },
+        { $set: { status: "ordered", completedAt: new Date() } }
+      );
 
-        const { emitEvent } = require("../../services/socketService");
-        emitEvent("newOrder", {
-          orderId: updatedOrder.orderId,
-          totalAmount: updatedOrder.totalAmount,
-          customerName:
-            updatedOrder.shippingAddress?.fullName ||
-            updatedOrder.shippingAddress?.name ||
-            "Customer",
-          itemsCount: updatedOrder.totalQuantity,
-          createdAt: updatedOrder.createdAt,
-        });
-        break;
-      }
+      const { emitEvent } = require("../../services/socketService");
+      emitEvent("newOrder", {
+        orderId: updatedOrder.orderId,
+        totalAmount: updatedOrder.totalAmount,
+        customerName:
+          updatedOrder.shippingAddress?.fullName ||
+          updatedOrder.shippingAddress?.name ||
+          "Customer",
+        itemsCount: updatedOrder.totalQuantity,
+        createdAt: updatedOrder.createdAt,
+      });
+    } else if (
+      type === "CHECKOUT_ORDER_FAILED" ||
+      type === "checkout.order.failed"
+    ) {
+      await Order.updateOne(
+        { orderId: merchantOrderId },
+        { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
+      );
 
-      case "CHECKOUT_ORDER_FAILED": {
-        await Order.updateOne(
-          { orderId: merchantOrderId },
-          { $set: { paymentStatus: "failed", status: "cancelled" } }
-        );
-
-        await Cart.findOneAndUpdate(
-          { orderId: merchantOrderId },
-          {
-            $set: { status: "active", completedAt: null },
-            $unset: { orderId: "" },
-          }
-        );
-
-        for (const item of order.items) {
-          if (item.variantId) {
-            await Product.updateOne(
-              { _id: item.productId, "variants.id": item.variantId },
-              {
-                $inc: {
-                  "variants.$.stockObj.available": item.quantity,
-                  "variants.$.stock": item.quantity,
-                },
-              }
-            );
-          } else {
-            await Product.updateOne(
-              { _id: item.productId },
-              {
-                $inc: {
-                  "stockObj.available": item.quantity,
-                  stock: item.quantity,
-                },
-              }
-            );
-          }
+      await Cart.findOneAndUpdate(
+        { orderId: order._id },
+        {
+          $set: { status: "active", completedAt: null },
+          $unset: { orderId: "" },
         }
-        break;
-      }
+      );
 
-      default:
-        break;
+      await restoreOrderStock(order);
     }
 
     return res.status(200).send("OK");
   } catch (err) {
     console.error("PhonePe webhook error:", err.message);
-    const body = JSON.parse(req.rawBody);
-    await Order.updateOne(
-      { orderId: body.payload.merchantOrderId },
-      { $set: { paymentStatus: "failed", status: "cancelled" } }
-    );
-
-    await Cart.findOneAndUpdate(
-      { orderId: body.payload.merchantOrderId },
-      {
-        $set: { status: "active", completedAt: null },
-        $unset: { orderId: "" },
+    try {
+      const body = JSON.parse(req.rawBody);
+      const merchantOrderId =
+        body?.payload?.merchantOrderId ??
+        body?.payload?.originalMerchantOrderId;
+      if (merchantOrderId) {
+        const failedOrder = await Order.findOne({ orderId: merchantOrderId });
+        await Order.updateOne(
+          { orderId: merchantOrderId },
+          { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
+        );
+        if (failedOrder) {
+          await Cart.findOneAndUpdate(
+            { orderId: failedOrder._id },
+            {
+              $set: { status: "active", completedAt: null },
+              $unset: { orderId: "" },
+            }
+          );
+        }
       }
-    );
+    } catch (parseErr) {
+      console.error("Failed to parse webhook body for cleanup:", parseErr);
+    }
 
     return res.status(400).send("INVALID CALLBACK");
   }

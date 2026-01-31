@@ -125,8 +125,15 @@ const orderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ["processing", "shipped", "delivered", "cancelled"],
-      default: "processing",
+      enum: [
+        "pending",
+        "confirmed",
+        "processing",
+        "shipped",
+        "delivered",
+        "cancelled",
+      ],
+      default: "pending",
     },
     trackingId: {
       type: String,
@@ -140,6 +147,10 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: Object.values(PAYMENT_METHODS),
       default: PAYMENT_METHODS.PHONEPE,
+    },
+    phonepeTransactionId: {
+      type: String,
+      default: null,
     },
     placedAt: {
       type: Date,
