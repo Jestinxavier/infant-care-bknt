@@ -36,6 +36,10 @@ const pendingUserSchema = new mongoose.Schema(
     isLoginOTP: {
       type: Boolean,
       default: false
+    },
+    isPasswordResetOTP: {
+      type: Boolean,
+      default: false
     }
   },
   { timestamps: true }
