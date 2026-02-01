@@ -10,7 +10,10 @@ const {
   extractImagePublicIds,
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
-const { processVariantOptions } = require("../../utils/variantNameFormatter");
+const {
+  processVariantOptions,
+  normalizeVariantAttributesToValues,
+} = require("../../utils/variantNameFormatter");
 const bundleService = require("../../features/product/bundle.service");
 
 const updateProduct = async (req, res) => {
@@ -344,7 +347,7 @@ const updateProduct = async (req, res) => {
           variantImages = [...variantImages, ...uploadedFiles];
         }
 
-        // Convert attributes/options object to Map if needed
+        // Convert attributes/options object to Map if needed, then normalize to store values (not labels)
         let attributesMap = new Map();
         const attrs = v.attributes || v.options || {};
         if (attrs) {
@@ -354,6 +357,10 @@ const updateProduct = async (req, res) => {
             attributesMap = new Map(Object.entries(attrs));
           }
         }
+        attributesMap = normalizeVariantAttributesToValues(
+          product.variantOptions || [],
+          attributesMap
+        );
 
         // Support both direct fields and nested pricing/stock
         const price = v.pricing?.price || v.price || 0;

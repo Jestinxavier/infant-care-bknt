@@ -4,6 +4,7 @@ const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const CsvTempImage = require("../../models/CsvTempImage");
+const Asset = require("../../models/Asset");
 const { cloudinary } = require("../../config/cloudinary");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
@@ -12,10 +13,50 @@ const {
   generateVariantSku,
   generateUniqueSku,
 } = require("../../utils/skuGenerator");
+const { processVariantOptions } = require("../../utils/variantNameFormatter");
 
 // Cloudinary folder for permanent CSV imported images
 // CSV imported images should be stored in "assets" folder
 const PERMANENT_FOLDER = "assets";
+
+const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
+
+/**
+ * Resolve image entry from CSV to Cloudinary URL.
+ * Entry can be: full URL (return as-is), Asset _id (MongoDB ObjectId), or publicId.
+ * Uses cache to avoid repeated Asset lookups. Saves only URL in DB, not asset ID.
+ * @param {string} entry - URL, asset ID (24 hex), or publicId
+ * @param {Map<string, string>} assetUrlCache - cache of assetId/publicId → secureUrl
+ * @returns {Promise<string|null>} - Cloudinary URL or null if not found
+ */
+async function resolveImageEntryToUrl(entry, assetUrlCache) {
+  if (entry == null || entry === "") return null;
+  const trimmed = String(entry).trim();
+  if (!trimmed) return null;
+
+  // Already a full URL → use as-is
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  // Check cache
+  if (assetUrlCache.has(trimmed)) {
+    return assetUrlCache.get(trimmed) || null;
+  }
+
+  let asset = null;
+  if (OBJECT_ID_REGEX.test(trimmed)) {
+    asset = await Asset.findById(trimmed).select("secureUrl").lean();
+  } else {
+    asset = await Asset.findOne({ publicId: trimmed })
+      .select("secureUrl")
+      .lean();
+  }
+
+  const url = asset && asset.secureUrl ? asset.secureUrl : null;
+  if (url) assetUrlCache.set(trimmed, url);
+  return url;
+}
 
 /**
  * Bulk Import Controller
@@ -42,7 +83,7 @@ class BulkImportController {
     const AttributeDefinition = require("../../models/AttributeDefinition");
 
     console.log(
-      `🔍 [Bulk Import] Validating ${products.length} products (Strict Mode)...`,
+      `🔍 [Bulk Import] Validating ${products.length} products (Strict Mode)...`
     );
 
     // 1️⃣ GLOBAL ATTRIBUTE REGISTRY LOADING
@@ -62,7 +103,7 @@ class BulkImportController {
     });
 
     console.log(
-      `📚 [Bulk Import] Loaded ${attributeMap.size} global attributes for validation.`,
+      `📚 [Bulk Import] Loaded ${attributeMap.size} global attributes for validation.`
     );
 
     // Fetch all categories for validation
@@ -136,9 +177,13 @@ class BulkImportController {
       // If a product has variants, it's a parent product and category is required
       // If a product doesn't have variants, it's a standalone product and category is required
       // Variants themselves are validated separately in the nested loop and don't need category
-      const hasVariants = product.variants && Array.isArray(product.variants) && product.variants.length > 0;
-      const isParentOrStandalone = hasVariants || !product.parentId && !product.parent_id;
-      
+      const hasVariants =
+        product.variants &&
+        Array.isArray(product.variants) &&
+        product.variants.length > 0;
+      const isParentOrStandalone =
+        hasVariants || (!product.parentId && !product.parent_id);
+
       if (product.category && product.category.trim() !== "") {
         const catKey = product.category.toLowerCase().trim();
         if (!categoryMap.has(catKey)) {
@@ -248,7 +293,7 @@ class BulkImportController {
               // Ignore non-attribute metadata like 'price', 'sku' if they leaked
               if (
                 ["sku", "price", "stock", "image", "images"].includes(
-                  normalizedKey,
+                  normalizedKey
                 )
               )
                 continue;
@@ -266,7 +311,7 @@ class BulkImportController {
               } else {
                 // Track for hash generation
                 sortedAttributes.push(
-                  `${attributeDef._id}:${String(value).trim().toLowerCase()}`,
+                  `${attributeDef._id}:${String(value).trim().toLowerCase()}`
                 );
               }
             }
@@ -357,14 +402,14 @@ class BulkImportController {
 
     // Determine which are updates vs creates
     const updateCount = products.filter(
-      (p) => p.csvId && !p.csvId.startsWith("TMP_"),
+      (p) => p.csvId && !p.csvId.startsWith("TMP_")
     ).length;
     const createCount = products.length - updateCount;
 
     // Calculate total variants
     const totalVariants = products.reduce(
       (sum, p) => sum + (p.variants ? p.variants.length : 0),
-      0,
+      0
     );
 
     // Validate all temp images exist
@@ -392,7 +437,7 @@ class BulkImportController {
     console.log(
       `${isValid ? "✅" : "❌"} [Bulk Import] Validation ${
         isValid ? "passed" : "failed"
-      }: ${errors.length} errors`,
+      }: ${errors.length} errors`
     );
 
     res.status(200).json(
@@ -408,7 +453,7 @@ class BulkImportController {
           tempImagesCount: tempKeysArray.length,
           missingImagesCount: missingImages.length,
         },
-      }).toJSON(),
+      }).toJSON()
     );
   });
 
@@ -438,21 +483,21 @@ class BulkImportController {
         await session.startTransaction();
         isTransactionStarted = true;
         console.log(
-          "✅ [Bulk Import] Transaction started (replica set detected)",
+          "✅ [Bulk Import] Transaction started (replica set detected)"
         );
       } catch (transactionError) {
         console.warn(
           "⚠️ [Bulk Import] Failed to start transaction:",
-          transactionError.message,
+          transactionError.message
         );
         console.warn("⚠️ [Bulk Import] Continuing without transaction");
       }
     } else {
       console.warn(
-        "⚠️ [Bulk Import] Standalone MongoDB detected - transactions not supported",
+        "⚠️ [Bulk Import] Standalone MongoDB detected - transactions not supported"
       );
       console.warn(
-        "⚠️ [Bulk Import] Import will proceed without atomic guarantees",
+        "⚠️ [Bulk Import] Import will proceed without atomic guarantees"
       );
     }
 
@@ -464,7 +509,7 @@ class BulkImportController {
 
     try {
       console.log(
-        `📦 [Bulk Import] Starting commit for ${products.length} products...`,
+        `📦 [Bulk Import] Starting commit for ${products.length} products...`
       );
 
       // Fetch categories for resolution
@@ -525,7 +570,7 @@ class BulkImportController {
 
       if (tempKeysArray.length > 0) {
         console.log(
-          `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`,
+          `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`
         );
 
         let tempImagesQuery = CsvTempImage.find({
@@ -547,7 +592,7 @@ class BulkImportController {
             const moveResult = await cloudinary.uploader.rename(
               tempImage.public_id,
               newPublicId,
-              { resource_type: "image" },
+              { resource_type: "image" }
             );
 
             imageMapping.set(tempImage.temp_key, {
@@ -563,19 +608,22 @@ class BulkImportController {
             tempKeysUsed.push(tempImage.temp_key);
 
             console.log(
-              `  ✅ Converted: ${tempImage.temp_key} → ${newPublicId}`,
+              `  ✅ Converted: ${tempImage.temp_key} → ${newPublicId}`
             );
           } catch (error) {
             console.error(
               `  ❌ Failed to convert ${tempImage.temp_key}:`,
-              error.message,
+              error.message
             );
             throw new Error(
-              `Failed to convert image ${tempImage.temp_key}: ${error.message}`,
+              `Failed to convert image ${tempImage.temp_key}: ${error.message}`
             );
           }
         }
       }
+
+      // Cache for resolving asset IDs to Cloudinary URLs (CSV image_urls can be asset ID or URL)
+      const assetUrlCache = new Map();
 
       // Step 2: Create/Update products
       for (const productData of products) {
@@ -637,14 +685,15 @@ class BulkImportController {
           }
         }
 
-        // 2. Process Direct URLs (from CSV 'image_urls' or existing)
+        // 2. Process image_urls: resolve asset IDs to Cloudinary URL, save only URL in DB
         if (productData.images && Array.isArray(productData.images)) {
-          productData.images.forEach((url) => {
-            // Avoid duplicates if temp images already covered it (unlikely but safe)
-            if (!images.some((img) => img.url === url)) {
+          for (const entry of productData.images) {
+            const raw = typeof entry === "string" ? entry : entry && entry.url;
+            const url = await resolveImageEntryToUrl(raw, assetUrlCache);
+            if (url && !images.some((img) => img.url === url)) {
               images.push({ url });
             }
-          });
+          }
         }
 
         // Prepare embedded variants with strictly resolved attributes
@@ -666,14 +715,16 @@ class BulkImportController {
                 }
               }
             }
-            // 2. Process direct image URLs (from CSV 'image_urls' or existing)
+            // 2. Process image_urls: resolve asset IDs to Cloudinary URL, save only URL in DB
             if (variantData.images && Array.isArray(variantData.images)) {
-              variantData.images.forEach((url) => {
-                // Avoid duplicates
+              for (const entry of variantData.images) {
+                const raw =
+                  typeof entry === "string" ? entry : entry && entry.url;
+                const url = await resolveImageEntryToUrl(raw, assetUrlCache);
                 if (url && !variantImages.includes(url)) {
                   variantImages.push(url);
                 }
-              });
+              }
             }
 
             // ✅ NEW: ID Generation Logic
@@ -701,22 +752,26 @@ class BulkImportController {
               typeof variantData.attributes === "object"
             ) {
               for (const [key, value] of Object.entries(
-                variantData.attributes,
+                variantData.attributes
               )) {
                 const normalizedKey = key.toLowerCase().trim();
                 if (
                   ["sku", "price", "stock", "image", "images"].includes(
-                    normalizedKey,
+                    normalizedKey
                   )
                 )
                   continue;
 
                 const attrDef = attributeMap.get(normalizedKey);
                 if (attrDef && attrDef._id) {
-                  // Store as "Color": "Red" - use name if available, fallback to code
+                  // Store variant attribute as canonical value (slug), not label, for consistency with create/update
                   const attrKey = attrDef.name || attrDef.code || normalizedKey;
                   const attrCode = attrDef.code || normalizedKey; // Use code as key, fallback to normalizedKey
-                  resolvedAttributes.set(attrKey, String(value).trim());
+                  const valStr = String(value).trim();
+                  const canonicalVal = valStr
+                    .toLowerCase()
+                    .replace(/\s+/g, "-");
+                  resolvedAttributes.set(attrKey, canonicalVal);
 
                   // Collect unique variantOptions for Parent Product with ID
                   if (!uniqueVariantOptions.has(attrCode)) {
@@ -731,17 +786,15 @@ class BulkImportController {
 
                   // Add value to variantOptions uniqueness list
                   const opt = uniqueVariantOptions.get(attrCode);
-                  const valStr = String(value).trim();
 
-                  // Check if this value already exists
+                  // Check if this value already exists (by canonical value)
                   if (
                     !opt.values.some(
-                      (v) => v.value.toLowerCase() === valStr.toLowerCase(),
+                      (v) =>
+                        v.value.toLowerCase() === canonicalVal.toLowerCase()
                     )
                   ) {
                     // Try to find rich metadata (hex, label) from the parsed frontend options
-                    // The frontend parses 'variant_color' -> 'Red' and 'hex_code' -> '#FF0000'
-                    // and structures it into productData.options
                     let hexCode = null;
                     let label = valStr;
 
@@ -749,18 +802,24 @@ class BulkImportController {
                       productData.variantOptions &&
                       Array.isArray(productData.variantOptions)
                     ) {
-                      // Try to match by name first, then by code
-                      const attrName = attrDef.name || attrDef.code || normalizedKey;
+                      const attrName =
+                        attrDef.name || attrDef.code || normalizedKey;
                       const attrCodeForMatch = attrDef.code || normalizedKey;
                       const feOption = productData.variantOptions.find(
                         (o) =>
-                          o.name && attrName &&
+                          o.name &&
+                          attrName &&
                           (o.name.toLowerCase() === attrName.toLowerCase() ||
-                           (o.code && attrCodeForMatch && o.code.toLowerCase() === attrCodeForMatch.toLowerCase())),
+                            (o.code &&
+                              attrCodeForMatch &&
+                              o.code.toLowerCase() ===
+                                attrCodeForMatch.toLowerCase()))
                       );
                       if (feOption && feOption.values) {
                         const feValue = feOption.values.find(
-                          (v) => v.value && v.value.toLowerCase() === valStr.toLowerCase(),
+                          (v) =>
+                            v.value &&
+                            v.value.toLowerCase() === canonicalVal.toLowerCase()
                         );
                         if (feValue) {
                           if (feValue.hex) hexCode = feValue.hex;
@@ -771,7 +830,7 @@ class BulkImportController {
 
                     opt.values.push({
                       id: Math.random().toString(36).substr(2, 9),
-                      value: valStr.toLowerCase().replace(/\s+/g, "-"), // slugify
+                      value: canonicalVal,
                       label: label,
                       code: valStr.substring(0, 3).toUpperCase(), // simple code gen
                       hex: hexCode, // ✅ Added Hex Code
@@ -796,15 +855,22 @@ class BulkImportController {
                 finalVariantSku = generateVariantSku(finalProductSku, attrsObj);
               } catch (error) {
                 // Fallback if generateVariantSku fails
-                console.warn(`Failed to generate variant SKU: ${error.message}`);
-                finalVariantSku = `${finalProductSku}-${optionsHash.substring(0, 6)}`;
+                console.warn(
+                  `Failed to generate variant SKU: ${error.message}`
+                );
+                finalVariantSku = `${finalProductSku}-${optionsHash.substring(
+                  0,
+                  6
+                )}`;
               }
             }
 
             embeddedVariants.push({
               id: variantId,
               parentId: finalProductId,
-              url_key: `${productData.url_key}-${finalVariantSku.toLowerCase()}`,
+              url_key: `${
+                productData.url_key
+              }-${finalVariantSku.toLowerCase()}`,
               sku: finalVariantSku,
               price: variantData.price,
               stock: variantData.stock,
@@ -816,22 +882,33 @@ class BulkImportController {
                 available: variantData.stock || 0,
                 isInStock: (variantData.stock || 0) > 0,
               },
-              offerPrice: variantData.offerPrice !== undefined && variantData.offerPrice !== null && variantData.offerPrice !== ""
-                ? Number(variantData.offerPrice)
-                : undefined,
-              offerStartAt: variantData.offerStartAt && variantData.offerStartAt !== "" && variantData.offerStartAt !== null
-                ? variantData.offerStartAt
-                : undefined,
-              offerEndAt: variantData.offerEndAt && variantData.offerEndAt !== "" && variantData.offerEndAt !== null
-                ? variantData.offerEndAt
-                : undefined,
+              offerPrice:
+                variantData.offerPrice !== undefined &&
+                variantData.offerPrice !== null &&
+                variantData.offerPrice !== ""
+                  ? Number(variantData.offerPrice)
+                  : undefined,
+              offerStartAt:
+                variantData.offerStartAt &&
+                variantData.offerStartAt !== "" &&
+                variantData.offerStartAt !== null
+                  ? variantData.offerStartAt
+                  : undefined,
+              offerEndAt:
+                variantData.offerEndAt &&
+                variantData.offerEndAt !== "" &&
+                variantData.offerEndAt !== null
+                  ? variantData.offerEndAt
+                  : undefined,
               _optionsHash: optionsHash,
             });
           }
         }
 
-        // Convert variantOptions map to array
-        const finalVariantOptions = Array.from(uniqueVariantOptions.values());
+        // Convert variantOptions map to array and add " M" suffix to size labels (number hyphen number = months)
+        const finalVariantOptions = processVariantOptions(
+          Array.from(uniqueVariantOptions.values())
+        );
 
         // Determine product type: CONFIGURABLE if has variants, otherwise SIMPLE
         // Use product_type from frontend if provided, otherwise determine from variants
@@ -844,7 +921,11 @@ class BulkImportController {
           // Normalize to uppercase to match schema enum
           productType = productType.toUpperCase();
           // Validate it's a valid product type
-          if (!["SIMPLE", "CONFIGURABLE", "BUNDLE", "CHOICE_GROUP"].includes(productType)) {
+          if (
+            !["SIMPLE", "CONFIGURABLE", "BUNDLE", "CHOICE_GROUP"].includes(
+              productType
+            )
+          ) {
             // Fallback to determining from variants if invalid
             productType = hasVariants ? "CONFIGURABLE" : "SIMPLE";
           }
@@ -864,22 +945,31 @@ class BulkImportController {
                 idToDataMap.get(resolvedCategoryId?.toString())?.code ||
                 productData.categoryCode,
               status: ["draft", "published", "archived"].includes(
-                (productData.status || "").toLowerCase(),
+                (productData.status || "").toLowerCase()
               )
                 ? productData.status.toLowerCase()
                 : "draft",
               product_type: productType, // ✅ Set product type based on variants
               images: images.length > 0 ? images.map((i) => i.url) : undefined, // Product schema images is string[]
               price: productData.price || 0, // Ensure direct field is updated too
-              offerPrice: productData.offerPrice !== undefined && productData.offerPrice !== null && productData.offerPrice !== ""
-                ? Number(productData.offerPrice)
-                : undefined,
-              offerStartAt: productData.offerStartAt && productData.offerStartAt !== "" && productData.offerStartAt !== null
-                ? productData.offerStartAt
-                : undefined,
-              offerEndAt: productData.offerEndAt && productData.offerEndAt !== "" && productData.offerEndAt !== null
-                ? productData.offerEndAt
-                : undefined,
+              offerPrice:
+                productData.offerPrice !== undefined &&
+                productData.offerPrice !== null &&
+                productData.offerPrice !== ""
+                  ? Number(productData.offerPrice)
+                  : undefined,
+              offerStartAt:
+                productData.offerStartAt &&
+                productData.offerStartAt !== "" &&
+                productData.offerStartAt !== null
+                  ? productData.offerStartAt
+                  : undefined,
+              offerEndAt:
+                productData.offerEndAt &&
+                productData.offerEndAt !== "" &&
+                productData.offerEndAt !== null
+                  ? productData.offerEndAt
+                  : undefined,
               stockObj: {
                 available: productData.stock || 0,
                 isInStock: (productData.stock || 0) > 0,
@@ -896,7 +986,7 @@ class BulkImportController {
               // ✅ NEW: Embed variants directly
               variants: embeddedVariants, // ✅ UPDATED strict variants
             },
-            isTransactionStarted ? { session } : {},
+            isTransactionStarted ? { session } : {}
           );
           console.log(`  📝 Updated product: ${productData.sku}`);
         } else {
@@ -912,22 +1002,31 @@ class BulkImportController {
               idToDataMap.get(resolvedCategoryId?.toString())?.code ||
               productData.categoryCode,
             status: ["draft", "published", "archived"].includes(
-              (productData.status || "").toLowerCase(),
+              (productData.status || "").toLowerCase()
             )
               ? productData.status.toLowerCase()
               : "draft",
             product_type: productType, // ✅ Set product type based on variants
             images: images.map((i) => i.url),
             price: productData.price || 0,
-            offerPrice: productData.offerPrice !== undefined && productData.offerPrice !== null && productData.offerPrice !== ""
-              ? Number(productData.offerPrice)
-              : undefined,
-            offerStartAt: productData.offerStartAt && productData.offerStartAt !== "" && productData.offerStartAt !== null
-              ? productData.offerStartAt
-              : undefined,
-            offerEndAt: productData.offerEndAt && productData.offerEndAt !== "" && productData.offerEndAt !== null
-              ? productData.offerEndAt
-              : undefined,
+            offerPrice:
+              productData.offerPrice !== undefined &&
+              productData.offerPrice !== null &&
+              productData.offerPrice !== ""
+                ? Number(productData.offerPrice)
+                : undefined,
+            offerStartAt:
+              productData.offerStartAt &&
+              productData.offerStartAt !== "" &&
+              productData.offerStartAt !== null
+                ? productData.offerStartAt
+                : undefined,
+            offerEndAt:
+              productData.offerEndAt &&
+              productData.offerEndAt !== "" &&
+              productData.offerEndAt !== null
+                ? productData.offerEndAt
+                : undefined,
             stockObj: {
               available: productData.stock || 0,
               isInStock: (productData.stock || 0) > 0,
@@ -955,10 +1054,10 @@ class BulkImportController {
       if (tempKeysUsed.length > 0) {
         await CsvTempImage.deleteMany(
           { temp_key: { $in: tempKeysUsed } },
-          isTransactionStarted ? { session } : {},
+          isTransactionStarted ? { session } : {}
         );
         console.log(
-          `🧹 [Bulk Import] Cleaned up ${tempKeysUsed.length} temp image records`,
+          `🧹 [Bulk Import] Cleaned up ${tempKeysUsed.length} temp image records`
         );
       }
 
@@ -970,14 +1069,14 @@ class BulkImportController {
         } catch (commitError) {
           console.warn(
             "⚠️ [Bulk Import] Failed to commit transaction (standalone MongoDB):",
-            commitError.message,
+            commitError.message
           );
         }
       }
       session.endSession();
 
       console.log(
-        `✅ [Bulk Import] Successfully committed ${products.length} products`,
+        `✅ [Bulk Import] Successfully committed ${products.length} products`
       );
 
       res.status(200).json(
@@ -990,7 +1089,7 @@ class BulkImportController {
             products: products.length - createdProductIds.length,
           },
           imagesConverted: convertedImages.length,
-        }).toJSON(),
+        }).toJSON()
       );
     } catch (error) {
       console.error(`❌ [Bulk Import] Error during commit:`, error.message);
@@ -1003,7 +1102,7 @@ class BulkImportController {
         } catch (abortError) {
           console.warn(
             "⚠️ [Bulk Import] Failed to abort transaction (standalone MongoDB):",
-            abortError.message,
+            abortError.message
           );
         }
       }
@@ -1014,12 +1113,12 @@ class BulkImportController {
         try {
           await Product.deleteMany({ _id: { $in: createdProductIds } });
           console.log(
-            `🔄 [Rollback] Deleted ${createdProductIds.length} products`,
+            `🔄 [Rollback] Deleted ${createdProductIds.length} products`
           );
         } catch (rollbackError) {
           console.error(
             "❌ [Rollback] Failed to delete products:",
-            rollbackError.message,
+            rollbackError.message
           );
         }
       }
@@ -1032,15 +1131,15 @@ class BulkImportController {
             img.old_public_id,
             {
               resource_type: "image",
-            },
+            }
           );
           console.log(
-            `🔄 [Rollback] Reverted image: ${img.new_public_id} → ${img.old_public_id}`,
+            `🔄 [Rollback] Reverted image: ${img.new_public_id} → ${img.old_public_id}`
           );
         } catch (rollbackError) {
           console.error(
             `❌ [Rollback] Failed to revert image:`,
-            rollbackError.message,
+            rollbackError.message
           );
         }
       }
@@ -1061,7 +1160,7 @@ class BulkImportController {
               variants: createdVariantIds.length,
               images: convertedImages.length,
             },
-          }).toJSON(),
+          }).toJSON()
         );
       }
 
@@ -1073,7 +1172,7 @@ class BulkImportController {
             variants: createdVariantIds.length,
             images: convertedImages.length,
           },
-        }).toJSON(),
+        }).toJSON()
       );
     }
   });
@@ -1098,7 +1197,7 @@ class BulkImportController {
       // If we can't determine topology, assume standalone (no transaction support)
       console.warn(
         "⚠️ [Bulk Import] Unable to detect MongoDB topology:",
-        error.message,
+        error.message
       );
       return false;
     }
