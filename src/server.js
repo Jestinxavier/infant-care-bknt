@@ -114,8 +114,12 @@ const startServer = async () => {
 
       // Start expired assets cleanup cron job (temp images after 24h)
       try {
-        const cleanupExpiredAssets = require("./jobs/cleanupExpiredAssets");
-        cleanupExpiredAssets();
+        const {
+          startCleanupCron,
+          runCleanupOnStartup,
+        } = require("./jobs/cleanupExpiredAssets");
+        startCleanupCron();
+        runCleanupOnStartup(); // Run once 30s after startup so temp images are cleaned even before 2 AM
       } catch (cronError) {
         console.warn(
           "⚠️ Failed to start expired assets cleanup cron:",
@@ -134,7 +138,7 @@ const startServer = async () => {
       // For traditional deployment, start the server
       const http = require("http");
       const server = http.createServer(app);
-      
+
       // Initialize Socket.io
       const socketService = require("./services/socketService");
       socketService.init(server);

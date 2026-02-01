@@ -76,9 +76,10 @@ const executeCleanup = async (options = {}) => {
     // Process deletions
     for (const asset of allAssetsToDelete) {
       try {
-        // Physical Delete from Cloudinary
+        // Physical Delete from Cloudinary (use asset's resourceType when stored)
+        const resourceType = asset.resourceType || "image";
         await cloudinary.cloudinary.uploader.destroy(asset.publicId, {
-          resource_type: "image",
+          resource_type: resourceType,
         });
 
         // Delete from DB
@@ -132,9 +133,27 @@ const startCleanupCron = () => {
   console.log("✅ Asset cleanup cron job scheduled (daily at 2 AM)");
 };
 
+/**
+ * Run cleanup once (e.g. on server startup) so expired temp assets are removed
+ * even if the 2 AM cron has not run yet.
+ */
+const runCleanupOnStartup = () => {
+  const delayMs = 30 * 1000; // 30 seconds after startup
+  setTimeout(async () => {
+    try {
+      console.log("🧹 [Asset Cleanup] Running startup cleanup...");
+      await executeCleanup();
+      console.log("🧹 [Asset Cleanup] Startup cleanup finished.");
+    } catch (error) {
+      console.error("❌ [Asset Cleanup] Startup cleanup error:", error.message);
+    }
+  }, delayMs);
+};
+
 // Default export for backward compatibility (starts cron)
 module.exports = startCleanupCron;
 
-// Named exports for manual triggering
+// Named exports for manual triggering and startup
 module.exports.executeCleanup = executeCleanup;
 module.exports.startCleanupCron = startCleanupCron;
+module.exports.runCleanupOnStartup = runCleanupOnStartup;

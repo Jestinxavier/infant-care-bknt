@@ -1,6 +1,17 @@
-const productService = require("./product.service");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+
+/**
+ * Get first image URL from product or variant.
+ * Handles both shapes: images[0] as { url } or images[0] as string (legacy).
+ */
+function getFirstImageUrl(images) {
+  const first = images?.[0];
+  if (!first) return "";
+  if (typeof first === "string") return first;
+  if (first && typeof first === "object" && first.url) return first.url;
+  return "";
+}
 
 /**
  * CMS Product Controller
@@ -54,7 +65,7 @@ class CmsProductController {
         : {
             status: filters.status,
             product_type: { $in: ["SIMPLE", "CONFIGURABLE"] },
-          },
+          }
     )
       .limit(filters.limit * 3) // Fetch more to account for filtering
       .lean();
@@ -87,7 +98,9 @@ class CmsProductController {
           discountPrice = firstVariant.offerPrice ?? 0;
           stock = firstVariant.stockObj?.available ?? firstVariant.stock ?? 0;
           image =
-            firstVariant.images?.[0]?.url || product.images?.[0]?.url || "";
+            getFirstImageUrl(firstVariant.images) ||
+            getFirstImageUrl(product.images) ||
+            "";
         } else if (product.product_type === "SIMPLE") {
           // SIMPLE: Check product-level stock
           stock = product.stockObj?.available ?? product.stock ?? 0;
@@ -98,7 +111,7 @@ class CmsProductController {
 
           price = product.price ?? 0;
           discountPrice = product.offerPrice ?? 0;
-          image = product.images?.[0]?.url || "";
+          image = getFirstImageUrl(product.images) || "";
         } else {
           return null; // Skip other product types
         }
@@ -121,7 +134,7 @@ class CmsProductController {
       ApiResponse.success("Products fetched successfully", {
         data: minimalProducts,
         total: minimalProducts.length,
-      }).toJSON(),
+      }).toJSON()
     );
   });
 }
