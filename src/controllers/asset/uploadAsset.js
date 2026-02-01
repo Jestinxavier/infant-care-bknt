@@ -4,9 +4,9 @@ const { cloudinary } = require("../../config/cloudinary");
 const Asset = require("../../models/Asset");
 
 // Use memory storage to access buffer for hashing
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
 
 /**
@@ -71,13 +71,14 @@ const uploadAsset = [
       }
 
       // 3. Upload to Cloudinary (Stream)
-      // We use a stream to upload the buffer directly
+      // No quality/format/transformation options — original file is stored as-is.
+      // Optimization happens only at delivery via frontend URL transforms (cloudinary-transform.ts).
       const uploadResult = await new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
-            folder: "assets", // Flat folder strategy
-            public_id: hash, // Use hash as public_id to enforce uniqueness in Cloudinary too
-            overwrite: false, // Don't overwrite if exists (though we checked DB, safe to be sure)
+            folder: "assets",
+            public_id: hash,
+            overwrite: false,
             resource_type: "auto",
           },
           (error, result) => {
