@@ -10,6 +10,7 @@ const { requestLoginOTP, verifyLoginOTP } = require("./loginWithOTP");
 const requestPasswordReset = require("./requestPasswordReset");
 const resetPassword = require("./resetPassword");
 const changePassword = require("./changePassword");
+const { requestPasswordResetOTP, verifyPasswordResetOTP } = require("./forgotPasswordOTP");
 
 module.exports = {
   login,
@@ -26,4 +27,6 @@ module.exports = {
   requestPasswordReset,
   resetPassword,
   changePassword,
+  requestPasswordResetOTP,
+  verifyPasswordResetOTP,
 };

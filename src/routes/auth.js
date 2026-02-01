@@ -14,6 +14,8 @@ const {
   requestPasswordReset,
   resetPassword,
   changePassword,
+  requestPasswordResetOTP,
+  verifyPasswordResetOTP,
 } = require("../controllers/auth");
 const {
   registerValidation,
@@ -669,6 +671,108 @@ router.post("/request-password-reset", requestPasswordReset);
  *         description: Invalid token or validation error
  */
 router.post("/reset-password", resetPassword);
+
+/**
+ * @swagger
+ * /api/v1/auth/request-password-reset-otp:
+ *   post:
+ *     summary: Request OTP for password reset
+ *     description: Send a 6-digit OTP to email for password reset
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *     responses:
+ *       200:
+ *         description: OTP sent successfully (if account exists)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: If an account exists with this email, an OTP has been sent.
+ *                 email:
+ *                   type: string
+ *                   example: john@example.com
+ *                 expiresIn:
+ *                   type: string
+ *                   example: 10 minutes
+ *       400:
+ *         description: Email not verified or failed to send OTP
+ *       500:
+ *         description: Internal Server Error
+ */
+router.post("/request-password-reset-otp", requestPasswordResetOTP);
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-password-reset-otp:
+ *   post:
+ *     summary: Verify OTP and reset password
+ *     description: Verify the OTP and reset password
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *               - newPassword
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: john@example.com
+ *               otp:
+ *                 type: string
+ *                 example: "123456"
+ *                 minLength: 6
+ *                 maxLength: 6
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: newpassword123
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password reset successfully. You can now login with your new password.
+ *       400:
+ *         description: Invalid OTP, expired OTP, or validation error
+ *       404:
+ *         description: No account found with this email
+ *       500:
+ *         description: Internal Server Error
+ */
+router.post("/verify-password-reset-otp", verifyPasswordResetOTP);
 
 /**
  * @swagger
