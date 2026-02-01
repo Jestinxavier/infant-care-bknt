@@ -128,6 +128,32 @@ function buildVariantTitle(parentTitle, attributes) {
 }
 
 /**
+ * Build Cloudinary URL from public_id or asset path
+ */
+function buildCloudinaryUrl(publicIdOrPath) {
+  if (!publicIdOrPath) return null;
+  
+  // If it's already a full URL, return as-is
+  if (typeof publicIdOrPath === "string" && publicIdOrPath.startsWith("http")) {
+    return publicIdOrPath;
+  }
+
+  // Handle "assets/" prefix - keep as "assets/" folder (CSV imported images)
+  let publicId = publicIdOrPath;
+  // Keep assets/ as-is since CSV images are stored in assets folder
+
+  // Get Cloudinary config
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  if (!cloudName) {
+    console.warn("CLOUDINARY_CLOUD_NAME not set, cannot build URL");
+    return publicIdOrPath; // Return original if config missing
+  }
+
+  // Build Cloudinary URL
+  return `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+}
+
+/**
  * Transform product for admin dashboard listing
  * @param {Object} product - Raw product from database
  * @returns {Object} Transformed product with aggregated metrics
@@ -140,20 +166,31 @@ function transformForDashboard(product) {
   const minPrice = calculateMinPrice(product);
 
   // Get thumbnail (prefer parent image, fallback to first variant image)
-  const thumbnail =
+  const thumbnailRaw =
     product.images?.[0] ||
     (hasVariants ? product.variants[0]?.images?.[0] : null);
+  
+  // Convert thumbnail to full Cloudinary URL if it's an asset ID
+  const thumbnail = thumbnailRaw ? buildCloudinaryUrl(thumbnailRaw) : null;
 
-  // Get SKU (prefer first variant SKU, fallback to parent SKU)
-  const sku = hasVariants
-    ? product.variants[0]?.sku || null
-    : product.sku || null;
+  // Get SKU (prefer parent SKU, fallback to first variant SKU)
+  const sku = product.sku || (hasVariants ? product.variants[0]?.sku || null : null);
+
+  // Get category name - prefer populated category, fallback to categoryName field
+  let categoryName = product.categoryName;
+  if (!categoryName && product.category) {
+    if (typeof product.category === "object" && product.category.name) {
+      categoryName = product.category.name;
+    } else if (typeof product.category === "string") {
+      categoryName = product.category;
+    }
+  }
 
   return {
     // Core product data
     _id: product._id?.toString(),
     title: product.title,
-    categoryName: product.categoryName,
+    categoryName: categoryName || null,
     url_key: product.url_key,
     status: product.status,
 
@@ -168,18 +205,7 @@ function transformForDashboard(product) {
     product_type:
       product.product_type || (hasVariants ? "CONFIGURABLE" : "SIMPLE"),
 
-    // Variants (needed for low stock alerts)
-    variants: hasVariants
-      ? product.variants.map((v) => ({
-          _id: v.id || v._id, // Ensure ID is available
-          id: v.id || v._id,
-          sku: v.sku,
-          stock: v.stockObj?.available ?? v.stock ?? 0,
-          price: v.pricing?.price || v.price || 0,
-          attributes: getVariantAttributes(v), // Use helper to normalize attributes
-          options: getVariantAttributes(v), // Backward compatibility
-        }))
-      : [],
+    // Variants removed from list API - not needed for listing
 
     // Display fields
     thumbnail,

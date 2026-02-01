@@ -11,7 +11,10 @@ const {
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
 const { createOptionsHash } = require("../../utils/variantValidator");
-const { processVariantOptions } = require("../../utils/variantNameFormatter");
+const {
+  processVariantOptions,
+  normalizeVariantAttributesToValues,
+} = require("../../utils/variantNameFormatter");
 const bundleService = require("../../features/product/bundle.service");
 
 const createProduct = async (req, res) => {
@@ -374,7 +377,7 @@ const createProduct = async (req, res) => {
           variantImages = [...variantImages, ...uploadedVariantImages];
         }
 
-        // Convert attributes/options object to Map if needed
+        // Convert attributes/options object to Map if needed, then normalize to store values (not labels)
         let attributesMap = new Map();
         const attrs = v.attributes || v.options || {};
         if (attrs) {
@@ -384,6 +387,10 @@ const createProduct = async (req, res) => {
             attributesMap = new Map(Object.entries(attrs));
           }
         }
+        attributesMap = normalizeVariantAttributesToValues(
+          variantOptions || [],
+          attributesMap
+        );
 
         // Support both direct fields and nested pricing/stock
         const price = v.pricing?.price || v.price || 0;
@@ -581,7 +588,16 @@ const createProduct = async (req, res) => {
 
               // Clean fields based on their structure
               cleanedSection.fields = (section.fields || []).map((field) => {
-                // If field has 'type' property (list/badge), only include type and data
+                // Priority 1: If field has label/value properties, treat as label-value pair
+                // This takes precedence over type/data fields (for grid/pair sections)
+                if (field.label !== undefined || field.value !== undefined) {
+                  return {
+                    label: field.label || "",
+                    value: field.value || "",
+                  };
+                }
+                // Priority 2: If field has 'type' property (list/badge), only include type and data
+                // This is for description sections
                 if (
                   field.type &&
                   (field.type === "list" || field.type === "badge")
@@ -589,16 +605,6 @@ const createProduct = async (req, res) => {
                   return {
                     type: field.type,
                     data: field.data || [],
-                  };
-                }
-                // Otherwise it's a label-value pair, only include label and value
-                else if (
-                  field.label !== undefined &&
-                  field.value !== undefined
-                ) {
-                  return {
-                    label: field.label,
-                    value: field.value,
                   };
                 }
                 // Fallback: return as-is
