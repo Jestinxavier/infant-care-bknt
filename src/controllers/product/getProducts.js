@@ -63,7 +63,7 @@ const getAllProducts = async (req, res) => {
           {
             _id: {
               $in: categoriesToResolve.filter((id) =>
-                /^[0-9a-fA-F]{24}$/.test(id),
+                /^[0-9a-fA-F]{24}$/.test(id)
               ),
             },
           },
@@ -112,7 +112,7 @@ const getAllProducts = async (req, res) => {
           {
             _id: {
               $in: subCatsToResolve.filter((id) =>
-                /^[0-9a-fA-F]{24}$/.test(id),
+                /^[0-9a-fA-F]{24}$/.test(id)
               ),
             },
           },
@@ -120,7 +120,7 @@ const getAllProducts = async (req, res) => {
         isActive: true,
       });
       serviceFilters.subCategories = resolvedSubDocs.map((d) =>
-        d._id.toString(),
+        d._id.toString()
       );
     }
 
@@ -237,7 +237,7 @@ const getProductByUrlKey = async (req, res) => {
       };
       product.url_key = await generateUniqueUrlKey(
         product.title || product.name,
-        checkUrlKeyExists,
+        checkUrlKeyExists
       );
       await product.save();
     }
@@ -326,7 +326,7 @@ const getProductByUrlKey = async (req, res) => {
             allChildrenInStock = false;
             return item;
           }
-        },
+        }
       );
 
       // Update bundle stock based on child products
@@ -343,7 +343,7 @@ const getProductByUrlKey = async (req, res) => {
       productObj.bundle_config.gift_slot.options?.length > 0
     ) {
       const giftSkus = productObj.bundle_config.gift_slot.options.map(
-        (o) => o.sku,
+        (o) => o.sku
       );
 
       // Fetch images for these SKUs
@@ -366,7 +366,7 @@ const getProductByUrlKey = async (req, res) => {
 
     // Format response in new structure
     const formattedProduct = formatProductResponse(
-      product.product_type === "BUNDLE" ? productObj : product,
+      product.product_type === "BUNDLE" ? productObj : product
     );
 
     res.status(200).json({
@@ -466,7 +466,7 @@ const getVariantById = async (req, res) => {
 
     const variant = await Variant.findById(variantId).populate(
       "productId",
-      "name description category averageRating totalReviews",
+      "name description category averageRating totalReviews"
     );
 
     if (!variant) {
@@ -496,7 +496,7 @@ const getSearchIndex = async (req, res) => {
     // Fetch all published products with minimal fields
     const products = await Product.find({ status: { $ne: "rejected" } })
       .select(
-        "title name url_key images pricing price category status variants",
+        "title name url_key images pricing price category status variants"
       )
       .populate("category", "name slug")
       .lean();

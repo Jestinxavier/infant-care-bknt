@@ -1,26 +1,13 @@
 const authService = require("../../services/service");
+const { getAuthCookieClearOptions } = require("../../utils/authCookieOptions");
 
 const logout = async (req, res) => {
   // Clear cookies FIRST - always clear regardless of token deletion result
-  // This ensures user is logged out even if there's a token database issue
-  res.clearCookie("refresh_token", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Strict",
-    path: "/",
-  });
-  res.clearCookie("dashboard_refresh_token", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Strict",
-    path: "/",
-  });
-  res.clearCookie("cart_id", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Strict",
-    path: "/",
-  });
+  // Options must match the ones used when setting the cookie (e.g. sameSite for production)
+  const clearOpts = getAuthCookieClearOptions();
+  res.clearCookie("refresh_token", clearOpts);
+  res.clearCookie("dashboard_refresh_token", clearOpts);
+  res.clearCookie("cart_id", clearOpts);
 
   try {
     const { token } = req.body;

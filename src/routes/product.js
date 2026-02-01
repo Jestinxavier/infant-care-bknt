@@ -1,3 +1,9 @@
+/**
+ * Product routes – MOUNTED at /api/v1/product in app.js.
+ * This is the ACTIVE storefront API (GET /api/v1/product/all, GET /api/v1/product/rompers, etc.).
+ * Controllers: controllers/product/getProducts.js (getAllProducts), etc.
+ * (features/product/product.routes.js is NOT mounted in app.js – legacy.)
+ */
 const express = require("express");
 const { parser } = require("../config/cloudinary");
 const {

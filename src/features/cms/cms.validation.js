@@ -96,20 +96,20 @@ const cmsValidation = {
             }
           });
         } else if (isAbout) {
-          // For about page, content must be an object with sections
-          if (
-            typeof value !== "object" ||
-            value === null ||
-            Array.isArray(value)
-          ) {
+          // For about page, content must be an array of blocks (same as home)
+          if (!Array.isArray(value)) {
             throw new Error(
-              "Content for about page must be an object with sections"
+              "Content for about page must be an array of blocks"
             );
           }
 
-          if (value.sections && !Array.isArray(value.sections)) {
-            throw new Error("Content sections must be an array");
-          }
+          value.forEach((block, index) => {
+            if (!block.block_type) {
+              throw new Error(
+                `Block at index ${index} is missing required field 'block_type'`
+              );
+            }
+          });
         } else if (isPolicies) {
           // For policies page, content must be a string (single HTML content)
           if (typeof value !== "string") {

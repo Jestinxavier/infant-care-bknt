@@ -1,5 +1,6 @@
 const authService = require("../../services/service");
 const { ACCESS_TOKEN_LIFETIME_MS } = require("../../../resources/constants");
+const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
 
 const login = async (req, res) => {
   try {
@@ -18,13 +19,7 @@ const login = async (req, res) => {
       ? "dashboard_refresh_token"
       : "refresh_token";
 
-    res.cookie(cookieName, refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "Strict" : "Lax", // Lax for dev cross-origin
-      path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    res.cookie(cookieName, refreshToken, getAuthCookieOptions());
 
     // Also set standard cookie for compatibility if needed, or stick to one.
     // Setting both might be confusing but safe if backend checks both.

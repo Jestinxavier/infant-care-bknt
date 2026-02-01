@@ -33,8 +33,16 @@ class ProductService {
       status = "published",
       minPrice,
       maxPrice,
-      inStock,
+      inStock: inStockParam,
     } = filters;
+
+    // Normalize inStock so filter is applied correctly (query params are strings)
+    const inStock =
+      inStockParam === true || inStockParam === "true"
+        ? true
+        : inStockParam === false || inStockParam === "false"
+        ? false
+        : undefined;
 
     let { sortBy = "createdAt", sortOrder = "desc" } = filters;
 
@@ -115,6 +123,18 @@ class ProductService {
         { description: searchRegex },
         { "variants.sku": searchRegex },
       ];
+    }
+
+    // When filtering for out-of-stock only: exclude products that have product-level stock.
+    // Use $expr so the condition is evaluated explicitly. Include only when NOT in stock:
+    // (stockObj.isInStock !== true) AND (stockObj.available <= 0 or missing).
+    if (inStock === false) {
+      matchStage.$expr = {
+        $and: [
+          { $ne: [{ $ifNull: ["$stockObj.isInStock", false] }, true] },
+          { $lte: [{ $ifNull: ["$stockObj.available", 0] }, 0] },
+        ],
+      };
     }
 
     // 2. Aggregation Pipeline
@@ -268,9 +288,14 @@ class ProductService {
                 },
               },
               else: {
+                // Simple product: use stockObj.isInStock, stockObj.available, or legacy $stock
                 $cond: {
                   if: {
-                    $ifNull: ["$stockObj.isInStock", { $gt: ["$stock", 0] }],
+                    $or: [
+                      { $eq: ["$stockObj.isInStock", true] },
+                      { $gt: ["$stockObj.available", 0] },
+                      { $gt: ["$stock", 0] },
+                    ],
                   },
                   then: true,
                   else: false,
@@ -295,9 +320,11 @@ class ProductService {
           ]
         : []),
 
-      // Stock Filter - only apply if explicitly requested
-      ...(inStock === true || inStock === "true"
+      // Stock Filter - only apply if explicitly requested (inStock is normalized above)
+      ...(inStock === true
         ? [{ $match: { isInStock: true } }]
+        : inStock === false
+        ? [{ $match: { isInStock: false } }]
         : []),
 
       // Grouping Stage

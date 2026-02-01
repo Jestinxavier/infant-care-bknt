@@ -7,6 +7,7 @@ const {
 } = require("../../utils/token");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
 const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../../resources/constants");
+const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
 
 /**
  * Request OTP for login (existing user)
@@ -167,13 +168,7 @@ const verifyLoginOTP = async (req, res) => {
     await Token.create({ userId: user._id, refreshToken });
 
     // Set refresh token as HttpOnly cookie
-    res.cookie("refresh_token", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // HTTPS only in production
-      sameSite: "Strict",
-      path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    res.cookie("refresh_token", refreshToken, getAuthCookieOptions());
 
     res.status(200).json({
       success: true,
