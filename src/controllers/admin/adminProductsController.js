@@ -135,9 +135,82 @@ const getProductById = async (req, res) => {
       });
     }
 
+    // Debug: Log raw product details from database
+    if (product.details) {
+      console.log("[getProductById] Raw product details from DB:", JSON.stringify(product.details, null, 2));
+    }
+
     // Format product for admin
     const productObj = { ...product };
     productObj._id = productObj._id?.toString();
+
+    // Fix categoryName - prefer populated category, fallback to categoryName field
+    if (!productObj.categoryName && productObj.category) {
+      if (typeof productObj.category === "object" && productObj.category.name) {
+        productObj.categoryName = productObj.category.name;
+      } else if (typeof productObj.category === "string") {
+        productObj.categoryName = productObj.category;
+      }
+    }
+
+    // Fix thumbnail - convert asset ID to full Cloudinary URL
+    if (productObj.thumbnail && typeof productObj.thumbnail === "string") {
+      if (productObj.thumbnail.startsWith("assets/")) {
+        // Keep assets/ as-is since CSV images are stored in assets folder
+        const publicId = productObj.thumbnail;
+        const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+        if (cloudName) {
+          productObj.thumbnail = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+        }
+      }
+    }
+
+    // Fix images - convert asset IDs to full Cloudinary URLs
+    if (productObj.images && Array.isArray(productObj.images)) {
+      productObj.images = productObj.images.map((img) => {
+        if (typeof img === "string") {
+          // If it's an asset ID (starts with "assets/"), convert to Cloudinary URL
+          if (img.startsWith("assets/")) {
+            // Keep assets/ as-is since CSV images are stored in assets folder
+            const publicId = img;
+            const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+            if (cloudName) {
+              return `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+            }
+          }
+          // If it's already a full URL, return as-is
+          if (img.startsWith("http")) {
+            return img;
+          }
+        }
+        return img;
+      });
+    }
+
+    // Fix variant images if they exist
+    if (productObj.variants && Array.isArray(productObj.variants)) {
+      productObj.variants = productObj.variants.map((variant) => {
+        if (variant.images && Array.isArray(variant.images)) {
+          variant.images = variant.images.map((img) => {
+            if (typeof img === "string") {
+              if (img.startsWith("assets/")) {
+                // Keep assets/ as-is since CSV images are stored in assets folder
+                const publicId = img;
+                const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+                if (cloudName) {
+                  return `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+                }
+              }
+              if (img.startsWith("http")) {
+                return img;
+              }
+            }
+            return img;
+          });
+        }
+        return variant;
+      });
+    }
 
     // Get legacy variants if needed
     const legacyVariants = await Variant.find({ productId }).lean();

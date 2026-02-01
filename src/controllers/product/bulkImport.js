@@ -13,8 +13,9 @@ const {
   generateUniqueSku,
 } = require("../../utils/skuGenerator");
 
-// Cloudinary folder for permanent product images
-const PERMANENT_FOLDER = "products";
+// Cloudinary folder for permanent CSV imported images
+// CSV imported images should be stored in "assets" folder
+const PERMANENT_FOLDER = "assets";
 
 /**
  * Bulk Import Controller
@@ -52,8 +53,12 @@ class BulkImportController {
     // codeMap: "color" -> Attribute Object
     const attributeMap = new Map();
     allAttributes.forEach((attr) => {
-      attributeMap.set(attr.code.toLowerCase(), attr);
-      attributeMap.set(attr.name.toLowerCase(), attr); // Fallback lookup
+      if (attr.code) {
+        attributeMap.set(attr.code.toLowerCase(), attr);
+      }
+      if (attr.name) {
+        attributeMap.set(attr.name.toLowerCase(), attr); // Fallback lookup
+      }
     });
 
     console.log(
@@ -125,6 +130,15 @@ class BulkImportController {
       }
 
       // Validate category
+      // Category is required for parent products (products with variants) and standalone products
+      // Category is optional for variant products (they inherit from parent)
+      // Note: Variants are nested inside products, so this validation only applies to parent/standalone products
+      // If a product has variants, it's a parent product and category is required
+      // If a product doesn't have variants, it's a standalone product and category is required
+      // Variants themselves are validated separately in the nested loop and don't need category
+      const hasVariants = product.variants && Array.isArray(product.variants) && product.variants.length > 0;
+      const isParentOrStandalone = hasVariants || !product.parentId && !product.parent_id;
+      
       if (product.category && product.category.trim() !== "") {
         const catKey = product.category.toLowerCase().trim();
         if (!categoryMap.has(catKey)) {
@@ -137,13 +151,15 @@ class BulkImportController {
             });
           }
         }
-      } else {
+      } else if (isParentOrStandalone) {
+        // Category is required for parent products and standalone products
         errors.push({
           row: rowNum,
           field: "category",
           message: "Category is required",
         });
       }
+      // If it's a variant product (has parentId), category is optional - skip validation
 
       // Collect temp images from product
       if (product.imageMetadata && Array.isArray(product.imageMetadata)) {
@@ -463,8 +479,12 @@ class BulkImportController {
       const allAttributes = await AttributeDefinition.find({}).lean();
       const attributeMap = new Map();
       allAttributes.forEach((attr) => {
-        attributeMap.set(attr.code.toLowerCase(), attr);
-        attributeMap.set(attr.name.toLowerCase(), attr);
+        if (attr.code) {
+          attributeMap.set(attr.code.toLowerCase(), attr);
+        }
+        if (attr.name) {
+          attributeMap.set(attr.name.toLowerCase(), attr);
+        }
       });
 
       const categoryMap = new Map();
@@ -518,7 +538,7 @@ class BulkImportController {
 
         for (const tempImage of tempImages) {
           try {
-            // Generate new public_id in products folder
+            // Generate new public_id in assets folder (for CSV imported images)
             const newPublicId = `${PERMANENT_FOLDER}/${Date.now()}_${Math.random()
               .toString(36)
               .substring(2, 8)}`;
@@ -636,6 +656,7 @@ class BulkImportController {
           for (const variantData of productData.variants) {
             // Build variant images
             const variantImages = [];
+            // 1. Process temp images from imageMetadata
             if (variantData.imageMetadata) {
               for (const key of variantData.imageMetadata) {
                 const mappedImage = imageMapping.get(key);
@@ -644,6 +665,15 @@ class BulkImportController {
                   // Schema says: images: [{ type: String }] // URLs
                 }
               }
+            }
+            // 2. Process direct image URLs (from CSV 'image_urls' or existing)
+            if (variantData.images && Array.isArray(variantData.images)) {
+              variantData.images.forEach((url) => {
+                // Avoid duplicates
+                if (url && !variantImages.includes(url)) {
+                  variantImages.push(url);
+                }
+              });
             }
 
             // ✅ NEW: ID Generation Logic
@@ -682,23 +712,25 @@ class BulkImportController {
                   continue;
 
                 const attrDef = attributeMap.get(normalizedKey);
-                if (attrDef) {
-                  // Store as "Color": "Red"
-                  resolvedAttributes.set(attrDef.name, String(value).trim());
+                if (attrDef && attrDef._id) {
+                  // Store as "Color": "Red" - use name if available, fallback to code
+                  const attrKey = attrDef.name || attrDef.code || normalizedKey;
+                  const attrCode = attrDef.code || normalizedKey; // Use code as key, fallback to normalizedKey
+                  resolvedAttributes.set(attrKey, String(value).trim());
 
                   // Collect unique variantOptions for Parent Product with ID
-                  if (!uniqueVariantOptions.has(attrDef.code)) {
-                    uniqueVariantOptions.set(attrDef.code, {
-                      id: attrDef.code, // Use code as ID for stability or geneate one
+                  if (!uniqueVariantOptions.has(attrCode)) {
+                    uniqueVariantOptions.set(attrCode, {
+                      id: attrCode, // Use code as ID for stability or generate one
                       attributeId: attrDef._id, // ✅ MANDATORY
-                      name: attrDef.name,
-                      code: attrDef.code,
+                      name: attrDef.name || attrDef.code || normalizedKey, // Use name, fallback to code or normalizedKey
+                      code: attrCode,
                       values: [],
                     });
                   }
 
                   // Add value to variantOptions uniqueness list
-                  const opt = uniqueVariantOptions.get(attrDef.code);
+                  const opt = uniqueVariantOptions.get(attrCode);
                   const valStr = String(value).trim();
 
                   // Check if this value already exists
@@ -717,13 +749,18 @@ class BulkImportController {
                       productData.variantOptions &&
                       Array.isArray(productData.variantOptions)
                     ) {
+                      // Try to match by name first, then by code
+                      const attrName = attrDef.name || attrDef.code || normalizedKey;
+                      const attrCodeForMatch = attrDef.code || normalizedKey;
                       const feOption = productData.variantOptions.find(
                         (o) =>
-                          o.name.toLowerCase() === attrDef.name.toLowerCase(),
+                          o.name && attrName &&
+                          (o.name.toLowerCase() === attrName.toLowerCase() ||
+                           (o.code && attrCodeForMatch && o.code.toLowerCase() === attrCodeForMatch.toLowerCase())),
                       );
                       if (feOption && feOption.values) {
                         const feValue = feOption.values.find(
-                          (v) => v.value.toLowerCase() === valStr.toLowerCase(),
+                          (v) => v.value && v.value.toLowerCase() === valStr.toLowerCase(),
                         );
                         if (feValue) {
                           if (feValue.hex) hexCode = feValue.hex;
@@ -751,9 +788,17 @@ class BulkImportController {
               .map((p) => `${p[0]}:${p[1]}`)
               .join("|");
 
-            // Add SKU fallback if still missing
-            if (!finalVariantSku) {
-              finalVariantSku = `${finalProductSku}-${optionsHash.substring(0, 6)}`; //Fallback
+            // Auto-generate Variant SKU if missing
+            if (!finalVariantSku || finalVariantSku.trim() === "") {
+              // Convert resolvedAttributes Map to object for generateVariantSku
+              const attrsObj = Object.fromEntries(resolvedAttributes);
+              try {
+                finalVariantSku = generateVariantSku(finalProductSku, attrsObj);
+              } catch (error) {
+                // Fallback if generateVariantSku fails
+                console.warn(`Failed to generate variant SKU: ${error.message}`);
+                finalVariantSku = `${finalProductSku}-${optionsHash.substring(0, 6)}`;
+              }
             }
 
             embeddedVariants.push({
@@ -771,12 +816,15 @@ class BulkImportController {
                 available: variantData.stock || 0,
                 isInStock: (variantData.stock || 0) > 0,
               },
-              price: variantData.price,
-              offerPrice: variantData.offerPrice
+              offerPrice: variantData.offerPrice !== undefined && variantData.offerPrice !== null && variantData.offerPrice !== ""
                 ? Number(variantData.offerPrice)
                 : undefined,
-              offerStartAt: variantData.offerStartAt || undefined,
-              offerEndAt: variantData.offerEndAt || undefined,
+              offerStartAt: variantData.offerStartAt && variantData.offerStartAt !== "" && variantData.offerStartAt !== null
+                ? variantData.offerStartAt
+                : undefined,
+              offerEndAt: variantData.offerEndAt && variantData.offerEndAt !== "" && variantData.offerEndAt !== null
+                ? variantData.offerEndAt
+                : undefined,
               _optionsHash: optionsHash,
             });
           }
@@ -784,6 +832,23 @@ class BulkImportController {
 
         // Convert variantOptions map to array
         const finalVariantOptions = Array.from(uniqueVariantOptions.values());
+
+        // Determine product type: CONFIGURABLE if has variants, otherwise SIMPLE
+        // Use product_type from frontend if provided, otherwise determine from variants
+        const hasVariants = embeddedVariants && embeddedVariants.length > 0;
+        let productType = productData.product_type;
+        if (!productType) {
+          // Determine from variants: if has variants, it's CONFIGURABLE, otherwise SIMPLE
+          productType = hasVariants ? "CONFIGURABLE" : "SIMPLE";
+        } else {
+          // Normalize to uppercase to match schema enum
+          productType = productType.toUpperCase();
+          // Validate it's a valid product type
+          if (!["SIMPLE", "CONFIGURABLE", "BUNDLE", "CHOICE_GROUP"].includes(productType)) {
+            // Fallback to determining from variants if invalid
+            productType = hasVariants ? "CONFIGURABLE" : "SIMPLE";
+          }
+        }
 
         if (isUpdate) {
           // Update existing product
@@ -803,20 +868,18 @@ class BulkImportController {
               )
                 ? productData.status.toLowerCase()
                 : "draft",
+              product_type: productType, // ✅ Set product type based on variants
               images: images.length > 0 ? images.map((i) => i.url) : undefined, // Product schema images is string[]
               price: productData.price || 0, // Ensure direct field is updated too
-              offerPrice: productData.offerPrice
+              offerPrice: productData.offerPrice !== undefined && productData.offerPrice !== null && productData.offerPrice !== ""
                 ? Number(productData.offerPrice)
                 : undefined,
-              offerStartAt:
-                productData.offerStartAt === "" ||
-                productData.offerStartAt === null
-                  ? null
-                  : productData.offerStartAt || undefined,
-              offerEndAt:
-                productData.offerEndAt === "" || productData.offerEndAt === null
-                  ? null
-                  : productData.offerEndAt || undefined,
+              offerStartAt: productData.offerStartAt && productData.offerStartAt !== "" && productData.offerStartAt !== null
+                ? productData.offerStartAt
+                : undefined,
+              offerEndAt: productData.offerEndAt && productData.offerEndAt !== "" && productData.offerEndAt !== null
+                ? productData.offerEndAt
+                : undefined,
               stockObj: {
                 available: productData.stock || 0,
                 isInStock: (productData.stock || 0) > 0,
@@ -853,13 +916,18 @@ class BulkImportController {
             )
               ? productData.status.toLowerCase()
               : "draft",
+            product_type: productType, // ✅ Set product type based on variants
             images: images.map((i) => i.url),
             price: productData.price || 0,
-            offerPrice: productData.offerPrice
+            offerPrice: productData.offerPrice !== undefined && productData.offerPrice !== null && productData.offerPrice !== ""
               ? Number(productData.offerPrice)
               : undefined,
-            offerStartAt: productData.offerStartAt || undefined,
-            offerEndAt: productData.offerEndAt || undefined,
+            offerStartAt: productData.offerStartAt && productData.offerStartAt !== "" && productData.offerStartAt !== null
+              ? productData.offerStartAt
+              : undefined,
+            offerEndAt: productData.offerEndAt && productData.offerEndAt !== "" && productData.offerEndAt !== null
+              ? productData.offerEndAt
+              : undefined,
             stockObj: {
               available: productData.stock || 0,
               isInStock: (productData.stock || 0) > 0,

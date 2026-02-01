@@ -36,6 +36,8 @@ const VALID_FOLDERS = [
   "cms-about",
   "avatar",
   "temp",
+  "temporary", // Alias for temp
+  "assets", // For CSV imported images
   "category",
   "cms", // legacy fallback
 ];
