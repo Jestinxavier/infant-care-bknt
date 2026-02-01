@@ -76,7 +76,7 @@ app.post(
       req.rawBody = buf.toString();
     },
   }),
-  phonepeWebhook,
+  phonepeWebhook
 );
 
 // Middleware
@@ -173,15 +173,11 @@ app.use(
   swaggerUi.setup(swaggerSpec, {
     customCss: ".swagger-ui .topbar { display: none }",
     customSiteTitle: "Online Shopping API Docs",
-  }),
+  })
 );
 
 // Default route
-app.get("/", (req, res) =>
-  res.send(
-    "API is running 🚀\n\nAPI version 0.0.1v",
-  ),
-);
+app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI version 0.0.2v"));
 
 const { checkOrderStatus } = require("./controllers/payment/phonepeSDK");
 
