@@ -93,12 +93,7 @@ const initiatePayment = async ({ orderId, amount }) => {
  * We call getOrderStatus, update DB, then redirect to frontend with status and orderId.
  */
 const checkOrderStatus = async (req, res) => {
-  console.log(
-    "📥 PhonePe order confirmation request received",
-    req.query,
-    req,
-    res
-  );
+  console.log("📥 PhonePe order confirmation request received", req.query);
   try {
     let { orderId, token } = req.query;
 
