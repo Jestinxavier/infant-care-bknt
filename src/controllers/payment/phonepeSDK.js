@@ -73,7 +73,7 @@ console.log("PhonePe SDK response for orderId: 1️⃣", orderId, response);
 };
 
 const checkOrderStatus = async (req, res) => {
-  console.log("Check order status request received: 2️⃣", req.query);
+  console.log("Check order status request received: 2️⃣", req);
   try {
     const { orderId } = req.query;
     if (!orderId) {
