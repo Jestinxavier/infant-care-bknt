@@ -1371,15 +1371,23 @@ const mergeCart = async (req, res) => {
       });
     }
 
-    // Step 1: Get guest cart from middleware (populated from cookie/header)
-    const guestCart = req.cart; // null if no cookie or cart not found
+    // Step 1: Resolve guest cart (prefer x-guest-cart-id so we never use user's restored cart as "guest")
+    const guestCartIdFromHeader = req.headers["x-guest-cart-id"];
+    let guestCart = null;
+    if (guestCartIdFromHeader && isValidCartId(guestCartIdFromHeader)) {
+      guestCart = await Cart.findOne({ cartId: guestCartIdFromHeader });
+      if (guestCart && guestCart.status === "ordered") guestCart = null;
+    }
+    if (!guestCart) guestCart = req.cart; // fallback: middleware cookie/header cart
 
-    // Step 2: Find user's existing cart (active or checkout, different from guest cart)
-    const userCart = await Cart.findOne({
+    // Step 2: Find user's ACTIVE cart only (do not merge into checkout/abandoned/ordered)
+    const userCartQuery = {
       userId,
-      status: { $in: ["active", "checkout"] },
-      // Exclude guestCart if it exists (avoid finding same cart)
+      status: "active",
       ...(guestCart ? { cartId: { $ne: guestCart.cartId } } : {}),
+    };
+    const userCart = await Cart.findOne(userCartQuery).sort({
+      updatedAt: -1,
     });
 
     // Helper to set cart cookie
@@ -1397,27 +1405,39 @@ const mergeCart = async (req, res) => {
     // CASE A: Both carts exist → MERGE guest INTO user
     // ═══════════════════════════════════════════════════════════════════
     if (guestCart && userCart) {
-      // Merge items with deduplication
+      const MAX_LINE_QTY = 99;
+      // Normalize for matching (undefined/null/"" treated as same)
+      const norm = (v) => (v === undefined || v === "" ? null : v);
+      // Merge items with deduplication (same product+variant+selectedGiftSku → sum quantities)
       for (const guestItem of guestCart.items) {
+        const guestVar = norm(guestItem.variantId);
+        const guestGift = norm(guestItem.selectedGiftSku);
         const existingIndex = userCart.items.findIndex(
           (item) =>
             item.productId.toString() === guestItem.productId.toString() &&
-            item.variantId === guestItem.variantId
+            norm(item.variantId) === guestVar &&
+            norm(item.selectedGiftSku) === guestGift
         );
 
         if (existingIndex !== -1) {
-          // DUPLICATE: SUM quantities
-          userCart.items[existingIndex].quantity += guestItem.quantity;
+          // DUPLICATE: SUM quantities, cap at MAX_LINE_QTY
+          const added =
+            userCart.items[existingIndex].quantity + guestItem.quantity;
+          userCart.items[existingIndex].quantity = Math.min(
+            added,
+            MAX_LINE_QTY
+          );
         } else {
           // NEW ITEM: Add to user cart (no price snapshots - computed dynamically)
           userCart.items.push({
             productId: guestItem.productId,
-            variantId: guestItem.variantId,
-            quantity: guestItem.quantity,
+            variantId: guestItem.variantId ?? null,
+            quantity: Math.min(guestItem.quantity, MAX_LINE_QTY),
             titleSnapshot: guestItem.titleSnapshot,
             imageSnapshot: guestItem.imageSnapshot,
             skuSnapshot: guestItem.skuSnapshot,
             attributesSnapshot: guestItem.attributesSnapshot,
+            selectedGiftSku: guestItem.selectedGiftSku ?? null,
           });
         }
       }
