@@ -73,40 +73,52 @@ console.log("PhonePe SDK response for orderId: 1️⃣", orderId, response);
 };
 
 const checkOrderStatus = async (req, res) => {
+  console.log("Check order status request received: 2️⃣", req.query);
   try {
-    const { token } = req.query;
-    if (!token) {
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`
-      );
+    const { orderId } = req.query;
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing order ID",
+      });
     }
 
-    const decoded = jwt.verify(token, phonePeConfig.credentials.redirectSecret);
-
-    const order = await Order.findOne({ orderId: decoded.orderId }).lean();
-    if (!order) {
-      console.error(`❌ Order not found for token: ${decoded.orderId}`);
+    const response = await client.getOrderStatus(orderId);
+    console.log("PhonePe SDK response for orderId: 3️⃣", orderId, response);
+    if (response.state === "COMPLETED") {
+      await Order.findOneAndUpdate(
+        { orderId },
+        { paymentStatus: "paid", paymentMethod: "phonepe" }
+      );
       return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`
+        `${process.env.FRONTEND_URL}/order-confirmation?status=success&orderId=${orderId}`
+      );
+    } else if (response.state === "FAILED") {
+      await Order.findOneAndUpdate(
+        { orderId },
+        { paymentStatus: "failed", paymentMethod: "phonepe" }
+      );
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${orderId}`
+      );
+    } else if (response.state === "PENDING") {
+      await Order.findOneAndUpdate(
+        { orderId },
+        { paymentStatus: "pending", paymentMethod: "phonepe" }
+      );
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/order-confirmation?status=pending&orderId=${orderId}`
       );
     }
-
-    console.log(`🔍 Checking order status for ${decoded.orderId}`, {
-      paymentStatus: order.paymentStatus,
-      orderStatus: order.orderStatus,
-      phonepeTransactionId: order.phonepeTransactionId,
+    return res.json({
+      success: false,
+      message: "Payment Failed",
+      data: response,
     });
-
-    // If payment is still pending, redirect with pending status
-    // The frontend will poll the order API to check for updates
+  } catch (error) {
+    console.log("Error checking order status:", error);
     return res.redirect(
-      `${process.env.FRONTEND_URL}/order-confirmation` +
-        `?status=${order.paymentStatus || "pending"}&orderId=${order.orderId}`
-    );
-  } catch (err) {
-    console.error("❌ Error in checkOrderStatus:", err.message);
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/order-confirmation?status=expired`
+      `${process.env.FRONTEND_URL}/order-confirmation?status=failed`
     );
   }
 };
