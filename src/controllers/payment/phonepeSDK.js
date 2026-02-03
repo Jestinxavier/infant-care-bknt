@@ -6,6 +6,7 @@ const {
 
 const { phonePeConfig } = require("../../config/phonepeConfig");
 const Order = require("../../models/Order");
+const Payment = require("../../models/Payment");
 const Cart = require("../../models/Cart");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
@@ -158,6 +159,25 @@ const phonepeWebhook = async (req, res) => {
         { new: true } // returns updated document ̰
       );
 
+      // Update Payment record with transaction ID and status
+      await Payment.findOneAndUpdate(
+        { orderId: updatedOrder._id },
+        {
+          $set: {
+            status: "success",
+            transactionId: transactionId,
+            phonepeTransactionId: transactionId,
+            phonepeResponse: payload, // Store full response for reference
+          },
+        },
+        { new: true }
+      );
+
+      console.log(`✅ PhonePe payment successful for order ${merchantOrderId}`, {
+        transactionId,
+        orderId: updatedOrder._id,
+      });
+
       await Cart.findOneAndUpdate(
         { orderId: updatedOrder._id },
         { $set: { status: "ordered", completedAt: new Date() } }
@@ -178,10 +198,27 @@ const phonepeWebhook = async (req, res) => {
       type === "CHECKOUT_ORDER_FAILED" ||
       type === "checkout.order.failed"
     ) {
+      // Update Order
       await Order.updateOne(
         { orderId: merchantOrderId },
         { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
       );
+
+      // Update Payment record
+      await Payment.findOneAndUpdate(
+        { orderId: order._id },
+        {
+          $set: {
+            status: "failed",
+            phonepeResponse: payload, // Store failure response for reference
+          },
+        }
+      );
+
+      console.log(`❌ PhonePe payment failed for order ${merchantOrderId}`, {
+        orderId: order._id,
+        payload: JSON.stringify(payload),
+      });
 
       await Cart.findOneAndUpdate(
         { orderId: order._id },
@@ -196,7 +233,7 @@ const phonepeWebhook = async (req, res) => {
 
     return res.status(200).send("OK");
   } catch (err) {
-    console.error("PhonePe webhook error:", err.message);
+    console.error("PhonePe webhook error:", err.message, err.stack);
     try {
       const body = JSON.parse(req.rawBody);
       const merchantOrderId =
@@ -204,11 +241,24 @@ const phonepeWebhook = async (req, res) => {
         body?.payload?.originalMerchantOrderId;
       if (merchantOrderId) {
         const failedOrder = await Order.findOne({ orderId: merchantOrderId });
-        await Order.updateOne(
-          { orderId: merchantOrderId },
-          { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
-        );
         if (failedOrder) {
+          // Update Order
+          await Order.updateOne(
+            { orderId: merchantOrderId },
+            { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
+          );
+
+          // Update Payment record
+          await Payment.findOneAndUpdate(
+            { orderId: failedOrder._id },
+            {
+              $set: {
+                status: "failed",
+                phonepeResponse: body, // Store error response
+              },
+            }
+          );
+
           await Cart.findOneAndUpdate(
             { orderId: failedOrder._id },
             {
@@ -216,6 +266,8 @@ const phonepeWebhook = async (req, res) => {
               $unset: { orderId: "" },
             }
           );
+
+          console.log(`❌ PhonePe webhook error handled for order ${merchantOrderId}`);
         }
       }
     } catch (parseErr) {
