@@ -85,27 +85,90 @@ const checkOrderStatus = async (req, res) => {
 
     const order = await Order.findOne({ orderId: decoded.orderId }).lean();
     if (!order) {
+      console.error(`❌ Order not found for token: ${decoded.orderId}`);
       return res.redirect(
         `${process.env.FRONTEND_URL}/order-confirmation?status=invalid`
       );
     }
 
+    console.log(`🔍 Checking order status for ${decoded.orderId}`, {
+      paymentStatus: order.paymentStatus,
+      orderStatus: order.orderStatus,
+      phonepeTransactionId: order.phonepeTransactionId,
+    });
+
+    // If payment is still pending, redirect with pending status
+    // The frontend will poll the order API to check for updates
     return res.redirect(
       `${process.env.FRONTEND_URL}/order-confirmation` +
-        `?status=${order.paymentStatus}&orderId=${order.orderId}`
+        `?status=${order.paymentStatus || "pending"}&orderId=${order.orderId}`
     );
-  } catch {
+  } catch (err) {
+    console.error("❌ Error in checkOrderStatus:", err.message);
     return res.redirect(
       `${process.env.FRONTEND_URL}/order-confirmation?status=expired`
     );
   }
 };
 
+/**
+ * Manual endpoint to check and update payment status
+ * Can be called by admin or as a fallback if webhook fails
+ */
+const manualCheckPaymentStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Order ID is required",
+      });
+    }
+
+    const order = await Order.findOne({ orderId }).lean();
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    // Return current status
+    return res.status(200).json({
+      success: true,
+      order: {
+        orderId: order.orderId,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        phonepeTransactionId: order.phonepeTransactionId,
+        paymentMethod: order.paymentMethod,
+      },
+      message: "Note: This endpoint shows current database status. If payment was completed but status is still pending, the webhook may not have been called. Check server logs for webhook activity.",
+    });
+  } catch (err) {
+    console.error("❌ Error in manualCheckPaymentStatus:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: err.message,
+    });
+  }
+};
+
 const phonepeWebhook = async (req, res) => {
+  console.log("📥 PhonePe webhook received", {
+    timestamp: new Date().toISOString(),
+    hasAuth: !!req.headers["authorization"],
+    hasBody: !!req.rawBody,
+    bodyLength: req.rawBody?.length,
+  });
+
   try {
     const authorizationHeader = req.headers["authorization"];
 
     if (!authorizationHeader || !req.rawBody) {
+      console.error("❌ PhonePe webhook: Missing authorization or body");
       return res.status(400).send("INVALID CALLBACK");
     }
 
@@ -121,12 +184,25 @@ const phonepeWebhook = async (req, res) => {
     const merchantOrderId =
       payload.merchantOrderId ?? payload.originalMerchantOrderId;
 
+    console.log("📋 PhonePe webhook payload", {
+      type,
+      merchantOrderId,
+      hasPaymentDetails: !!payload.paymentDetails,
+    });
+
     if (!merchantOrderId) {
+      console.warn("⚠️ PhonePe webhook: No merchantOrderId in payload");
       return res.status(200).send("OK");
     }
 
     const order = await Order.findOne({ orderId: merchantOrderId });
-    if (!order || order.paymentStatus === "paid") {
+    if (!order) {
+      console.warn(`⚠️ PhonePe webhook: Order not found: ${merchantOrderId}`);
+      return res.status(200).send("OK");
+    }
+
+    if (order.paymentStatus === "paid") {
+      console.log(`ℹ️ PhonePe webhook: Order already paid: ${merchantOrderId}`);
       return res.status(200).send("OK");
     }
 
@@ -176,6 +252,9 @@ const phonepeWebhook = async (req, res) => {
       console.log(`✅ PhonePe payment successful for order ${merchantOrderId}`, {
         transactionId,
         orderId: updatedOrder._id,
+        paymentStatus: updatedOrder.paymentStatus,
+        orderStatus: updatedOrder.orderStatus,
+        payload: JSON.stringify(payload).substring(0, 200), // Log first 200 chars
       });
 
       await Cart.findOneAndUpdate(
@@ -282,4 +361,5 @@ module.exports = {
   initiatePayment,
   checkOrderStatus,
   phonepeWebhook,
+  manualCheckPaymentStatus,
 };
