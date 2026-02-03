@@ -13,6 +13,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
   process.env.FRONTEND_URL_WWW,
+  "https://66.116.227.13",
+  "http://66.116.227.13",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
@@ -179,8 +181,10 @@ app.use(
 // Default route
 app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI version 0.0.3v"));
 
-const { checkOrderStatus } = require("./controllers/payment/phonepeSDK");
+const { checkOrderStatus, manualCheckPaymentStatus } = require("./controllers/payment/phonepeSDK");
 
 app.get("/order-confirmation", checkOrderStatus);
+// Manual payment status check endpoint (for debugging)
+app.get("/api/payments/check/:orderId", manualCheckPaymentStatus);
 
 module.exports = app;

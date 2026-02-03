@@ -74,6 +74,7 @@ const getOrders = async (req, res) => {
         payment: {
           status: order.paymentStatus,
           method: order.paymentMethod,
+          phonepeTransactionId: order.phonepeTransactionId,
         },
         priceObj: {
           grandTotal: order.totalAmount || order.total,
