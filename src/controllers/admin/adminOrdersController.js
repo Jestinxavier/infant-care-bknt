@@ -165,6 +165,7 @@ const getAllOrders = async (req, res) => {
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod,
+      phonepeTransactionId: order.phonepeTransactionId,
       total: order.totalAmount,
       subtotal: order.subtotal,
       shippingCost: order.shippingCost,

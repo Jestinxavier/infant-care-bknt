@@ -66,7 +66,11 @@ const getOrderById = async (req, res) => {
       fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
       statusHistory: order.statusHistory,
       totalQuantity: order?.totalQuantity,
-      payment: { status: order?.paymentStatus, method: order?.paymentMethod },
+      payment: {
+        status: order?.paymentStatus,
+        method: order?.paymentMethod,
+        phonepeTransactionId: order?.phonepeTransactionId,
+      },
       priceObj: {
         grandTotal: order?.totalAmount,
         subtotal: order?.subtotal,
