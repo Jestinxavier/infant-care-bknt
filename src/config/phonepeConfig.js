@@ -10,13 +10,8 @@ const phonePeConfig = {
     password: process.env.PHONEPE_MERCHANT_PASSWORD,
     redirectSecret: process.env.PHONEPE_REDIRECT_SECRET,
   },
-  /** Build redirect URL with orderId and optional token for post-payment callback */
-  redirectUrl: (orderId, token) => {
-    const base = `${
-      process.env.BACKEND_URL
-    }/order-confirmation?orderId=${encodeURIComponent(orderId)}`;
-    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-  },
+  redirectUrl: (token,orderId) =>
+    `${process.env.BACKEND_URL}/order-confirmation?token=${token}&orderId=${orderId}`,
   webhookUrl: `${process.env.BACKEND_URL}/api/webhooks/phonepe`,
 };
 

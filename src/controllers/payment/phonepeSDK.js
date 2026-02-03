@@ -50,7 +50,8 @@ const initiatePayment = async ({ orderId, amount }) => {
     const request = StandardCheckoutPayRequest.builder()
       .merchantOrderId(orderId)
       .amount(amount)
-      .redirectUrl(redirectUrlWithOrderId)
+      .redirectUrl(phonePeConfig.redirectUrl(redirectToken, orderId))
+      .expireAfter(3600)
       .message("Complete payment")
       .expireAfter(3600)
       .build();
