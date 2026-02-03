@@ -362,18 +362,59 @@ const updateProduct = async (req, res) => {
           attributesMap
         );
 
-        // Support both direct fields and nested pricing/stock
-        const price = v.pricing?.price || v.price || 0;
-        const discountPrice =
-          v.pricing?.discountPrice || v.discountPrice || null;
+        // Variant document shape: price, offerPrice, offerStartAt, offerEndAt at root (see product.model variantSchema)
+        // Dashboard may send v.pricing.{price,discountPrice} or v.price, v.offerPrice
+        const price =
+          v.price != null && v.price !== ""
+            ? Number(v.price)
+            : v.pricing && v.pricing.price != null
+            ? Number(v.pricing.price)
+            : 0;
         const stock =
-          v.stockObj?.available !== undefined
+          v.stockObj && v.stockObj.available !== undefined
             ? v.stockObj.available
-            : v.stock || 0;
+            : v.stock !== undefined && v.stock !== null
+            ? Number(v.stock)
+            : 0;
         const isInStock =
-          v.stockObj?.isInStock !== undefined
+          v.stockObj && v.stockObj.isInStock !== undefined
             ? v.stockObj.isInStock
             : stock > 0;
+        // Schema fields: offerPrice, offerStartAt, offerEndAt (stored at variant root)
+        const offerPriceRaw =
+          v.offerPrice != null
+            ? v.offerPrice
+            : v.pricing && v.pricing.discountPrice != null
+            ? v.pricing.discountPrice
+            : v.discountPrice;
+        const offerPrice =
+          offerPriceRaw != null && offerPriceRaw !== ""
+            ? Number(offerPriceRaw)
+            : undefined;
+        const offerStartAtRaw =
+          v.offerStartAt != null && v.offerStartAt !== ""
+            ? v.offerStartAt
+            : v.pricing && v.pricing.offerStartAt != null
+            ? v.pricing.offerStartAt
+            : null;
+        const offerStartAtDate = offerStartAtRaw
+          ? new Date(offerStartAtRaw)
+          : null;
+        const offerStartAt =
+          offerStartAtDate && !isNaN(offerStartAtDate.getTime())
+            ? offerStartAtDate
+            : undefined;
+        const offerEndAtRaw =
+          v.offerEndAt != null && v.offerEndAt !== ""
+            ? v.offerEndAt
+            : v.pricing && v.pricing.offerEndAt != null
+            ? v.pricing.offerEndAt
+            : null;
+        const offerEndAtDate = offerEndAtRaw ? new Date(offerEndAtRaw) : null;
+        const offerEndAt =
+          offerEndAtDate && !isNaN(offerEndAtDate.getTime())
+            ? offerEndAtDate
+            : undefined;
 
         // Auto-generate variant SKU when missing (align with createProduct / product.service)
         let variantSku = v.sku;
@@ -411,22 +452,19 @@ const updateProduct = async (req, res) => {
           id: v.id || `variant-${crypto.randomUUID()}`,
           url_key: variantUrlKey,
           sku: variantSku,
-          // Keep direct fields for backward compatibility
-          price: price,
-          discountPrice: discountPrice,
-          stock: stock,
-          // New nested format
-          pricing: {
-            price: price,
-            ...(discountPrice ? { discountPrice: discountPrice } : {}),
-          },
+          price,
+          stock,
+          offerPrice:
+            offerPrice != null && offerPrice > 0 ? offerPrice : undefined,
+          offerStartAt: offerStartAt || undefined,
+          offerEndAt: offerEndAt || undefined,
           stockObj: {
             available: stock,
             isInStock: isInStock,
           },
           images: variantImages,
-          attributes: attributesMap, // New format
-          options: attributesMap, // Keep for backward compatibility
+          attributes: attributesMap,
+          options: attributesMap,
           weight: v.weight,
           length: v.length,
           height: v.height,
@@ -435,6 +473,7 @@ const updateProduct = async (req, res) => {
       }
 
       product.variants = processedVariants;
+      product.markModified("variants");
 
       // Auto-select first variant if only one exists
       // No need to set selectedOptions - variant selection is determined from URL

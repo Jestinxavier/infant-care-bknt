@@ -53,26 +53,66 @@ function calculateMaxPrice(product) {
 }
 
 /**
- * Get current price (prefer discountPrice, fallback to regular price)
+ * Check if an offer is currently active (within date range).
+ */
+function isOfferActive(offerPrice, startAt, endAt) {
+  if (!offerPrice || offerPrice <= 0) return false;
+  const now = new Date();
+  if (startAt && now < new Date(startAt)) return false;
+  if (endAt && now > new Date(endAt)) return false;
+  return true;
+}
+
+/**
+ * Get current display price (active offer price if valid, else regular price)
  */
 function getCurrentPrice(product) {
   if (product.variants && product.variants.length > 0) {
     const firstVariant = product.variants[0];
-    return (
-      firstVariant.pricing?.discountPrice ||
-      firstVariant.discountPrice ||
-      firstVariant.pricing?.price ||
-      firstVariant.price ||
-      0
-    );
+    const vOffer =
+      firstVariant.offerPrice ?? firstVariant.pricing?.discountPrice;
+    const vPrice = firstVariant.price ?? firstVariant.pricing?.price ?? 0;
+    if (
+      isOfferActive(vOffer, firstVariant.offerStartAt, firstVariant.offerEndAt)
+    ) {
+      return vOffer;
+    }
+    return vPrice;
   }
-  return (
-    product.pricing?.discountPrice ||
-    product.discountPrice ||
-    product.pricing?.price ||
-    product.price ||
-    0
-  );
+  const pOffer = product.offerPrice ?? product.pricing?.discountPrice;
+  const pPrice = product.pricing?.price ?? product.price ?? 0;
+  if (isOfferActive(pOffer, product.offerStartAt, product.offerEndAt)) {
+    return pOffer;
+  }
+  return pPrice;
+}
+
+/**
+ * Get current discount/offer price when offer is active, else null (for display in dashboard).
+ */
+function getCurrentDiscountPrice(product) {
+  if (product.variants && product.variants.length > 0) {
+    const firstVariant = product.variants[0];
+    const offer =
+      firstVariant.offerPrice ?? firstVariant.pricing?.discountPrice;
+    if (
+      offer &&
+      offer > 0 &&
+      isOfferActive(offer, firstVariant.offerStartAt, firstVariant.offerEndAt)
+    ) {
+      return offer;
+    }
+    return null;
+  }
+  const offer = product.offerPrice ?? product.pricing?.discountPrice;
+  if (
+    offer &&
+    offer > 0 &&
+    isOfferActive(product.offerPrice, product.offerStartAt, product.offerEndAt)
+  ) {
+    return offer;
+  }
+  return null;
 }
 
 /**
@@ -132,7 +172,7 @@ function buildVariantTitle(parentTitle, attributes) {
  */
 function buildCloudinaryUrl(publicIdOrPath) {
   if (!publicIdOrPath) return null;
-  
+
   // If it's already a full URL, return as-is
   if (typeof publicIdOrPath === "string" && publicIdOrPath.startsWith("http")) {
     return publicIdOrPath;
@@ -169,12 +209,13 @@ function transformForDashboard(product) {
   const thumbnailRaw =
     product.images?.[0] ||
     (hasVariants ? product.variants[0]?.images?.[0] : null);
-  
+
   // Convert thumbnail to full Cloudinary URL if it's an asset ID
   const thumbnail = thumbnailRaw ? buildCloudinaryUrl(thumbnailRaw) : null;
 
   // Get SKU (prefer parent SKU, fallback to first variant SKU)
-  const sku = product.sku || (hasVariants ? product.variants[0]?.sku || null : null);
+  const sku =
+    product.sku || (hasVariants ? product.variants[0]?.sku || null : null);
 
   // Get category name - prefer populated category, fallback to categoryName field
   let categoryName = product.categoryName;
@@ -185,6 +226,9 @@ function transformForDashboard(product) {
       categoryName = product.category;
     }
   }
+
+  const currentPrice = getCurrentPrice(product);
+  const currentDiscountPrice = getCurrentDiscountPrice(product);
 
   return {
     // Core product data
@@ -197,9 +241,11 @@ function transformForDashboard(product) {
     // Stock metrics
     stock: totalStock,
 
-    // Pricing - Keep only regular price and optional discount price
+    // Pricing - regular price, current display price, and offer price when active
     price: minPrice, // Regular price (or min price for variants)
-    discountPrice: product.pricing?.discountPrice || null, // Discount price if exists
+    currentPrice, // Effective display price (offer if active, else regular)
+    discountPrice: currentDiscountPrice, // Offer price when active, else null
+    currentDiscountPrice, // Same as discountPrice for listing column
 
     // Product Type
     product_type:

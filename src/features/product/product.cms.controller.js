@@ -14,6 +14,20 @@ function getFirstImageUrl(images) {
 }
 
 /**
+ * Return the offer price only when the offer is currently active (within date range).
+ * Otherwise return null so the UI shows the regular price.
+ * - No offerStartAt/offerEndAt: offer is always active (legacy).
+ */
+function getActiveOfferPrice(item) {
+  const offerPrice = item.offerPrice ?? null;
+  if (offerPrice == null || offerPrice <= 0) return null;
+  const now = new Date();
+  if (item.offerStartAt && now < new Date(item.offerStartAt)) return null;
+  if (item.offerEndAt && now > new Date(item.offerEndAt)) return null;
+  return offerPrice;
+}
+
+/**
  * CMS Product Controller
  * Lightweight endpoints for CMS widgets
  */
@@ -95,7 +109,7 @@ class CmsProductController {
           // Use first available variant for display
           const firstVariant = availableVariants[0];
           price = firstVariant.price ?? 0;
-          discountPrice = firstVariant.offerPrice ?? 0;
+          discountPrice = getActiveOfferPrice(firstVariant) ?? 0;
           stock = firstVariant.stockObj?.available ?? firstVariant.stock ?? 0;
           image =
             getFirstImageUrl(firstVariant.images) ||
@@ -110,7 +124,7 @@ class CmsProductController {
           }
 
           price = product.price ?? 0;
-          discountPrice = product.offerPrice ?? 0;
+          discountPrice = getActiveOfferPrice(product) ?? 0;
           image = getFirstImageUrl(product.images) || "";
         } else {
           return null; // Skip other product types

@@ -63,9 +63,14 @@ const processVariantOptions = (variantOptions) => {
           sizePattern.test(valueItem.value.toString().trim());
 
         if (itemMatchesPattern) {
+          const label = valueItem.label ? String(valueItem.label).trim() : "";
+          const suffix = " M";
+          const alreadyHasMSuffix = label.endsWith(suffix) || label === "M";
+          const newLabel =
+            label && !alreadyHasMSuffix ? label + suffix : valueItem.label;
           return {
             ...valueItem,
-            label: valueItem.label ? `${valueItem.label} M` : valueItem.label,
+            label: newLabel,
           };
         }
 

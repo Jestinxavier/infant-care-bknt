@@ -76,13 +76,15 @@ const createOrder = async (req, res) => {
     session.startTransaction();
 
     // Step 1: Load and validate cart (must be in checkout status)
-    // Note: startCheckout finds/locks cart by userId, so we query the same way
-    const cart = await Cart.findOne({ userId, status: "checkout" }).session(
-      session
-    );
+    // Prefer cartId from request so we use the cart the user just started checkout with,
+    // not an old expired checkout cart when the user has multiple checkout carts.
+    const cartQuery = { userId, status: "checkout" };
+    if (cartId) cartQuery.cartId = cartId;
+    const cart = await Cart.findOne(cartQuery).session(session);
 
     console.log(
       `🛒 Looking for checkout cart for user: ${userId}`,
+      cartId ? `cartId: ${cartId}` : "no cartId in body",
       `Found: ${cart ? cart.cartId : "null"}`,
       `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`
     );
@@ -97,8 +99,6 @@ const createOrder = async (req, res) => {
     }
 
     // RELAXED VALIDATION: Cart must exist and NOT be ordered
-    // We allow retries, so if it's already in 'checkout' (or even 'active' if we want to be lenient), it's fine.
-    // The critical thing is it must not be 'ordered'.
     if (cart.status === "ordered") {
       await session.abortTransaction();
       return res.status(400).json({
@@ -108,12 +108,8 @@ const createOrder = async (req, res) => {
       });
     }
 
-    // Optional: Ensure checkout session is somehow valid if we care about TTL
-    // But since startCheckout handles TTL, we might just check if it exists.
-    // For now, we mainly block 'ordered'.
-
-    // Check checkout expiry
-    if (cart.checkoutExpiry < new Date()) {
+    // Check checkout expiry only when set (null/undefined = not yet set, e.g. legacy)
+    if (cart.checkoutExpiry != null && cart.checkoutExpiry < new Date()) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,

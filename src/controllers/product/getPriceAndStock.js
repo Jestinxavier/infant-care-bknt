@@ -3,11 +3,13 @@
  *
  * Returns lightweight price and stock data for the exact URL key provided.
  * The URL key can be either a parent product or a variant URL key.
+ * Uses resolvePrice() so offer price is only returned when offer is active (within dates).
  *
  * Use case: Real-time price/stock checks without loading full product data
  */
 
 const Product = require("../../models/Product");
+const { resolvePrice } = require("../../utils/pricingUtils");
 
 const getPriceAndStock = async (req, res) => {
   try {
@@ -21,16 +23,21 @@ const getPriceAndStock = async (req, res) => {
       });
     }
 
-    // Try to find as parent product first
+    // Try to find as parent product first (include offer fields for resolvePrice)
     let product = await Product.findOne({
       url_key: url_key,
       status: "published",
     }).select(
-      "url_key pricing stockObj price stock product_type bundle_config",
+      "url_key pricing stockObj price stock product_type bundle_config offerPrice offerStartAt offerEndAt"
     );
 
     if (product) {
-      let finalPrice = product.pricing?.price || product.price || 0;
+      const resolved = resolvePrice({
+        price: product.pricing?.price ?? product.price ?? 0,
+        offerPrice: product.offerPrice,
+        offerStartAt: product.offerStartAt,
+        offerEndAt: product.offerEndAt,
+      });
       let finalStock = product.stockObj?.available ?? product.stock ?? 0;
 
       // Handle Bundle Stock Calculation
@@ -73,16 +80,15 @@ const getPriceAndStock = async (req, res) => {
       return res.status(200).json({
         success: true,
         url_key: product.url_key,
-        price: finalPrice,
-        discountPrice:
-          product.pricing?.discountPrice || product.offerPrice || null,
+        price: resolved.price,
+        discountPrice: resolved.discountPrice ?? null,
         stock: finalStock,
         inStock: finalStock > 0,
         isVariant: false,
       });
     }
 
-    // Try to find as variant url_key
+    // Try to find as variant url_key (variants include offerPrice, offerStartAt, offerEndAt)
     product = await Product.findOne({
       "variants.url_key": url_key,
       status: "published",
@@ -91,12 +97,17 @@ const getPriceAndStock = async (req, res) => {
     if (product) {
       const variant = product.variants.find((v) => v.url_key === url_key);
       if (variant) {
+        const variantResolved = resolvePrice({
+          price: variant.pricing?.price ?? variant.price ?? 0,
+          offerPrice: variant.offerPrice,
+          offerStartAt: variant.offerStartAt,
+          offerEndAt: variant.offerEndAt,
+        });
         return res.status(200).json({
           success: true,
           url_key: variant.url_key,
-          price: variant.pricing?.price || variant.price || 0,
-          discountPrice:
-            variant.pricing?.discountPrice || variant.discountPrice || null,
+          price: variantResolved.price,
+          discountPrice: variantResolved.discountPrice ?? null,
           stock: variant.stockObj?.available ?? variant.stock ?? 0,
           inStock: (variant.stockObj?.available ?? variant.stock ?? 0) > 0,
           isVariant: true,
