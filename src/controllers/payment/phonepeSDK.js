@@ -27,21 +27,26 @@ const initiatePayment = async ({ orderId, amount }) => {
   try {
     const order = await Order.findOne({ orderId }).lean();
     if (!order) throw new Error("INVALID_ORDER");
+    console.log("📋 PhonePe order", order);
 
     const expectedAmount = order.totalAmount * 100;
+    console.log("📋 PhonePe amount", amount);
     if (expectedAmount !== amount) throw new Error("AMOUNT_MISMATCH");
+    console.log("📋 PhonePe expectedAmount", expectedAmount);
 
     const redirectToken = jwt.sign(
       { orderId, purpose: "PHONEPE_REDIRECT" },
       phonePeConfig.credentials.redirectSecret,
       { expiresIn: "1h" }
     );
+    console.log("📋 PhonePe redirectToken", redirectToken);
 
     const redirectUrlWithOrderId = phonePeConfig.redirectUrl(
       orderId,
       redirectToken
     );
 
+    console.log("📋 PhonePe redirectUrlWithOrderId", redirectUrlWithOrderId);
     const request = StandardCheckoutPayRequest.builder()
       .merchantOrderId(orderId)
       .amount(amount)
@@ -50,7 +55,9 @@ const initiatePayment = async ({ orderId, amount }) => {
       .expireAfter(3600)
       .build();
 
+    console.log("📋 PhonePe request", request);
     const response = await client.pay(request);
+    console.log("📋 PhonePe response", response);
     return { redirectUrl: response.redirectUrl };
   } catch (err) {
     if (err instanceof PhonePeException) {
@@ -86,8 +93,31 @@ const initiatePayment = async ({ orderId, amount }) => {
  * We call getOrderStatus, update DB, then redirect to frontend with status and orderId.
  */
 const checkOrderStatus = async (req, res) => {
+  console.log(
+    "📥 PhonePe order confirmation request received",
+    req.query,
+    req,
+    res
+  );
   try {
-    const { orderId, token } = req.query;
+    let { orderId, token } = req.query;
+
+    // PhonePe may not preserve our query params on redirect; derive orderId from token if missing
+    if (!orderId && token) {
+      try {
+        const decoded = jwt.verify(
+          token,
+          phonePeConfig.credentials.redirectSecret,
+          {
+            maxAge: "1h",
+          }
+        );
+        if (decoded?.orderId) orderId = decoded.orderId;
+      } catch {
+        // token invalid or expired; fall through to missing orderId handling
+      }
+    }
+
     if (!orderId) {
       return res.status(400).json({
         success: false,
@@ -125,6 +155,8 @@ const checkOrderStatus = async (req, res) => {
       }
       throw err;
     }
+
+    console.log("📋 PhonePe order status response", response);
 
     const state = response?.state;
     const paymentDetails = response?.paymentDetails ?? [];
