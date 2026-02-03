@@ -50,7 +50,8 @@ const initiatePayment = async ({ orderId, amount }) => {
     const request = StandardCheckoutPayRequest.builder()
       .merchantOrderId(orderId)
       .amount(amount)
-      .redirectUrl(redirectUrlWithOrderId)
+      .redirectUrl(phonePeConfig.redirectUrl(redirectToken, orderId))
+      .expireAfter(3600)
       .message("Complete payment")
       .expireAfter(3600)
       .build();
@@ -93,12 +94,7 @@ const initiatePayment = async ({ orderId, amount }) => {
  * We call getOrderStatus, update DB, then redirect to frontend with status and orderId.
  */
 const checkOrderStatus = async (req, res) => {
-  console.log(
-    "📥 PhonePe order confirmation request received",
-    req.query,
-    req,
-    res
-  );
+  console.log("Check order status request received: 2️⃣", req.query);
   try {
     let { orderId, token } = req.query;
 
