@@ -13,6 +13,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
   process.env.FRONTEND_URL_WWW,
+  "https://66.116.227.13",
+  "http://66.116.227.13",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",

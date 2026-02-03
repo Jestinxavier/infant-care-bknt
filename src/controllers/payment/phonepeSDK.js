@@ -42,7 +42,6 @@ const initiatePayment = async ({ orderId, amount }) => {
       .build();
 
     const response = await client.pay(request);
-    console.log("PhonePe SDK response for orderId: ", orderId, response);
 
     return { redirectUrl: response.redirectUrl };
   } catch (err) {
