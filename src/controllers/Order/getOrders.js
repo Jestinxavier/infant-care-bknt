@@ -1,7 +1,8 @@
 const Order = require("../../models/Order");
 
 /**
- * Get all orders for the authenticated user
+ * Get all orders for the authenticated user (list view – minimal fields only).
+ * Full order details (payment, items, address, tracking, etc.) are from GET /orders/:orderId.
  */
 const getOrders = async (req, res) => {
   try {
@@ -16,19 +17,30 @@ const getOrders = async (req, res) => {
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const status = req.query.status;
+    const rawStatus = req.query.status;
+    const status = rawStatus
+      ? String(Array.isArray(rawStatus) ? rawStatus[0] : rawStatus)
+          .trim()
+          .toLowerCase()
+      : "";
     const skip = (page - 1) * limit;
 
     let query = { userId };
 
     if (status) {
-      switch (status.toLowerCase()) {
+      switch (status) {
         case "pending":
           query.paymentStatus = "pending";
           break;
         case "confirmed":
+          // Paid orders that are confirmed/processing, or paid but still pending (e.g. status not yet updated)
+          query.$or = [
+            { orderStatus: { $in: ["confirmed", "processing"] } },
+            { paymentStatus: "paid", orderStatus: "pending" },
+          ];
+          break;
+        case "processing":
           query.orderStatus = "processing";
-          query.paymentStatus = { $ne: "pending" };
           break;
         case "shipped":
           query.orderStatus = "shipped";
@@ -47,65 +59,29 @@ const getOrders = async (req, res) => {
     const totalOrders = await Order.countDocuments(query);
     const totalPages = Math.ceil(totalOrders / limit);
 
+    // List only: no populate needed
     const orders = await Order.find(query)
-      .populate({
-        path: "items.variantId",
-        populate: {
-          path: "productId",
-          select: "name images",
-        },
-      })
-      .populate({
-        path: "items.productId",
-        select: "name images",
-      })
-      .populate("deliveryPartner")
-      .sort({ createdAt: -1 }) // Most recent first
+      .select(
+        "_id orderId placedAt createdAt orderStatus totalAmount total items"
+      )
+      .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
-    // Format orders for frontend
-    const formattedOrders = orders.map((order) => {
-      return {
-        _id: order._id,
-        orderId: order.orderId || order._id.toString(),
-        date: order.placedAt || order.createdAt,
-        status: order.orderStatus,
-        payment: {
-          status: order.paymentStatus,
-          method: order.paymentMethod,
-          phonepeTransactionId: order.phonepeTransactionId,
-        },
-        priceObj: {
-          grandTotal: order.totalAmount || order.total,
-          subtotal: order.subtotal,
-          shippingCost: order.shippingCost,
-          discount: order.discount,
-        },
-        trackingId: order.trackingId,
-        deliveryPartner: order.deliveryPartner,
-        fulfillmentAdditionalInfo: order.fulfillmentAdditionalInfo,
-        items: order.items.map((item) => {
-          // Robust product resolution
-          const product =
-            item.productId && item.productId._id
-              ? item.productId
-              : item.variantId?.productId;
-
-          return {
-            variantId: item.variantId?._id || item.variantId,
-            productId: product?._id,
-            productName: product?.name || item.name || "Unknown Item",
-            productImage: product?.images?.[0] || item.imageUrl,
-            quantity: item.quantity,
-            price: item.price,
-            variantAttributes: item.variantAttributes,
-          };
-        }),
-        itemCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
-        address: order.shippingAddress,
-      };
-    });
+    const formattedOrders = orders.map((order) => ({
+      _id: order._id,
+      orderId: order.orderId || order._id.toString(),
+      date: order.placedAt || order.createdAt,
+      status: order.orderStatus,
+      priceObj: {
+        grandTotal: order.totalAmount ?? order.total ?? 0,
+      },
+      itemCount: order.items.reduce(
+        (sum, item) => sum + (item.quantity || 0),
+        0
+      ),
+    }));
 
     res.status(200).json({
       success: true,

@@ -4,10 +4,7 @@ const Address = require("../../models/Address");
 const Payment = require("../../models/Payment");
 const Product = require("../../models/Product");
 const Cart = require("../../models/Cart");
-const {
-  PAYMENT_METHODS,
-  CHECKOUT_SESSION_MS,
-} = require("../../../resources/constants");
+const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { consumeCoupon } = require("../../utils/couponValidation");
 const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");

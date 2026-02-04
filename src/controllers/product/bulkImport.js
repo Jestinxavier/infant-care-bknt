@@ -59,6 +59,46 @@ async function resolveImageEntryToUrl(entry, assetUrlCache) {
 }
 
 /**
+ * Normalize product details for DB storage (same logic as createProduct/updateProduct).
+ * - description sections: fields as { type: "list"|"badge", data: string[] }
+ * - grid/pair sections: fields as { label: string, value: string }
+ * Ensures CSV-imported details match the shape expected by the Product schema and frontend.
+ * @param {Array} details - Raw details array from CSV (details_json)
+ * @returns {Array} Normalized details array
+ */
+function normalizeDetailsForImport(details) {
+  if (!Array.isArray(details) || details.length === 0) return [];
+
+  return details
+    .filter((s) => s && (s.title || "").trim())
+    .map((section) => {
+      const cleanedSection = {
+        title: section.title,
+        type: section.type || "description",
+      };
+      if (section.type === "description" && section.description) {
+        cleanedSection.description = section.description;
+      }
+      cleanedSection.fields = (section.fields || []).map((field) => {
+        if (field.label !== undefined || field.value !== undefined) {
+          return {
+            label: field.label ?? "",
+            value: field.value ?? "",
+          };
+        }
+        if (field.type && (field.type === "list" || field.type === "badge")) {
+          return {
+            type: field.type,
+            data: Array.isArray(field.data) ? field.data : [],
+          };
+        }
+        return field;
+      });
+      return cleanedSection;
+    });
+}
+
+/**
  * Bulk Import Controller
  * Handles two-phase atomic CSV import with rollback
  */
@@ -974,7 +1014,7 @@ class BulkImportController {
                 available: productData.stock || 0,
                 isInStock: (productData.stock || 0) > 0,
               },
-              details: productData.details || [],
+              details: normalizeDetailsForImport(productData.details || []),
               tags: productData.tags || productData.tag, // ✅ Store as single string
               // New fields
               url_key: productData.url_key,
@@ -1031,7 +1071,7 @@ class BulkImportController {
               available: productData.stock || 0,
               isInStock: (productData.stock || 0) > 0,
             },
-            details: productData.details || [],
+            details: normalizeDetailsForImport(productData.details || []),
             tags: productData.tags || productData.tag,
             url_key: productData.url_key,
             metaTitle: productData.metaTitle,
