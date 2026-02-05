@@ -341,7 +341,7 @@ const createProduct = async (req, res) => {
         // First, use images from variant object (metadata already uploaded)
         if (v.images && Array.isArray(v.images)) {
           variantImages = v.images.map((img) => {
-            if (typeof img === "object" && img.url) {
+            if (typeof img === "object" && img !== null && img.url) {
               return img;
             }
             return typeof img === "string" ? { url: img } : img;
@@ -376,6 +376,17 @@ const createProduct = async (req, res) => {
 
           variantImages = [...variantImages, ...uploadedVariantImages];
         }
+
+        // Product model expects variant.images as array of URL strings, not objects
+        const variantImageUrls = variantImages
+          .map((img) => {
+            if (typeof img === "string") return img;
+            if (img && typeof img === "object" && img.url) return img.url;
+            if (img && typeof img === "object" && (img.path || img.secure_url))
+              return img.path || img.secure_url;
+            return null;
+          })
+          .filter(Boolean);
 
         // Convert attributes/options object to Map if needed, then normalize to store values (not labels)
         let attributesMap = new Map();
@@ -462,7 +473,7 @@ const createProduct = async (req, res) => {
             isInStock: isInStock,
           },
           _optionsHash: optionsHash,
-          images: variantImages,
+          images: variantImageUrls,
           attributes: attributesMap, // New format
           options: attributesMap, // Keep for backward compatibility
           weight: v.weight,

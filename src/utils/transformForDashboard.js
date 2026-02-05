@@ -167,30 +167,11 @@ function buildVariantTitle(parentTitle, attributes) {
   return parentTitle;
 }
 
-/**
- * Build Cloudinary URL from public_id or asset path
- */
+const { toCloudinaryUrl } = require("./cloudinaryUrlUtils");
+
+/** Build Cloudinary URL from public_id or asset path (uses shared util) */
 function buildCloudinaryUrl(publicIdOrPath) {
-  if (!publicIdOrPath) return null;
-
-  // If it's already a full URL, return as-is
-  if (typeof publicIdOrPath === "string" && publicIdOrPath.startsWith("http")) {
-    return publicIdOrPath;
-  }
-
-  // Handle "assets/" prefix - keep as "assets/" folder (CSV imported images)
-  let publicId = publicIdOrPath;
-  // Keep assets/ as-is since CSV images are stored in assets folder
-
-  // Get Cloudinary config
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  if (!cloudName) {
-    console.warn("CLOUDINARY_CLOUD_NAME not set, cannot build URL");
-    return publicIdOrPath; // Return original if config missing
-  }
-
-  // Build Cloudinary URL
-  return `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+  return toCloudinaryUrl(publicIdOrPath) ?? publicIdOrPath;
 }
 
 /**

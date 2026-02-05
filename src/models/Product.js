@@ -11,7 +11,7 @@ const variantOptionValueSchema = new mongoose.Schema(
     hex: { type: String }, // For color variants
     metadata: { type: Map, of: String }, // ✅ NEW: Additional metadata (image_url, etc.)
   },
-  { _id: false },
+  { _id: false }
 );
 
 const variantOptionSchema = new mongoose.Schema(
@@ -27,7 +27,7 @@ const variantOptionSchema = new mongoose.Schema(
     values: [variantOptionValueSchema],
     position: { type: Number, default: 0 }, // ✅ NEW: Display order
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Variant Schema (embedded in Product)
@@ -66,7 +66,7 @@ const variantSchema = new mongoose.Schema(
     _optionsHash: { type: String }, // ✅ NEW: Hash of options for duplicate detection
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" }, // ✅ NEW: Reference to parent product
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Detail Field Schema - Used across all section types
@@ -85,7 +85,7 @@ const detailFieldSchema = new mongoose.Schema(
     label: { type: String },
     value: { type: String },
   },
-  { _id: false, strict: false },
+  { _id: false, strict: false }
 );
 
 // Detail Section Schema
@@ -106,7 +106,7 @@ const detailSchema = new mongoose.Schema(
     // For all types (structure differs based on type)
     fields: [detailFieldSchema],
   },
-  { _id: false, strict: false },
+  { _id: false, strict: false }
 );
 
 // Gift Option Schema (for bundle_config.gift_slot.options)
@@ -115,7 +115,7 @@ const giftOptionSchema = new mongoose.Schema(
     sku: { type: String, required: true },
     label: { type: String, required: true }, // Display label e.g., "Free Socks"
   },
-  { _id: false },
+  { _id: false }
 );
 
 // Gift Slot Schema (for bundle_config.gift_slot)
@@ -137,7 +137,7 @@ const giftSlotSchema = new mongoose.Schema(
       },
     },
   },
-  { _id: false },
+  { _id: false }
 );
 
 const productSchema = new mongoose.Schema(
@@ -232,7 +232,7 @@ const productSchema = new mongoose.Schema(
       isInStock: { type: Boolean, default: true },
     },
 
-    // Product-level images
+    // Product-level images (same type as variant.images - array of URL strings)
     images: [{ type: String }],
 
     // Variant structure
@@ -260,7 +260,7 @@ const productSchema = new mongoose.Schema(
 
     createdAt: { type: Date, default: Date.now },
   },
-  { timestamps: true },
+  { timestamps: true }
 );
 
 // Pre-save middleware to sync name with title for backward compatibility
@@ -282,8 +282,8 @@ productSchema.pre("save", function (next) {
         if (hashes.has(variant._optionsHash)) {
           return next(
             new Error(
-              `Duplicate variant configuration detected. Options Hash: ${variant._optionsHash}`,
-            ),
+              `Duplicate variant configuration detected. Options Hash: ${variant._optionsHash}`
+            )
           );
         }
         hashes.add(variant._optionsHash);

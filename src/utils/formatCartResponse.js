@@ -1,6 +1,24 @@
 // utils/formatCartResponse.js
 
 /**
+ * Normalize variant attributes to a single key per attribute (lowercase).
+ * Collapses duplicates like { Size: "3-6", size: "3-6" } -> { size: "3-6" }.
+ * @param {Object|Map|null} attrs - Plain object or Map of attribute key -> value
+ * @returns {Object|null} Plain object with lowercase keys, or null
+ */
+function normalizeAttributesSnapshot(attrs) {
+  if (attrs == null) return null;
+  const entries =
+    attrs instanceof Map ? [...attrs.entries()] : Object.entries(attrs);
+  if (entries.length === 0) return null;
+  const normalized = {};
+  for (const [k, v] of entries) {
+    if (k != null && String(v) !== "") normalized[k.toLowerCase()] = String(v);
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+/**
  * Check if cart contains any BUNDLE products
  */
 const cartHasBundles = (cart) => {
@@ -64,14 +82,23 @@ const formatCartResponse = (
     }
 
     // Get pricing from itemPrices map (computed dynamically)
-    const itemId = item._id ? item._id.toString() : item.productId.toString();
+    const itemId =
+      (item._id && item._id.toString()) ||
+      (item.productId &&
+        (item.productId._id
+          ? item.productId._id.toString()
+          : item.productId.toString())) ||
+      null;
     const pricing = itemPrices ? itemPrices.get(itemId) : null;
 
     const itemObj = {
-      _id: item._id.toString(), // Item ID (embedded document ID, needed for updates)
-      productId: item.productId?._id
-        ? item.productId._id.toString()
-        : item.productId.toString(),
+      _id: (item._id && item._id.toString()) || null, // Item ID (embedded document ID, needed for updates)
+      productId:
+        (item.productId &&
+          (item.productId._id
+            ? item.productId._id.toString()
+            : item.productId.toString())) ||
+        null,
       variantId: item.variantId || null,
       quantity: item.quantity,
       stock,
@@ -93,9 +120,11 @@ const formatCartResponse = (
       titleSnapshot: item.titleSnapshot,
       imageSnapshot: item.imageSnapshot,
       skuSnapshot: item.skuSnapshot || product?.sku || null,
-      attributesSnapshot: item.attributesSnapshot
-        ? Object.fromEntries(item.attributesSnapshot)
-        : null,
+      attributesSnapshot: normalizeAttributesSnapshot(
+        item.attributesSnapshot
+          ? Object.fromEntries(item.attributesSnapshot)
+          : null
+      ),
       selectedGiftSku: item.selectedGiftSku || null,
       selectedGift: null, // Default
     };
@@ -134,7 +163,7 @@ const formatCartResponse = (
     // Include populated product data if available (no bundle_config - selectedGift is enough)
     if (item.productId?._id) {
       itemObj.product = {
-        _id: item.productId._id.toString(),
+        _id: (item.productId._id && item.productId._id.toString()) || null,
         title: item.productId.title,
         url_key: item.productId.url_key,
         product_type: item.productId.product_type || "SIMPLE",
@@ -300,4 +329,4 @@ const generatePriceSummary = (cart, formattedItems) => {
   };
 };
 
-module.exports = { formatCartResponse };
+module.exports = { formatCartResponse, normalizeAttributesSnapshot };

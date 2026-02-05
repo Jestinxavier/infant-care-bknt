@@ -8,7 +8,10 @@ const {
   isValidCartId,
   generateCartId,
 } = require("../../utils/cartIdGenerator");
-const { formatCartResponse } = require("../../utils/formatCartResponse");
+const {
+  formatCartResponse,
+  normalizeAttributesSnapshot,
+} = require("../../utils/formatCartResponse");
 const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
 
@@ -57,7 +60,7 @@ const calculateTotals = async (items) => {
   const itemPrices = new Map(); // Map itemId -> pricing info
 
   for (const item of items) {
-    // Get product ID
+    // Get product ID (may be null if product was deleted)
     const productId = item.productId?._id || item.productId;
 
     // Always fetch product directly for pricing fields (populate may not return quantityRules)
@@ -78,9 +81,12 @@ const calculateTotals = async (items) => {
     // Compute pricing using the resolver
     const pricing = computeCartItemPricing(product, variant, item.quantity);
 
-    // Store for later use in formatCartResponse
-    const itemId = item._id ? item._id.toString() : productId.toString();
-    itemPrices.set(itemId, pricing);
+    // Store for later use in formatCartResponse (guard against null _id/productId)
+    const itemId =
+      (item._id && item._id.toString()) ||
+      (productId && productId.toString()) ||
+      null;
+    if (itemId) itemPrices.set(itemId, pricing);
 
     // Accumulate totals
     subtotal += pricing.basePrice * item.quantity;
@@ -693,7 +699,7 @@ const addItem = async (req, res) => {
       titleSnapshot: productData.title,
       imageSnapshot: productData.image,
       skuSnapshot: productData.sku || item.sku || null,
-      attributesSnapshot: item.attributes || null,
+      attributesSnapshot: normalizeAttributesSnapshot(item.attributes) || null,
       selectedGiftSku: item.selectedGiftSku || null,
     };
 

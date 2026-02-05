@@ -140,6 +140,47 @@ class ProductService {
     // 2. Aggregation Pipeline
     const pipeline = [
       { $match: matchStage },
+      // Add flag: does this product have "color" as a variant option? (used for listing grouping)
+      // Only group by color when product has color option → one listing item per color (blue, black).
+      // When product has no color option (e.g. only size) → one listing item per product.
+      {
+        $addFields: {
+          hasColorOption: {
+            $gt: [
+              {
+                $size: {
+                  $ifNull: [
+                    {
+                      $filter: {
+                        input: { $ifNull: ["$variantOptions", []] },
+                        as: "o",
+                        cond: {
+                          $or: [
+                            {
+                              $eq: [
+                                { $toLower: { $ifNull: ["$$o.code", ""] } },
+                                "color",
+                              ],
+                            },
+                            {
+                              $eq: [
+                                { $toLower: { $ifNull: ["$$o.name", ""] } },
+                                "color",
+                              ],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                    [],
+                  ],
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
       // Unwind variants but keep simple products (no variants)
       {
         $unwind: {
@@ -328,6 +369,8 @@ class ProductService {
         : []),
 
       // Grouping Stage
+      // When product has color option: group by (productId, color) → one listing item per color (blue, black).
+      // When product has no color option (e.g. only size): use "default" so one listing item per product.
       {
         $group: {
           _id: {
@@ -335,7 +378,15 @@ class ProductService {
             color: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
-                then: { $ifNull: ["$variants.attributes.color", "default"] },
+                then: {
+                  $cond: {
+                    if: "$hasColorOption",
+                    then: {
+                      $ifNull: ["$variants.attributes.color", "default"],
+                    },
+                    else: "default",
+                  },
+                },
                 else: "single-item",
               },
             },
@@ -348,8 +399,14 @@ class ProductService {
             $first: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
-                then: "$variants.url_key", // Use variant's url_key for variants
-                else: "$url_key", // Use product url_key for non-variants
+                then: {
+                  $cond: {
+                    if: "$hasColorOption",
+                    then: "$variants.url_key",
+                    else: "$url_key",
+                  },
+                },
+                else: "$url_key",
               },
             },
           },
@@ -357,8 +414,14 @@ class ProductService {
             $first: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
-                then: "$variants.url_key", // Use variant's url_key for variants
-                else: "$url_key", // Use product url_key for non-variants
+                then: {
+                  $cond: {
+                    if: "$hasColorOption",
+                    then: "$variants.url_key",
+                    else: "$url_key",
+                  },
+                },
+                else: "$url_key",
               },
             },
           },
@@ -366,13 +429,19 @@ class ProductService {
           category: { $first: "$category" },
           categoryName: { $first: "$categoryName" },
 
-          // Variant/Product specific data
+          // Variant/Product specific data (variantId null when no color option → PDP shows size picker)
           variantId: {
             $first: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
-                then: "$variants.id",
-                else: null, // null for non-variant products
+                then: {
+                  $cond: {
+                    if: "$hasColorOption",
+                    then: "$variants.id",
+                    else: null,
+                  },
+                },
+                else: null,
               },
             },
           },
@@ -389,7 +458,13 @@ class ProductService {
             $first: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
-                then: { $arrayElemAt: ["$variants.images", 0] },
+                then: {
+                  $cond: {
+                    if: "$hasColorOption",
+                    then: { $arrayElemAt: ["$variants.images", 0] },
+                    else: { $arrayElemAt: ["$images", 0] },
+                  },
+                },
                 else: { $arrayElemAt: ["$images", 0] },
               },
             },

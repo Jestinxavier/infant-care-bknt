@@ -1,18 +1,19 @@
 const Category = require("../../models/Category");
+const { toCloudinaryUrl } = require("../../utils/cloudinaryUrlUtils");
 
 /**
  * Admin: Get all categories (including inactive)
  */
 const getAllCategories = async (req, res) => {
   try {
-    const requestData = req.method === 'POST' ? (req.body || {}) : req.query;
+    const requestData = req.method === "POST" ? req.body || {} : req.query;
     const {
       includeInactive = true,
       page = 1,
       limit = 50,
       search,
     } = requestData;
-    
+
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
     const skip = (pageNum - 1) * limitNum;
@@ -34,11 +35,14 @@ const getAllCategories = async (req, res) => {
       .limit(limitNum)
       .lean();
 
-    // Format categories
-    const formattedCategories = categories.map(cat => ({
-      ...cat,
-      _id: cat._id?.toString(),
-    }));
+    // Format categories - convert asset IDs to full Cloudinary URLs
+    const formattedCategories = categories.map((cat) => {
+      const out = { ...cat, _id: cat._id?.toString() };
+      if (out.image && typeof out.image === "string") {
+        out.image = toCloudinaryUrl(out.image) || out.image;
+      }
+      return out;
+    });
 
     res.status(200).json({
       success: true,
@@ -68,7 +72,12 @@ const getCategoryById = async (req, res) => {
   try {
     const { categoryId } = req.params;
 
-    if (!categoryId || categoryId === 'undefined' || categoryId === 'null' || categoryId.trim() === '') {
+    if (
+      !categoryId ||
+      categoryId === "undefined" ||
+      categoryId === "null" ||
+      categoryId.trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
         message: "Category ID is required",
@@ -86,12 +95,18 @@ const getCategoryById = async (req, res) => {
       });
     }
 
+    const categoryObj = {
+      ...category,
+      _id: category._id?.toString(),
+    };
+    if (categoryObj.image && typeof categoryObj.image === "string") {
+      categoryObj.image =
+        toCloudinaryUrl(categoryObj.image) || categoryObj.image;
+    }
+
     res.status(200).json({
       success: true,
-      category: {
-        ...category,
-        _id: category._id?.toString(),
-      },
+      category: categoryObj,
     });
   } catch (error) {
     console.error("❌ Admin Error fetching category:", error);
@@ -107,4 +122,3 @@ module.exports = {
   getAllCategories,
   getCategoryById,
 };
-

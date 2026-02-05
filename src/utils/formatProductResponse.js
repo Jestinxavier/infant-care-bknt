@@ -3,6 +3,7 @@
  * Converts from database format to frontend format
  */
 const { resolvePrice } = require("./pricingUtils");
+const { ensureImageUrl, ensureImageUrls } = require("./cloudinaryUrlUtils");
 
 const formatProductResponse = (product) => {
   const productObj = product.toObject ? product.toObject() : product;
@@ -22,8 +23,8 @@ const formatProductResponse = (product) => {
         ? Object.fromEntries(variant.attributes)
         : variant.attributes
       : variant.options instanceof Map
-        ? Object.fromEntries(variant.options)
-        : variant.options || {};
+      ? Object.fromEntries(variant.options)
+      : variant.options || {};
 
     // Get pricing - use flat fields only (discountPrice computed via resolvePrice)
     const variantPricing = {
@@ -49,7 +50,7 @@ const formatProductResponse = (product) => {
       url_key: variant.url_key, // Include variant url_key in response
       sku: variant.sku,
       attributes: attributes,
-      images: variant.images || [],
+      images: ensureImageUrls(variant.images || []),
       pricing: {
         price: resolvedPricing.price,
         ...(resolvedPricing.discountPrice
@@ -75,7 +76,7 @@ const formatProductResponse = (product) => {
         value: val.value,
         // hex is available in uiMeta - no longer included here
       })),
-    }),
+    })
   );
 
   // Format details - preserve new structure (description/grid/pair)
@@ -132,7 +133,7 @@ const formatProductResponse = (product) => {
                   ).map((opt) => ({
                     sku: opt.sku,
                     label: opt.label,
-                    image: opt.image,
+                    image: opt.image ? ensureImageUrl(opt.image) : undefined,
                   })),
                 }
               : undefined,
@@ -140,7 +141,7 @@ const formatProductResponse = (product) => {
         }
       : {}),
     category: categoryValue,
-    images: productObj.images || [],
+    images: ensureImageUrls(productObj.images || []),
     rating: {
       value: productObj.averageRating || 0,
       totalReviews: productObj.totalReviews || 0,
@@ -209,7 +210,7 @@ const formatProductResponse = (product) => {
         return {
           available: formattedVariants.reduce(
             (sum, v) => sum + v.stock.available,
-            0,
+            0
           ),
           isInStock: formattedVariants.some((v) => v.stock.isInStock),
         };
@@ -220,8 +221,8 @@ const formatProductResponse = (product) => {
         productObj.stockObj?.available !== undefined
           ? productObj.stockObj.available
           : productObj.stock !== undefined
-            ? productObj.stock
-            : 0;
+          ? productObj.stock
+          : 0;
       const productIsInStock =
         productObj.stockObj?.isInStock !== undefined
           ? productObj.stockObj.isInStock

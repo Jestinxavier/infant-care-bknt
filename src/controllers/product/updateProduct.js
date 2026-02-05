@@ -18,6 +18,17 @@ const bundleService = require("../../features/product/bundle.service");
 
 const updateProduct = async (req, res) => {
   try {
+    // Parse FormData JSON string fields (variants, etc. come as strings from multipart)
+    let parsedBody = { ...req.body };
+    if (typeof parsedBody.variants === "string") {
+      try {
+        parsedBody.variants = JSON.parse(parsedBody.variants);
+      } catch (e) {
+        console.error("Error parsing variants JSON in updateProduct:", e);
+        parsedBody.variants = [];
+      }
+    }
+
     const {
       productId,
       // New structure fields
@@ -53,7 +64,7 @@ const updateProduct = async (req, res) => {
       quantityRules,
       // Legacy fields
       name,
-    } = req.body;
+    } = parsedBody;
 
     // DEBUG: Log bundle-related fields
     console.log("📦 [updateProduct] Received bundle fields:", {
@@ -328,14 +339,27 @@ const updateProduct = async (req, res) => {
 
         // First, collect existing images from variant data
         if (v.images && Array.isArray(v.images)) {
-          // Extract URLs from Cloudinary metadata objects or use strings directly
-          variantImages = v.images
-            .map((img) => {
-              if (typeof img === "string") return img;
-              if (img && typeof img === "object" && img.url) return img.url;
-              return null;
-            })
-            .filter(Boolean);
+          // Extract URLs from Cloudinary metadata objects or use strings directly.
+          // If an element is a JSON string (e.g. stringified array of objects), parse and flatten.
+          const flattenToUrls = (img) => {
+            if (typeof img === "string") {
+              if (img.startsWith("http") || img.startsWith("/")) return img;
+              if (img.trim().startsWith("[")) {
+                try {
+                  const arr = JSON.parse(img);
+                  return Array.isArray(arr)
+                    ? arr.flatMap(flattenToUrls)
+                    : [img];
+                } catch (e) {
+                  return [img];
+                }
+              }
+              return [img];
+            }
+            if (img && typeof img === "object" && img.url) return [img.url];
+            return [];
+          };
+          variantImages = v.images.flatMap(flattenToUrls).filter(Boolean);
         }
 
         // Then, add newly uploaded files (merge, don't replace)

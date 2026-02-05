@@ -743,29 +743,38 @@ class BulkImportController {
 
         if (productData.variants && productData.variants.length > 0) {
           for (const variantData of productData.variants) {
-            // Build variant images
-            const variantImages = [];
+            // Build variant images - same type as product images: array of objects { url, public_id }
+            // Then map to URL strings when assigning (schema is string[]).
+            const variantImageObjects = [];
             // 1. Process temp images from imageMetadata
             if (variantData.imageMetadata) {
               for (const key of variantData.imageMetadata) {
                 const mappedImage = imageMapping.get(key);
                 if (mappedImage) {
-                  variantImages.push(mappedImage.url); // Embedded stores URL strings usually, or check schema
-                  // Schema says: images: [{ type: String }] // URLs
+                  variantImageObjects.push({
+                    url: mappedImage.url,
+                    public_id: mappedImage.new_public_id,
+                  });
                 }
               }
             }
-            // 2. Process image_urls: resolve asset IDs to Cloudinary URL, save only URL in DB
+            // 2. Process image_urls: resolve asset IDs to Cloudinary URL (same as product)
             if (variantData.images && Array.isArray(variantData.images)) {
               for (const entry of variantData.images) {
                 const raw =
                   typeof entry === "string" ? entry : entry && entry.url;
                 const url = await resolveImageEntryToUrl(raw, assetUrlCache);
-                if (url && !variantImages.includes(url)) {
-                  variantImages.push(url);
+                if (
+                  url &&
+                  !variantImageObjects.some((img) => img.url === url)
+                ) {
+                  variantImageObjects.push({ url });
                 }
               }
             }
+            const variantImages = variantImageObjects.map((i) =>
+              typeof i === "string" ? i : i.url
+            );
 
             // ✅ NEW: ID Generation Logic
             let variantId = variantData.csvId;

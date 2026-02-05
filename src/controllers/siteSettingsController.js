@@ -218,13 +218,21 @@ const getPublicSettings = async (req, res) => {
     const filter = { isPublic: true };
     if (scope) filter.scope = scope;
 
-    const settings = await SiteSetting.find(filter).select(
-      "-_id key value type"
-    );
+    const settings = await SiteSetting.find(filter)
+      .select({ _id: 0, key: 1, value: 1, type: 1, description: 1 })
+      .lean();
 
-    // Convert to key-value map for easier frontend access
+    // Convert to key-value map; include description when present for frontend display
     const settingsMap = settings.reduce((acc, s) => {
-      acc[s.key] = s.value;
+      const hasDescription =
+        s.description !== undefined &&
+        s.description !== null &&
+        String(s.description).trim() !== "";
+      if (hasDescription) {
+        acc[s.key] = { value: s.value, description: s.description };
+      } else {
+        acc[s.key] = s.value;
+      }
       return acc;
     }, {});
 
