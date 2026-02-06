@@ -7,6 +7,7 @@
 /**
  * Convert a public_id or asset path to a full Cloudinary image URL.
  * - If input is already a full URL (starts with http), return as-is.
+ * - If input is a relative path (starts with /), return as-is (e.g. menu links "/category/all").
  * - Otherwise treat as public_id and build: https://res.cloudinary.com/{cloudName}/image/upload/{publicId}
  *
  * @param {string} publicIdOrPath - Public ID (e.g. "assets/xxx"), path, or full URL
@@ -23,6 +24,10 @@ function toCloudinaryUrl(publicIdOrPath) {
   if (value == null || value === "") return null;
 
   if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+  // Relative paths (e.g. "/category/all", "/about") are not Cloudinary public_ids
+  if (value.startsWith("/")) {
     return value;
   }
 
@@ -73,8 +78,10 @@ function ensureImageUrls(images) {
 
 /**
  * Recursively walk a plain object/array and convert any property named "url"
- * (when its value is a non-http string) to a full Cloudinary URL.
+ * (when its value looks like a Cloudinary public_id) to a full Cloudinary URL.
  * Used for CMS content (blocks with image_small.url, image_large.url, etc.).
+ * Relative paths (e.g. "/category/all") and full URLs are left unchanged so that
+ * header/footer menu links and other non-image URLs are not broken.
  *
  * @param {any} obj - Content object or array (e.g. CMS page content)
  * @returns {any} New structure with url fields converted (shallow copy where changed)
@@ -89,8 +96,16 @@ function ensureContentImageUrls(obj) {
     const out = {};
     for (const key of Object.keys(obj)) {
       const val = obj[key];
-      if (key === "url" && typeof val === "string" && !val.startsWith("http")) {
-        out[key] = toCloudinaryUrl(val) || val;
+      if (key === "url" && typeof val === "string") {
+        // Leave full URLs and relative paths (e.g. "/category/all") unchanged.
+        // Only convert values that look like Cloudinary public_ids (no leading slash).
+        if (val.startsWith("http://") || val.startsWith("https://")) {
+          out[key] = val;
+        } else if (val.startsWith("/")) {
+          out[key] = val;
+        } else {
+          out[key] = toCloudinaryUrl(val) || val;
+        }
       } else if (val !== null && typeof val === "object") {
         out[key] = ensureContentImageUrls(val);
       } else {

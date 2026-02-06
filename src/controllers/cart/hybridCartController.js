@@ -362,7 +362,7 @@ const createCart = async (req, res) => {
           await existingCart.populate({
             path: "items.productId",
             select:
-              "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+              "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
           });
           const totals = await calculateTotals(existingCart.items);
           const itemPrices = totals.itemPrices;
@@ -504,7 +504,7 @@ const getCart = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
@@ -527,6 +527,20 @@ const getCart = async (req, res) => {
       cart
     );
 
+    // Add issues for products that are no longer published (draft/archived)
+    for (const item of cart.items) {
+      const productDoc = item.productId;
+      if (productDoc && productDoc._id && productDoc.status !== "published") {
+        issues.push({
+          productId: productDoc._id.toString(),
+          sku: productDoc.sku,
+          title: productDoc.title,
+          reason: "PRODUCT_NOT_AVAILABLE",
+          message: "This product is no longer available",
+        });
+      }
+    }
+
     // Pass bundleStocks and itemPrices so formatCartResponse has all pricing data
     const giftProducts = await fetchGiftProducts(cart.items);
     const formatted = formatCartResponse(
@@ -536,15 +550,13 @@ const getCart = async (req, res) => {
       giftProducts
     );
 
-    // Cart validation result per bundle spec:
-    // isValid: false blocks checkout, issues array explains why
+    // Cart validation result: isValid false blocks checkout when any issue (bundle stock or unpublished product)
     const isValid = issues.length === 0;
 
     res.status(200).json({
       success: true,
       cart: formatted,
       isValid,
-      issues: issues.length > 0 ? issues : undefined,
     });
   } catch (error) {
     console.error("❌ Error getting cart:", error);
@@ -581,8 +593,15 @@ const addItem = async (req, res) => {
     // CHOICE_GROUP products are NOT sellable - they reference bundle products
     // Customer must select a specific bundle on PDP before adding to cart
     const productCheck = await Product.findById(item.productId).select(
-      "product_type bundle_config"
+      "product_type bundle_config status"
     );
+    if (productCheck?.status !== "published") {
+      return res.status(400).json({
+        success: false,
+        errorCode: "PRODUCT_NOT_AVAILABLE",
+        message: "This product is no longer available",
+      });
+    }
     if (productCheck?.product_type === PRODUCT_TYPES.CHOICE_GROUP) {
       return res.status(400).json({
         success: false,
@@ -714,7 +733,7 @@ const addItem = async (req, res) => {
     await cartDoc.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Get bundle stocks for bundle products
@@ -819,7 +838,7 @@ const updateItem = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
@@ -966,7 +985,7 @@ const removeItem = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals dynamically
@@ -1099,7 +1118,7 @@ const getItems = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals with itemPrices
@@ -1173,7 +1192,7 @@ const getPriceSummary = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals with itemPrices
@@ -1221,7 +1240,7 @@ const getProductData = async (req, res) => {
     // Populate product details
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images pricing stockObj variants",
+      select: "title url_key images pricing stockObj variants status",
     });
 
     const productData = cart.items.map((item) => {
@@ -1318,7 +1337,7 @@ const getSummary = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals with itemPrices
@@ -1458,7 +1477,7 @@ const mergeCart = async (req, res) => {
       await userCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       // Recalculate totals dynamically
@@ -1495,7 +1514,7 @@ const mergeCart = async (req, res) => {
       await userCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       // Compute totals with itemPrices
@@ -1538,7 +1557,7 @@ const mergeCart = async (req, res) => {
         await guestCart.populate({
           path: "items.productId",
           select:
-            "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+            "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
         });
 
         const totals = await calculateTotals(guestCart.items);
@@ -1566,7 +1585,7 @@ const mergeCart = async (req, res) => {
       await guestCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       const totals = await calculateTotals(guestCart.items);
@@ -1700,7 +1719,7 @@ const applyCoupon = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals dynamically
@@ -1792,7 +1811,7 @@ const removeCoupon = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals (without coupon)
@@ -1969,7 +1988,7 @@ const recoverCart = async (req, res) => {
       await newCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt",
+          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       const totals = await calculateTotals(newCart.items);

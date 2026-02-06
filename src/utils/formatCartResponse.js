@@ -91,8 +91,11 @@ const formatCartResponse = (
       null;
     const pricing = itemPrices ? itemPrices.get(itemId) : null;
 
+    const isUnavailable = !!(product && product.status !== "published");
+
     const itemObj = {
       _id: (item._id && item._id.toString()) || null, // Item ID (embedded document ID, needed for updates)
+      unavailable: isUnavailable,
       productId:
         (item.productId &&
           (item.productId._id

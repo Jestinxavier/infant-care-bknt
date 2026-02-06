@@ -569,6 +569,19 @@ const updateOrderStatus = async (req, res) => {
     ) {
       emailService.sendShipmentEmail(order.userId, order);
     }
+
+    // Send order cancelled email if status changed to cancelled
+    if (
+      status === "cancelled" &&
+      currentOrder.orderStatus !== "cancelled" &&
+      order.userId?.email
+    ) {
+      emailService
+        .sendOrderCancelledEmail(order.userId, order)
+        .catch((err) =>
+          console.error("❌ Order cancelled email failed:", err.message)
+        );
+    }
   } catch (err) {
     console.error("❌ Admin Error updating order status:", err);
     res.status(500).json({

@@ -231,13 +231,14 @@ const createProduct = async (req, res) => {
       categoryCode = foundCategory.code;
     }
 
-    // Generate url_key if not provided
-    let productUrlKey = url_key;
-    if (!productUrlKey) {
-      const checkUrlKeyExists = async (urlKey) => {
-        const existing = await Product.findOne({ url_key: urlKey });
-        return !!existing;
-      };
+    // Generate url_key if not provided or if provided key already exists (avoid E11000)
+    const checkUrlKeyExists = async (urlKey) => {
+      const existing = await Product.findOne({ url_key: urlKey });
+      return !!existing;
+    };
+    let productUrlKey =
+      url_key && typeof url_key === "string" ? url_key.trim() : "";
+    if (!productUrlKey || (await checkUrlKeyExists(productUrlKey))) {
       productUrlKey = await generateUniqueUrlKey(
         productTitle,
         checkUrlKeyExists

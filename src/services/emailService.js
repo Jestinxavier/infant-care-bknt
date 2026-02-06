@@ -17,7 +17,7 @@ const loadTemplate = (templateName, data = {}) => {
   const templatePath = path.join(
     __dirname,
     "../mail_templates",
-    `${templateName}.html`,
+    `${templateName}.html`
   );
 
   if (!fs.existsSync(templatePath)) {
@@ -43,7 +43,7 @@ const loadTemplate = (templateName, data = {}) => {
             Object.keys(item).forEach((itemKey) => {
               block = block.replace(
                 new RegExp(`{{${itemKey}}}`, "g"),
-                item[itemKey] ?? "",
+                item[itemKey] ?? ""
               );
             });
 
@@ -56,7 +56,7 @@ const loadTemplate = (templateName, data = {}) => {
       if (value) return content;
 
       return "";
-    },
+    }
   );
 
   /**
@@ -207,7 +207,7 @@ const sendShipmentEmail = async (user, order) => {
     order.trackingId && order.deliveryPartner?.trackingUrlTemplate
       ? order.deliveryPartner.trackingUrlTemplate.replace(
           "{trackingId}",
-          order.trackingId,
+          order.trackingId
         )
       : null;
 
@@ -228,6 +228,30 @@ const sendShipmentEmail = async (user, order) => {
       trackingUrl,
       deliveryPartner: !!order.deliveryPartner,
       deliveryPartnerName: order.deliveryPartner?.name || "",
+      items,
+    },
+  });
+};
+
+/**
+ * ✅ Send Order Cancelled Email
+ */
+const sendOrderCancelledEmail = async (user, order) => {
+  if (!user?.email) return;
+
+  const items = (order.items || []).map((item) => ({
+    productName: item.productId?.name || item.productName || item.name,
+    quantity: item.quantity,
+    price: item.price,
+  }));
+
+  return sendTemplateEmail({
+    to: user.email,
+    subject: `Order #${(order.orderId || "").toUpperCase()} Cancelled`,
+    template: "order-cancelled",
+    data: {
+      username: user.username || "Customer",
+      orderId: (order.orderId || "").toUpperCase(),
       items,
     },
   });
@@ -286,5 +310,6 @@ module.exports = {
   sendPasswordResetEmail,
   sendAdminCredentialsEmail,
   sendShipmentEmail,
+  sendOrderCancelledEmail,
   sendInvoiceEmail,
 };

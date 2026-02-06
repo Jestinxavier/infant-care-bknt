@@ -133,6 +133,14 @@ const createOrder = async (req, res) => {
         };
       }
 
+      if (product.status !== "published") {
+        throw {
+          code: "PRODUCT_NOT_AVAILABLE",
+          productId: item.productId,
+          message: "This product is no longer available",
+        };
+      }
+
       let regularPrice, offerPrice, stock, variantData;
       let bundleChildDeductions = []; // For bundle child stock deductions
       let unitPrice; // Resolved price after quantity tiers (for non-bundles)
@@ -804,6 +812,15 @@ const createOrder = async (req, res) => {
         success: false,
         errorCode: "CHECKOUT_EXPIRED",
         message: error.message,
+      });
+    }
+
+    if (error.code === "PRODUCT_NOT_AVAILABLE") {
+      return res.status(400).json({
+        success: false,
+        errorCode: "PRODUCT_NOT_AVAILABLE",
+        message: error.message || "This product is no longer available",
+        productId: error.productId,
       });
     }
 

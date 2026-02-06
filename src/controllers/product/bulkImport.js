@@ -13,6 +13,7 @@ const {
   generateVariantSku,
   generateUniqueSku,
 } = require("../../utils/skuGenerator");
+const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 
 // Cloudinary folder for permanent CSV imported images
@@ -665,6 +666,9 @@ class BulkImportController {
       // Cache for resolving asset IDs to Cloudinary URLs (CSV image_urls can be asset ID or URL)
       const assetUrlCache = new Map();
 
+      // Track url_keys assigned in this batch to avoid duplicates within the same import
+      const usedUrlKeysInBatch = new Set();
+
       // Step 2: Create/Update products
       for (const productData of products) {
         // Resolve category
@@ -710,6 +714,23 @@ class BulkImportController {
               : await Product.findOne(query);
             return !!exists;
           });
+        }
+
+        // 0b. For new products: ensure unique url_key (avoids E11000 duplicate key in bulk import)
+        if (!isUpdate) {
+          const checkUrlKeyExists = async (urlKey) => {
+            if (usedUrlKeysInBatch.has(urlKey)) return true;
+            const query = { url_key: urlKey };
+            const exists = isTransactionStarted
+              ? await Product.findOne(query).session(session)
+              : await Product.findOne(query);
+            return !!exists;
+          };
+          productData.url_key = await generateUniqueUrlKey(
+            productData.title,
+            checkUrlKeyExists
+          );
+          usedUrlKeysInBatch.add(productData.url_key);
         }
 
         // 1. Process Temp Images
