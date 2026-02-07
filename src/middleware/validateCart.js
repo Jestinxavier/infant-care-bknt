@@ -34,7 +34,7 @@ const validateCart = async (req, res, next) => {
         res.cookie(CART_ID, userCart.cartId, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
-          sameSite: "strict",
+          sameSite: "lax",
           maxAge: 30 * 24 * 60 * 60 * 1000,
           path: "/",
         });
@@ -68,6 +68,23 @@ const validateCart = async (req, res, next) => {
       return next();
     }
 
+    // If cart belongs to a user but the request is unauthenticated and the
+    // cartId came only from the cookie (not the x-cart-id header), refuse it.
+    // This handles the case where a user logs out but the HttpOnly cart_id
+    // cookie persists — without this check the guest session would see the
+    // previous user's cart.
+    if (cart.userId && !req.user?.id && !cartIdFromHeader) {
+      req.cart = null;
+      req.cartId = null;
+      res.clearCookie(CART_ID, {
+        path: "/",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+      });
+      return next();
+    }
+
     // Check if cart is already ordered
     if (cart.status === "ordered") {
       req.cart = null;
@@ -77,7 +94,7 @@ const validateCart = async (req, res, next) => {
         path: "/",
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
+        sameSite: "lax",
       });
       return next();
     }

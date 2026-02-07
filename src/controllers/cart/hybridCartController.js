@@ -403,7 +403,7 @@ const createCart = async (req, res) => {
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: "/",
     };
@@ -455,7 +455,7 @@ const setCookie = async (req, res) => {
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: "/",
     };
@@ -655,7 +655,7 @@ const addItem = async (req, res) => {
           res.cookie(CART_ID, existingUserCart.cartId, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: "strict",
+            sameSite: "lax",
             maxAge: 30 * 24 * 60 * 60 * 1000,
             path: "/",
           });
@@ -678,7 +678,7 @@ const addItem = async (req, res) => {
         res.cookie(CART_ID, cartId, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
-          sameSite: "strict",
+          sameSite: "lax",
           maxAge: 30 * 24 * 60 * 60 * 1000,
           path: "/",
         });
@@ -1420,7 +1420,7 @@ const mergeCart = async (req, res) => {
       res.cookie(CART_ID, cartId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
+        sameSite: "lax",
         maxAge: 30 * 24 * 60 * 60 * 1000,
         path: "/",
       });
@@ -1930,7 +1930,7 @@ const performRecoverCart = async (req, res, lockedCart) => {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "lax",
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
   };
@@ -1971,7 +1971,7 @@ const recoverCart = async (req, res) => {
       res.cookie(CART_ID, newCartId, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
+        sameSite: "lax",
         maxAge: 30 * 24 * 60 * 60 * 1000,
         path: "/",
       });
