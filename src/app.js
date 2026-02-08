@@ -179,9 +179,12 @@ app.use(
 );
 
 // Default route
-app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI version 0.0.3v"));
+app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI version 0.0.4v"));
 
-const { checkOrderStatus, manualCheckPaymentStatus } = require("./controllers/payment/phonepeSDK");
+const {
+  checkOrderStatus,
+  manualCheckPaymentStatus,
+} = require("./controllers/payment/phonepeSDK");
 
 app.get("/order-confirmation", checkOrderStatus);
 // Manual payment status check endpoint (for debugging)
