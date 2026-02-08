@@ -47,16 +47,22 @@ const calculateShipping = (subtotal, settings) => {
  * Calculate cart totals with dynamic pricing
  * Fetches products and computes prices at runtime using quantity pricing resolver
  *
+ * Pricing stages (explicit, no ambiguity):
+ * - baseSubtotal: sum of (basePrice * qty) — MRP total
+ * - productDiscountTotal: baseSubtotal - discountedSubtotal — offer/tier discounts
+ * - discountedSubtotal: sum of lineTotal — amount after product discounts (use for coupon eligibility)
+ * - shippingEstimate, then grandTotal = discountedSubtotal + shipping (before coupon)
+ *
  * @param {Array} items - Cart items (must have productId populated or as ObjectId)
- * @returns {{ subtotal, tax, shippingEstimate, total, itemPrices: Map }}
+ * @returns {{ baseSubtotal, productDiscountTotal, discountedSubtotal, tax, shippingEstimate, total, itemPrices: Map }}
  */
 const calculateTotals = async (items) => {
   const {
     computeCartItemPricing,
   } = require("../../utils/quantityPricingUtils");
 
-  let subtotal = 0; // Sum of basePrice * quantity (for display)
-  let totalAfterDiscount = 0; // Sum of unitPrice * quantity (actual total)
+  let baseSubtotal = 0; // Sum of basePrice * quantity (MRP)
+  let discountedSubtotal = 0; // Sum of lineTotal (after product-level discounts)
   const itemPrices = new Map(); // Map itemId -> pricing info
 
   for (const item of items) {
@@ -89,17 +95,20 @@ const calculateTotals = async (items) => {
     if (itemId) itemPrices.set(itemId, pricing);
 
     // Accumulate totals
-    subtotal += pricing.basePrice * item.quantity;
-    totalAfterDiscount += pricing.lineTotal;
+    baseSubtotal += pricing.basePrice * item.quantity;
+    discountedSubtotal += pricing.lineTotal;
   }
 
+  const productDiscountTotal =
+    Math.round((baseSubtotal - discountedSubtotal) * 100) / 100;
   const settings = await getCartSettings();
-  const shippingEstimate = calculateShipping(totalAfterDiscount, settings);
-
-  const total = totalAfterDiscount + shippingEstimate;
+  const shippingEstimate = calculateShipping(discountedSubtotal, settings);
+  const total = discountedSubtotal + shippingEstimate;
 
   return {
-    subtotal: Math.round(subtotal * 100) / 100,
+    baseSubtotal: Math.round(baseSubtotal * 100) / 100,
+    productDiscountTotal,
+    discountedSubtotal: Math.round(discountedSubtotal * 100) / 100,
     tax: 0,
     shippingEstimate: Math.round(shippingEstimate * 100) / 100,
     total: Math.round(total * 100) / 100,
@@ -108,15 +117,29 @@ const calculateTotals = async (items) => {
 };
 
 /**
- * Recompute and assign cart totals
+ * Assign pricing stages from calculateTotals result to a cart document.
+ * @param {Object} cart - Cart document
+ * @param {Object} totals - Return value of calculateTotals()
+ * @param {number} [couponDiscount=0] - Coupon discount to subtract from total
+ */
+const assignCartTotals = (cart, totals, couponDiscount = 0) => {
+  cart.baseSubtotal = totals.baseSubtotal;
+  cart.productDiscountTotal = totals.productDiscountTotal;
+  cart.discountedSubtotal = totals.discountedSubtotal;
+  cart.subtotal = totals.baseSubtotal; // legacy: MRP subtotal for display
+  cart.tax = totals.tax;
+  cart.shippingEstimate = totals.shippingEstimate;
+  cart.total = Math.max(0, totals.total - couponDiscount);
+};
+
+/**
+ * Recompute and assign cart totals (all pricing stages)
  * Returns itemPrices map for use in formatCartResponse
  */
 const recomputeCartTotals = async (cart) => {
   const result = await calculateTotals(cart.items);
-  cart.subtotal = result.subtotal;
-  cart.tax = result.tax;
-  cart.shippingEstimate = result.shippingEstimate;
-  cart.total = result.total;
+  const couponDiscount = cart.coupon?.discountAmount ?? 0;
+  assignCartTotals(cart, result, couponDiscount);
   return result.itemPrices;
 };
 
@@ -509,14 +532,7 @@ const getCart = async (req, res) => {
 
     // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
     const totals = await calculateTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.tax = totals.tax;
-    cart.shippingEstimate = totals.shippingEstimate;
-    cart.total = totals.total;
-    // Apply coupon discount to total (calculateTotals does not consider coupon)
-    if (cart.coupon?.discountAmount > 0) {
-      cart.total = Math.max(0, cart.total - cart.coupon.discountAmount);
-    }
+    assignCartTotals(cart, totals, cart.coupon?.discountAmount ?? 0);
     const itemPrices = totals.itemPrices;
 
     await cart.save();
@@ -843,10 +859,7 @@ const updateItem = async (req, res) => {
 
     // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
     const totals = await calculateTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.tax = totals.tax;
-    cart.shippingEstimate = totals.shippingEstimate;
-    cart.total = totals.total;
+    assignCartTotals(cart, totals, cart.coupon?.discountAmount ?? 0);
     const itemPrices = totals.itemPrices;
     await cart.save();
 
@@ -990,10 +1003,7 @@ const removeItem = async (req, res) => {
 
     // Recalculate totals dynamically
     const totals = await calculateTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.tax = totals.tax;
-    cart.shippingEstimate = totals.shippingEstimate;
-    cart.total = totals.total;
+    assignCartTotals(cart, totals, cart.coupon?.discountAmount ?? 0);
     const itemPrices = totals.itemPrices;
     await cart.save();
 
@@ -1482,10 +1492,7 @@ const mergeCart = async (req, res) => {
 
       // Recalculate totals dynamically
       const totals = await calculateTotals(userCart.items);
-      userCart.subtotal = totals.subtotal;
-      userCart.tax = totals.tax;
-      userCart.shippingEstimate = totals.shippingEstimate;
-      userCart.total = totals.total;
+      assignCartTotals(userCart, totals, userCart.coupon?.discountAmount ?? 0);
       const itemPrices = totals.itemPrices;
       await userCart.save();
 
@@ -1696,17 +1703,65 @@ const applyCoupon = async (req, res) => {
         });
       }
 
-      // Check if user has any previous orders
-      // We count orders that are NOT cancelled
-      const previousOrders = await Order.countDocuments({
+      // Check if user has any previous PAID orders (not pending/failed/cancelled)
+      // "First order" means no completed/paid orders exist
+      const previousPaidOrders = await Order.countDocuments({
         userId,
-        orderStatus: { $ne: "cancelled" },
+        paymentStatus: "paid",
+        orderStatus: {
+          $in: [
+            "pending",
+            "confirmed",
+            "processing",
+            "shipped",
+            "delivered",
+            "completed",
+          ],
+        },
       });
 
-      if (previousOrders > 0) {
+      if (previousPaidOrders > 0) {
         return res.status(400).json({
           success: false,
           message: "This coupon is valid for your first order only",
+        });
+      }
+    }
+
+    // Check per-user usage limit
+    if (coupon.perUserLimit) {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "Please login to use this coupon",
+        });
+      }
+
+      // Count how many paid orders this user has placed with this coupon
+      const userCouponUsage = await Order.countDocuments({
+        userId,
+        "coupon.couponId": coupon._id,
+        paymentStatus: "paid",
+        orderStatus: {
+          $in: [
+            "pending",
+            "confirmed",
+            "processing",
+            "shipped",
+            "delivered",
+            "completed",
+          ],
+        },
+      });
+
+      if (userCouponUsage >= coupon.perUserLimit) {
+        return res.status(400).json({
+          success: false,
+          message:
+            coupon.perUserLimit === 1
+              ? "You have already used this coupon"
+              : `You have already used this coupon ${coupon.perUserLimit} times`,
         });
       }
     }
@@ -1722,24 +1777,24 @@ const applyCoupon = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Compute totals dynamically
+    // Compute totals dynamically (explicit pricing stages)
     const totals = await calculateTotals(cart.items);
-    const cartItemTotal = totals.total - totals.shippingEstimate; // items + tax, excluding shipping
     const itemPrices = totals.itemPrices;
 
-    if (cartItemTotal < coupon.minCartValue) {
+    // Coupon eligibility: minimum cart value is checked against discountedSubtotal (after product discounts)
+    if (totals.discountedSubtotal < coupon.minCartValue) {
       return res.status(400).json({
         success: false,
         message: `Minimum cart value of ₹${coupon.minCartValue} required`,
       });
     }
 
-    // Calculate discount based on cart total
+    // Calculate discount from discountedSubtotal (amount after product discounts, before this coupon)
     let discountAmount = 0;
     if (coupon.type === "flat") {
       discountAmount = coupon.value;
     } else if (coupon.type === "percentage") {
-      discountAmount = (cartItemTotal * coupon.value) / 100;
+      discountAmount = (totals.discountedSubtotal * coupon.value) / 100;
       if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
         discountAmount = coupon.maxDiscount;
       }
@@ -1752,11 +1807,8 @@ const applyCoupon = async (req, res) => {
       discountAmount: discountAmount,
     };
 
-    // Update totals with coupon discount applied
-    cart.subtotal = totals.subtotal;
-    cart.tax = totals.tax;
-    cart.shippingEstimate = totals.shippingEstimate;
-    cart.total = Math.max(0, totals.total - discountAmount);
+    // Assign all pricing stages; total = discountedSubtotal + shipping - couponDiscount
+    assignCartTotals(cart, totals, discountAmount);
 
     await cart.save();
 
@@ -1816,10 +1868,7 @@ const removeCoupon = async (req, res) => {
 
     // Recalculate totals (without coupon)
     const totals = await calculateTotals(cart.items);
-    cart.subtotal = totals.subtotal;
-    cart.tax = totals.tax;
-    cart.shippingEstimate = totals.shippingEstimate;
-    cart.total = totals.total;
+    assignCartTotals(cart, totals, 0); // coupon removed
 
     await cart.save();
 
@@ -1854,6 +1903,28 @@ const removeCoupon = async (req, res) => {
 const getAvailableCoupons = async (req, res) => {
   try {
     const now = new Date();
+    const userId = req.user?.id || null;
+
+    // Check if logged-in user has previous paid orders
+    // so we can hide first-order-only coupons from returning customers
+    let hasExistingOrders = false;
+    if (userId) {
+      const paidOrderCount = await Order.countDocuments({
+        userId,
+        paymentStatus: "paid",
+        orderStatus: {
+          $in: [
+            "pending",
+            "confirmed",
+            "processing",
+            "shipped",
+            "delivered",
+            "completed",
+          ],
+        },
+      });
+      hasExistingOrders = paidOrderCount > 0;
+    }
 
     const coupons = await Coupon.find({
       isActive: true,
@@ -1864,20 +1935,36 @@ const getAvailableCoupons = async (req, res) => {
         { $expr: { $lt: ["$usageCount", "$usageLimit"] } },
       ],
     })
-      .select("code type value minCartValue maxDiscount endDate")
+      .select(
+        "code type value minCartValue maxDiscount endDate isNewUserOnly perUserLimit"
+      )
       .sort({ endDate: 1 });
 
-    const formattedCoupons = coupons.map((coupon) => ({
-      code: coupon.code,
-      description:
+    // Filter out first-order-only coupons for users who already have paid orders
+    const visibleCoupons = hasExistingOrders
+      ? coupons.filter((coupon) => !coupon.isNewUserOnly)
+      : coupons;
+
+    const formattedCoupons = visibleCoupons.map((coupon) => {
+      let description =
         coupon.type === "flat"
           ? `Flat ₹${coupon.value} off`
           : `${coupon.value}% off${
               coupon.maxDiscount ? ` up to ₹${coupon.maxDiscount}` : ""
-            }`,
-      minCartValue: coupon.minCartValue,
-      expiresAt: coupon.endDate,
-    }));
+            }`;
+
+      if (coupon.isNewUserOnly) {
+        description += " (First order only)";
+      }
+
+      return {
+        code: coupon.code,
+        description,
+        minCartValue: coupon.minCartValue,
+        expiresAt: coupon.endDate,
+        isNewUserOnly: coupon.isNewUserOnly || false,
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -1992,10 +2079,7 @@ const recoverCart = async (req, res) => {
       });
 
       const totals = await calculateTotals(newCart.items);
-      newCart.subtotal = totals.subtotal;
-      newCart.tax = totals.tax;
-      newCart.shippingEstimate = totals.shippingEstimate;
-      newCart.total = totals.total;
+      assignCartTotals(newCart, totals, 0);
       const itemPrices = totals.itemPrices;
       await newCart.save();
 

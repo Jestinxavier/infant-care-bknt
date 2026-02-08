@@ -391,8 +391,8 @@ const createOrder = async (req, res) => {
     for (const update of stockUpdates) {
       // Handle bundle child SKU deductions
       if (update.type === "BUNDLE_CHILD") {
-        // Find child product by SKU and deduct stock
-        const result = await Product.findOneAndUpdate(
+        // Try SIMPLE product first (root sku)
+        let result = await Product.findOneAndUpdate(
           {
             sku: update.sku,
             product_type: PRODUCT_TYPES.SIMPLE,
@@ -409,6 +409,30 @@ const createOrder = async (req, res) => {
           },
           { session, new: true }
         );
+
+        // Fallback: variant SKU (CONFIGURABLE product)
+        if (!result) {
+          result = await Product.findOneAndUpdate(
+            {
+              variants: {
+                $elemMatch: {
+                  sku: update.sku,
+                  $or: [
+                    { "stockObj.available": { $gte: update.quantity } },
+                    { stock: { $gte: update.quantity } },
+                  ],
+                },
+              },
+            },
+            {
+              $inc: {
+                "variants.$.stockObj.available": -update.quantity,
+                "variants.$.stock": -update.quantity,
+              },
+            },
+            { session, new: true }
+          );
+        }
 
         if (!result) {
           throw {

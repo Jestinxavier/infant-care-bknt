@@ -195,7 +195,7 @@ router.post(
   "/products/bulk-delete",
   verifyToken,
   requireAdmin,
-  bulkDeleteProducts,
+  bulkDeleteProducts
 );
 
 // Import Product model for lean search
@@ -241,17 +241,25 @@ router.get("/products/search", verifyToken, requireAdmin, async (req, res) => {
 
     const searchRegex = new RegExp(q.trim(), "i");
 
-    // Find products with minimal fields
+    // Support product_type=SIMPLE,CONFIGURABLE (comma-separated) or single value
+    const productTypes = String(product_type)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const productTypeFilter =
+      productTypes.length > 1
+        ? { product_type: { $in: productTypes } }
+        : { product_type: productTypes[0] || "SIMPLE" };
+
     const products = await Product.find({
       $or: [{ sku: searchRegex }, { title: searchRegex }],
-      product_type: product_type,
+      ...productTypeFilter,
       status: "published",
     })
       .select("_id title sku url_key stockObj product_type")
       .limit(parseInt(limit))
       .lean();
 
-    // Transform response to minimal format
     const data = products.map((p) => ({
       _id: p._id,
       title: p.title,
@@ -273,6 +281,110 @@ router.get("/products/search", verifyToken, requireAdmin, async (req, res) => {
     });
   }
 });
+
+/**
+ * @swagger
+ * /api/v1/admin/products/sku-lookup:
+ *   get:
+ *     summary: "[Admin] Lookup product/variant by SKU"
+ *     description: Resolves SKU to title and url_key (supports both root and variant SKUs)
+ *     tags: [Admin]
+ *     parameters:
+ *       - in: query
+ *         name: sku
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Product/variant info found
+ */
+router.get(
+  "/products/sku-lookup",
+  verifyToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { sku } = req.query;
+      if (!sku || typeof sku !== "string" || !sku.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "sku query param is required",
+        });
+      }
+
+      const trimmedSku = sku.trim();
+
+      // Try root sku first (SIMPLE)
+      let product = await Product.findOne({
+        sku: trimmedSku,
+        status: "published",
+      })
+        .select("title url_key product_type sku stockObj stock")
+        .lean();
+
+      if (product) {
+        const available = product.stockObj?.available ?? product.stock ?? 0;
+        return res.status(200).json({
+          success: true,
+          data: {
+            sku: product.sku,
+            title: product.title,
+            url_key: product.url_key,
+            product_type: product.product_type || "SIMPLE",
+            available,
+          },
+        });
+      }
+
+      // Try variant sku (CONFIGURABLE)
+      product = await Product.findOne({
+        "variants.sku": trimmedSku,
+        status: "published",
+      })
+        .select(
+          "title url_key product_type variants.sku variants.url_key variants.attributes variants.options variants.stockObj variants.stock"
+        )
+        .lean();
+
+      if (product) {
+        const variant = (product.variants || []).find(
+          (v) => v.sku === trimmedSku
+        );
+        const variantUrlKey = variant?.url_key || product.url_key;
+        const attrs = variant?.attributes || variant?.options;
+        const attrStr =
+          attrs && typeof attrs === "object"
+            ? Object.values(attrs).join(" / ")
+            : "";
+        const title = attrStr ? `${product.title} - ${attrStr}` : product.title;
+        const available = variant?.stockObj?.available ?? variant?.stock ?? 0;
+
+        return res.status(200).json({
+          success: true,
+          data: {
+            sku: trimmedSku,
+            title,
+            url_key: variantUrlKey,
+            product_type: "CONFIGURABLE",
+            available,
+          },
+        });
+      }
+
+      return res.status(404).json({
+        success: false,
+        message: `SKU "${trimmedSku}" not found`,
+      });
+    } catch (error) {
+      console.error("Admin sku-lookup error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Lookup failed",
+      });
+    }
+  }
+);
 
 // Import bulk import controller
 const bulkImportController = require("../controllers/product/bulkImport");
@@ -304,7 +416,7 @@ router.post(
   "/products/validate-import",
   verifyToken,
   requireAdmin,
-  bulkImportController.validateImport,
+  bulkImportController.validateImport
 );
 
 /**
@@ -336,7 +448,7 @@ router.post(
   "/products/commit-import",
   verifyToken,
   requireAdmin,
-  bulkImportController.commitImport,
+  bulkImportController.commitImport
 );
 
 /**
@@ -424,7 +536,7 @@ router.post(
       next();
     });
   },
-  createProduct,
+  createProduct
 );
 
 /**
@@ -562,7 +674,7 @@ router.patch(
   requireAdmin,
   (req, res, next) => parser.any()(req, res, next),
   parseMultipartBody,
-  updateProduct,
+  updateProduct
 );
 
 /**
@@ -812,7 +924,7 @@ router.post(
   "/orders/send-invoice",
   verifyToken,
   requireAdmin,
-  sendOrderInvoice,
+  sendOrderInvoice
 );
 
 router.get("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
@@ -859,7 +971,7 @@ router.patch(
   "/orders/update-status",
   verifyToken,
   requireAdmin,
-  updateOrderStatus,
+  updateOrderStatus
 );
 
 // ==================== CUSTOMERS ====================
@@ -918,7 +1030,7 @@ router.get(
   "/customers/:customerId",
   verifyToken,
   requireAdmin,
-  getCustomerById,
+  getCustomerById
 );
 
 // ==================== REVIEWS ====================
@@ -1095,7 +1207,7 @@ router.post(
   "/categories/bulk-delete",
   verifyToken,
   requireAdmin,
-  bulkDeleteCategories,
+  bulkDeleteCategories
 );
 
 /**
@@ -1171,13 +1283,13 @@ router.get(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  getCategoryById,
+  getCategoryById
 );
 router.post(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  getCategoryById,
+  getCategoryById
 );
 
 /**
@@ -1253,7 +1365,7 @@ router.post(
       next();
     });
   },
-  createCategory,
+  createCategory
 );
 
 /**
@@ -1332,7 +1444,7 @@ router.patch(
       next();
     });
   },
-  updateCategory,
+  updateCategory
 );
 
 /**
@@ -1377,7 +1489,7 @@ router.delete(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  deleteCategory,
+  deleteCategory
 );
 
 /**

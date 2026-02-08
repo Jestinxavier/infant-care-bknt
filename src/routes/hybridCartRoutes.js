@@ -375,7 +375,7 @@ router.post("/start-checkout", startCheckout);
  *       200:
  *         description: List of available coupons
  */
-router.get("/coupons", getAvailableCoupons);
+router.get("/coupons", optionalVerifyToken, getAvailableCoupons);
 
 /**
  * @swagger

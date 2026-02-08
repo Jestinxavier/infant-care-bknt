@@ -46,29 +46,45 @@ const getPriceAndStock = async (req, res) => {
         product.bundle_config?.items?.length > 0
       ) {
         const childSkus = product.bundle_config.items.map((i) => i.sku);
-        // We need to fetch child stocks.
-        // Since this is a lightweight endpoint, performance matters.
-        // Fetch only necessary fields.
-        const childProducts = await Product.find({
+        const childMap = new Map(); // sku -> stock number
+
+        // SIMPLE products (root sku)
+        const simpleProducts = await Product.find({
           sku: { $in: childSkus },
+          product_type: "SIMPLE",
           status: "published",
         }).select("sku stockObj stock");
+        simpleProducts.forEach((p) => {
+          childMap.set(p.sku, p.stockObj?.available ?? p.stock ?? 0);
+        });
 
-        const childMap = new Map();
-        childProducts.forEach((p) => childMap.set(p.sku, p));
+        // Variant SKUs (CONFIGURABLE)
+        const missingSkus = childSkus.filter((s) => !childMap.has(s));
+        if (missingSkus.length > 0) {
+          const variantProducts = await Product.find({
+            "variants.sku": { $in: missingSkus },
+            status: "published",
+          }).select("variants.sku variants.stockObj variants.stock");
+          variantProducts.forEach((p) => {
+            (p.variants || []).forEach((v) => {
+              if (missingSkus.includes(v.sku)) {
+                childMap.set(v.sku, v.stockObj?.available ?? v.stock ?? 0);
+              }
+            });
+          });
+        }
 
         let minAvailableQty = Infinity;
         let allChildrenInStock = true;
 
         product.bundle_config.items.forEach((item) => {
-          const child = childMap.get(item.sku);
-          if (child) {
-            const childStock = child.stockObj?.available ?? child.stock ?? 0;
+          const childStock = childMap.get(item.sku);
+          if (childStock !== undefined) {
             if (childStock <= 0) allChildrenInStock = false;
             const bundlesAvailable = Math.floor(childStock / (item.qty || 1));
             minAvailableQty = Math.min(minAvailableQty, bundlesAvailable);
           } else {
-            allChildrenInStock = false; // Child missing/unpublished
+            allChildrenInStock = false;
             minAvailableQty = 0;
           }
         });

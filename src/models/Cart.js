@@ -45,7 +45,7 @@ const cartItemSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { _id: true, timestamps: false },
+  { _id: true, timestamps: false }
 );
 
 // Cart Schema
@@ -65,6 +65,10 @@ const cartSchema = new mongoose.Schema(
     },
     items: [cartItemSchema],
     // Totals (calculated fields, can be cached)
+    // Explicit pricing stages: baseSubtotal (MRP), productDiscountTotal, discountedSubtotal (after product discounts; use for coupon eligibility)
+    baseSubtotal: { type: Number, default: 0, min: 0 },
+    productDiscountTotal: { type: Number, default: 0, min: 0 },
+    discountedSubtotal: { type: Number, default: 0, min: 0 },
     subtotal: {
       type: Number,
       default: 0,
@@ -132,7 +136,7 @@ const cartSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  },
+  }
 );
 
 // Pre-save middleware
@@ -143,11 +147,11 @@ cartSchema.pre("save", function (next) {
   // Totals are managed by controller via calculateTotals()
   // which fetches products and computes pricing dynamically
 
-  // Apply Coupon Discount clamping (if any)
+  // Apply Coupon Discount clamping (if any) — coupon cannot exceed discountedSubtotal
   if (this.coupon && this.coupon.discountAmount > 0) {
-    // Ensure we don't discount more than the subtotal
-    if (this.coupon.discountAmount > this.subtotal) {
-      this.coupon.discountAmount = this.subtotal; // Clamp
+    const maxCoupon = this.discountedSubtotal ?? this.subtotal;
+    if (this.coupon.discountAmount > maxCoupon) {
+      this.coupon.discountAmount = maxCoupon;
     }
   }
 
@@ -192,7 +196,7 @@ cartSchema.methods.addItem = function (itemData) {
     (item) =>
       item.productId.toString() === productId.toString() &&
       item.variantId === variantId &&
-      item.selectedGiftSku === (selectedGiftSku || null),
+      item.selectedGiftSku === (selectedGiftSku || null)
   );
 
   if (existingItemIndex !== -1) {

@@ -44,17 +44,33 @@ const getBundleAvailability = async (bundle_config) => {
   // Get all child SKUs
   const childSkus = bundle_config.items.map((item) => item.sku);
 
-  // Fetch child products (must be SIMPLE)
-  const childProducts = await Product.find({
+  // Resolve stock from SIMPLE (root sku) and CONFIGURABLE (variant sku)
+  const stockMap = new Map();
+
+  // SIMPLE: fetch by root sku
+  const simpleProducts = await Product.find({
     sku: { $in: childSkus },
     product_type: PRODUCT_TYPES.SIMPLE,
-  }).select("sku stock stockObj product_type");
+  }).select("sku stock stockObj");
 
-  // Create SKU to stock mapping
-  const stockMap = new Map();
-  for (const child of childProducts) {
-    const stock = child.stockObj?.available ?? child.stock ?? 0;
-    stockMap.set(child.sku, stock);
+  for (const p of simpleProducts) {
+    stockMap.set(p.sku, p.stockObj?.available ?? p.stock ?? 0);
+  }
+
+  // Variant SKUs: fetch CONFIGURABLE products with matching variant sku
+  const variantSkus = childSkus.filter((sku) => !stockMap.has(sku));
+  if (variantSkus.length > 0) {
+    const configurableProducts = await Product.find({
+      "variants.sku": { $in: variantSkus },
+    }).select("variants.sku variants.stockObj variants.stock");
+
+    for (const p of configurableProducts) {
+      for (const v of p.variants || []) {
+        if (variantSkus.includes(v.sku)) {
+          stockMap.set(v.sku, v.stockObj?.available ?? v.stock ?? 0);
+        }
+      }
+    }
   }
 
   // Calculate availability: min(floor(childStock / requiredQty)) for each child
@@ -114,27 +130,40 @@ const validateBundleConfig = async (bundle_config) => {
     return { valid: false, errors };
   }
 
-  // Verify child SKUs exist and are SIMPLE products
-  const childProducts = await Product.find({
+  // Verify child SKUs: must be SIMPLE (root sku) or CONFIGURABLE variant
+  const simpleProducts = await Product.find({
     sku: { $in: skus },
+    product_type: PRODUCT_TYPES.SIMPLE,
   }).select("sku product_type");
 
-  const foundSkus = new Map();
-  for (const p of childProducts) {
+  const foundSkus = new Map(); // sku -> "SIMPLE" | "CONFIGURABLE"
+  for (const p of simpleProducts) {
     foundSkus.set(p.sku, p.product_type);
+  }
+
+  const unfoundSkus = skus.filter((s) => !foundSkus.has(s));
+  if (unfoundSkus.length > 0) {
+    const variantProducts = await Product.find({
+      "variants.sku": { $in: unfoundSkus },
+    }).select("product_type variants.sku");
+
+    for (const p of variantProducts) {
+      for (const v of p.variants || []) {
+        if (
+          unfoundSkus.includes(v.sku) &&
+          p.product_type === PRODUCT_TYPES.CONFIGURABLE
+        ) {
+          foundSkus.set(v.sku, "CONFIGURABLE");
+        }
+      }
+    }
   }
 
   for (const sku of skus) {
     if (!foundSkus.has(sku)) {
       errors.push(`SKU "${sku}" not found`);
-    } else {
-      const type = foundSkus.get(sku);
-      if (type !== PRODUCT_TYPES.SIMPLE) {
-        errors.push(
-          `SKU "${sku}" is ${type}, only SIMPLE products allowed as bundle children`
-        );
-      }
     }
+    // Both SIMPLE and CONFIGURABLE (variant) are valid - no type restriction
   }
 
   return {

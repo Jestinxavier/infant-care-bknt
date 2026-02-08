@@ -224,6 +224,8 @@ const formatCartResponse = (
     userId: cart.userId ? cart.userId.toString() : null,
     items: formattedItems,
     subtotal: cart.subtotal || 0,
+    /** Amount after product discounts (before coupon). Use for coupon eligibility (min cart value). */
+    discountedSubtotal: cart.discountedSubtotal ?? cart.subtotal ?? 0,
     tax: cart.tax || 0,
     shippingEstimate: cart.shippingEstimate || 0,
     total: cart.total || 0,
@@ -235,7 +237,6 @@ const formatCartResponse = (
 
 const generatePriceSummary = (cart, formattedItems) => {
   const lines = [];
-  const offerPriceSubtotal = cart.subtotal || 0;
 
   // Calculate totals from item pricing
   let totalOriginalPrice = 0;
@@ -264,8 +265,8 @@ const generatePriceSummary = (cart, formattedItems) => {
     order: 1,
   });
 
-  // Discount on MRP (offer discount = MRP - offer price)
-  const offerDiscount = totalOriginalPrice - offerPriceSubtotal;
+  // Discount on MRP (product-level discount = MRP total - discounted total from items)
+  const offerDiscount = totalOriginalPrice - totalUnitPrice;
   if (offerDiscount > 0) {
     lines.push({
       key: "discount_on_mrp",

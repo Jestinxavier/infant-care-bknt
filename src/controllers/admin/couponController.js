@@ -21,6 +21,7 @@ const createCoupon = async (req, res) => {
       endDate,
       usageLimit,
       perUserLimit,
+      isNewUserOnly,
     } = req.body;
 
     // 1. Basic Validation
@@ -86,6 +87,9 @@ const createCoupon = async (req, res) => {
       });
     }
 
+    // If first-order-only coupon, enforce perUserLimit = 1
+    const effectivePerUserLimit = isNewUserOnly ? 1 : perUserLimit || 1;
+
     const coupon = await Coupon.create({
       code: code.toUpperCase(),
       type,
@@ -95,7 +99,8 @@ const createCoupon = async (req, res) => {
       startDate: start,
       endDate: end,
       usageLimit: usageLimit || null,
-      perUserLimit: perUserLimit || 1,
+      perUserLimit: effectivePerUserLimit,
+      isNewUserOnly: !!isNewUserOnly,
       createdBy: req.user._id,
     });
 
@@ -187,6 +192,11 @@ const updateCoupon = async (req, res) => {
       updates.code = updates.code.toUpperCase();
     }
 
+    // If setting isNewUserOnly to true, enforce perUserLimit = 1
+    if (updates.isNewUserOnly === true) {
+      updates.perUserLimit = 1;
+    }
+
     // Validate Dates if changing
     if (updates.startDate || updates.endDate) {
       const start = updates.startDate
@@ -195,12 +205,10 @@ const updateCoupon = async (req, res) => {
       const end = updates.endDate ? new Date(updates.endDate) : coupon.endDate;
 
       if (start >= end) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "End date must be after start date",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "End date must be after start date",
+        });
       }
     }
 
