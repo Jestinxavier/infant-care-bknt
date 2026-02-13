@@ -26,6 +26,11 @@ const loadTemplate = (templateName, data = {}) => {
 
   let html = fs.readFileSync(templatePath, "utf8");
 
+  // Same logo URL for all templates (no attachment, consistent branding)
+  const EMAIL_LOGO_URL =
+    "https://res.cloudinary.com/dkosvbrgw/image/upload/v1771013464/assets/55ff283583f31819ce1c8afd4cd9793238fb0cc7872fa46124888a67e43bca7b.png";
+  data.emailLogoDataUrl = EMAIL_LOGO_URL;
+
   /**
    * ✅ 1. Handle Blocks (Conditionals + Loops)
    */
@@ -60,13 +65,27 @@ const loadTemplate = (templateName, data = {}) => {
   );
 
   /**
-   * ✅ 2. Replace Normal Variables {{key}}
+   * ✅ 2. Replace Normal Variables {{key}} and nested {{key.nested}}
    */
-  Object.keys(data).forEach((key) => {
-    if (Array.isArray(data[key])) return;
-
-    html = html.replace(new RegExp(`{{${key}}}`, "g"), data[key] ?? "");
-  });
+  const replaceVars = (obj, prefix = "") => {
+    Object.keys(obj).forEach((key) => {
+      if (Array.isArray(obj[key])) return;
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      const value = obj[key];
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !(value instanceof Date)
+      ) {
+        replaceVars(value, fullKey);
+      } else {
+        const safe = (v) => (v == null ? "" : String(v));
+        const escaped = fullKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        html = html.replace(new RegExp(`{{${escaped}}}`, "g"), safe(value));
+      }
+    });
+  };
+  replaceVars(data);
 
   return html;
 };
@@ -105,20 +124,33 @@ const createTransporter = () => {
 
 /**
  * Send email using template
+ * @param {Object} options
+ * @param {Array} [options.attachments] - Optional attachments, e.g. [{ filename, content, cid }] for inline images
  */
-const sendTemplateEmail = async ({ to, subject, template, data }) => {
+const sendTemplateEmail = async ({
+  to,
+  subject,
+  template,
+  data,
+  attachments,
+}) => {
   const transporter = createTransporter();
 
   const html = loadTemplate(template, data);
 
-  return transporter.sendMail({
+  const mailOptions = {
     from: `"${process.env.EMAIL_FROM_NAME || "Infants Care"}" <${
       process.env.EMAIL_USER
     }>`,
     to,
     subject,
     html,
-  });
+  };
+  if (attachments && attachments.length > 0) {
+    mailOptions.attachments = attachments;
+  }
+
+  return transporter.sendMail(mailOptions);
 };
 
 /* =====================================================
@@ -267,10 +299,31 @@ const sendInvoiceEmail = async (user, order) => {
     year: "numeric",
   });
 
+  const formatMoney = (n) => `₹${Number(n).toFixed(2)}`;
+
+  const ship = order.shippingAddress || {};
+  const line1 =
+    [ship.addressLine1, ship.addressLine2].filter(Boolean).join(", ") ||
+    ship.street ||
+    "—";
+  const addressBlock = {
+    name: ship.name || ship.fullName || "—",
+    line1,
+    city: ship.city || "—",
+    state:
+      ship.state && ship.state.includes("_")
+        ? ship.state.split("_").slice(1).join("_")
+        : ship.state || "—",
+    country: ship.country || "—",
+    phone: ship.phone || "—",
+  };
+
   const items = order.items.map((item) => ({
-    productName: item.productId?.name || item.productName,
+    productName:
+      item.name || item.productId?.name || item.productName || "Product",
     quantity: item.quantity,
     price: item.price,
+    priceFormatted: formatMoney(item.price),
     itemTotal: (item.price * item.quantity).toFixed(2),
   }));
 
@@ -285,13 +338,29 @@ const sendInvoiceEmail = async (user, order) => {
       orderStatus: order.orderStatus || order.status,
       paymentMethod: order.paymentMethod || "N/A",
 
+      storeName: process.env.STORE_NAME || "Infants Care",
+      estimatedDelivery:
+        order.estimatedDelivery || "We'll notify you when shipped",
+
       subtotal: (order.subtotal || 0).toFixed(2),
       shippingCost: (order.shippingCost || 0).toFixed(2),
+      subtotalFormatted: formatMoney(order.subtotal || 0),
+      shippingFormatted: formatMoney(order.shippingCost || 0),
+      totalFormatted: formatMoney(order.totalAmount || order.total || 0),
+      discountFormatted: `-${formatMoney(order.discount || 0)}`,
 
       hasDiscount: (order.discount || 0) > 0,
       discount: (order.discount || 0).toFixed(2),
 
       total: (order.totalAmount || order.total || 0).toFixed(2),
+
+      shippingAddress: addressBlock,
+
+      supportEmail:
+        process.env.SUPPORT_EMAIL ||
+        process.env.EMAIL_USER ||
+        "support@infantscare.com",
+      year: new Date().getFullYear(),
 
       frontendUrl: process.env.FRONTEND_URL,
       items,

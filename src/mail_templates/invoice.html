@@ -1,302 +1,341 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <title>Order Confirmation</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="x-apple-disable-message-reformatting" />
     <style>
-      body {
-        margin: 0;
-        padding: 0;
-        background: #f8fafc;
-        font-family: Arial, sans-serif;
+      img {
+        max-width: 100%;
+        height: auto;
       }
-
-      .wrapper {
-        width: 100%;
-        padding: 30px 0;
-        background: #f8fafc;
-      }
-
-      .container {
-        width: 100%;
-        max-width: 600px;
-        margin: auto;
-        background: #ffffff;
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid #e2e8f0;
-      }
-
-      .header {
-        background: #ffffff;
-        text-align: center;
-        padding: 25px;
-        color: #000000;
-        border-bottom: 1px solid #64748b;
-      }
-
-      .header img {
-        width: 110px;
-        margin-bottom: 12px;
-      }
-
-      .header h1 {
-        margin: 0;
-        font-size: 20px;
-        font-weight: bold;
-      }
-
-      .header p {
-        margin: 6px 0 0;
-        font-size: 14px;
-        opacity: 0.85;
-      }
-
-      .content {
-        padding: 30px;
-        color: #334155;
-        font-size: 14px;
-        line-height: 1.6;
-      }
-
-      .content p {
-        margin: 0 0 15px;
-      }
-
-      .invoice-box {
-        background: #f9fafb;
-        padding: 18px;
-        border-radius: 10px;
-        margin: 25px 0;
-        font-size: 14px;
-      }
-
-      .invoice-box table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-
-      .invoice-box td {
-        padding: 6px 0;
-      }
-
-      .invoice-box td:first-child {
-        font-weight: bold;
-        color: #0f172a;
-      }
-
-      .items-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 15px;
-        table-layout: fixed;
-      }
-
-      .items-table th,
-      .items-table td {
-        padding: 10px 12px;
-        vertical-align: top;
-      }
-
-      .items-table th {
-        background: #f1f5f9;
-        font-size: 12px;
-        text-transform: uppercase;
-        color: #475569;
-        text-align: left;
-      }
-
-      .items-table th:nth-child(1) {
-        width: 45%;
-      }
-      .items-table th:nth-child(2) {
-        width: 12%;
-        text-align: right;
-      }
-      .items-table th:nth-child(3) {
-        width: 18%;
-        text-align: right;
-      }
-      .items-table th:nth-child(4) {
-        width: 25%;
-        text-align: right;
-      }
-
-      .items-table td {
-        border-bottom: 1px solid #e2e8f0;
-      }
-
-      .items-table td:nth-child(1) {
-        text-align: left;
-      }
-      .items-table td:nth-child(2),
-      .items-table td:nth-child(3),
-      .items-table td:nth-child(4) {
-        text-align: right;
-      }
-
-      .totals {
-        margin-top: 20px;
+      .email-container {
+        max-width: 620px;
         width: 100%;
       }
-
-      .totals td {
-        padding: 6px 0;
-        text-align: right;
-        font-size: 14px;
-      }
-
-      .totals .label {
-        color: #475569;
-      }
-
-      .totals .value {
-        font-weight: bold;
-        color: #0f172a;
-      }
-
-      .grand-total {
-        font-size: 16px;
-        font-weight: bold;
-        border-top: 2px solid #e2e8f0;
-        padding-top: 10px;
-      }
-
-      .button-wrapper {
-        text-align: center;
-        margin: 30px 0;
-      }
-
-      .button {
-        background: #0f172a;
-        color: white !important;
-        padding: 12px 22px;
-        font-size: 14px;
-        border-radius: 8px;
-        text-decoration: none;
-        font-weight: bold;
-        display: inline-block;
-      }
-
-      .footer {
-        background: #f1f5f9;
-        text-align: center;
-        padding: 18px;
-        font-size: 12px;
-        color: #64748b;
+      @media only screen and (max-width: 620px) {
+        .email-container {
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+        .mobile-pad {
+          padding-left: 12px !important;
+          padding-right: 12px !important;
+        }
+        .mobile-font-intro-title {
+          font-size: 15px !important;
+        }
+        .mobile-font-intro-body {
+          font-size: 12px !important;
+        }
+        .mobile-font-order-details {
+          font-size: 11px !important;
+        }
+        .mobile-font-summary-title {
+          font-size: 12px !important;
+        }
+        .mobile-font-summary-table {
+          font-size: 11px !important;
+        }
+        .mobile-font-totals {
+          font-size: 11px !important;
+        }
+        .mobile-font-address {
+          font-size: 12px !important;
+        }
+        .mobile-font-footer {
+          font-size: 11px !important;
+        }
+        .mobile-tight-pad {
+          padding: 12px 16px !important;
+        }
+        .mobile-tight-pad-sm {
+          padding: 8px 16px !important;
+        }
+        .mobile-body-no-pad {
+          padding: 0 !important;
+        }
       }
     </style>
   </head>
 
-  <body>
-    <div class="wrapper">
-      <div class="container">
-        <!-- HEADER -->
-        <div class="header">
-          <img
-            src="https://res.cloudinary.com/dkosvbrgw/image/upload/v1770148372/assets/e44eb9eac16ad463dcc1cfd9ddf3dadff5682ea2650092c3b8f5787b7894f72c.jpg"
-            alt="Infants Care"
-          />
-          <h1>Invoice Summary</h1>
-          <p>Order #{{orderId}}</p>
-        </div>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background: #e5e7eb;
+      font-family: Arial, sans-serif;
+    "
+  >
+    <table
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      style="min-width: 100%; background: #e5e7eb"
+    >
+      <tr>
+        <td align="center" style="padding: 8px 8px">
+          <table
+            class="email-container"
+            width="620"
+            cellpadding="0"
+            cellspacing="0"
+            style="background: #ffffff; margin: 0 auto"
+          >
+            <!-- HEADER -->
+            <tr>
+              <td
+                align="center"
+                style="
+                  padding: 16px 16px 16px 16px;
+                  border-bottom: 1px solid #e5e7eb;
+                  background: #f9fafb;
+                "
+              >
+                <img
+                  src="{{emailLogoDataUrl}}"
+                  alt="Infants Care"
+                  width="90"
+                  height="30"
+                  style="
+                    display: block;
+                    max-width: 90px;
+                    height: auto;
+                    border: 0;
+                    -ms-interpolation-mode: bicubic;
+                  "
+                />
+              </td>
+            </tr>
 
-        <!-- CONTENT -->
-        <div class="content">
-          <p>Hello <strong>{{username}}</strong>,</p>
-          <p>
-            Thank you for shopping with Infants Care. Below are your invoice
-            details:
-          </p>
+            <!-- INTRO -->
+            <tr>
+              <td
+                style="
+                  padding: 16px 16px;
+                  text-align: center;
+                  background-color: rgb(254, 249, 252);
+                "
+              >
+                <p
+                  class="mobile-font-intro-title"
+                  style="margin: 0 0 8px; font-size: 18px; font-weight: bold"
+                >
+                  Hi {{username}}
+                </p>
 
-          <!-- ORDER DETAILS -->
-          <div class="invoice-box">
-            <table>
-              <tr>
-                <td>Order Date:</td>
-                <td style="text-align: right">{{orderDate}}</td>
-              </tr>
-              <tr>
-                <td>Status:</td>
-                <td style="text-align: right; text-transform: capitalize">
-                  {{orderStatus}}
-                </td>
-              </tr>
-              <tr>
-                <td>Payment Method:</td>
-                <td style="text-align: right">{{paymentMethod}}</td>
-              </tr>
-            </table>
-          </div>
+                <p
+                  class="mobile-font-intro-body"
+                  style="margin: 0; color: #555; font-size: 14px"
+                >
+                  Thank you for shopping with <strong>{{storeName}}</strong>. We
+                  are preparing your order and will notify you once it is
+                  shipped.
+                </p>
+              </td>
+            </tr>
 
-          <!-- ITEMS -->
-          <h3 style="margin-bottom: 10px; color: #0f172a">Items Ordered</h3>
+            <!-- ORDER DETAILS (stacked vertically) -->
+            <tr>
+              <td style="padding: 10px 16px 16px 16px">
+                <table
+                  width="100%"
+                  class="mobile-font-order-details"
+                  style="font-size: 13px; color: #000"
+                >
+                  <tr>
+                    <td style="padding: 4px 0">
+                      <strong style="color: #000">Order Id</strong><br />
+                      <span style="color: #666">#{{orderId}}</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0">
+                      <strong style="color: #000">Order Date</strong><br />
+                      <span style="color: #666">{{orderDate}}</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 4px 0">
+                      <strong style="color: #000">Estimated Delivery</strong
+                      ><br />
+                      <span style="color: #666">{{estimatedDelivery}}</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-          <table class="items-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{#items}}
-              <tr>
-                <td>{{productName}}</td>
-                <td>{{quantity}}</td>
-                <td>₹{{price}}</td>
-                <td>₹{{itemTotal}}</td>
-              </tr>
-              {{/items}}
-            </tbody>
+            <!-- ORDER SUMMARY -->
+            <tr>
+              <td style="padding: 10px 16px; font-size: 13px">
+                <strong>Order Summary</strong>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="mobile-pad" style="padding: 0 28px">
+                <table
+                  class="mobile-font-summary-table"
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  style="border-collapse: collapse; font-size: 13px"
+                >
+                  <tr
+                    style="
+                      font-size: 13px;
+                      color: #666;
+                      border-bottom: 1px solid #e5e7eb;
+                    "
+                  >
+                    <td width="70%" style="padding: 10px 0">Item</td>
+                    <td align="right" width="30%" style="padding: 10px 0">
+                      Price
+                    </td>
+                  </tr>
+
+                  {{#items}}
+                  <tr>
+                    <td style="padding: 12px 0; vertical-align: top">
+                      {{productName}}<br />
+                      <span style="font-size: 12px; color: #666"
+                        >Qty: {{quantity}}</span
+                      >
+                    </td>
+                    <td
+                      align="right"
+                      style="padding: 12px 0; vertical-align: top"
+                    >
+                      {{priceFormatted}}
+                    </td>
+                  </tr>
+                  {{/items}}
+                </table>
+              </td>
+            </tr>
+
+            <!-- PRICE SUMMARY -->
+            <tr>
+              <td style="padding: 12px 16px 0 16px; font-size: 13px">
+                <table width="100%">
+                  <tr>
+                    <td align="right" style="padding: 4px 0; color: #555">
+                      Subtotal
+                    </td>
+                    <td align="right" width="120">{{subtotalFormatted}}</td>
+                  </tr>
+
+                  <tr>
+                    <td align="right" style="padding: 4px 0; color: #555">
+                      Shipping
+                    </td>
+                    <td align="right">{{shippingFormatted}}</td>
+                  </tr>
+
+                  {{#hasDiscount}}
+                  <tr>
+                    <td align="right" style="padding: 4px 0; color: #16a34a">
+                      Discount
+                    </td>
+                    <td align="right" style="color: #16a34a">
+                      {{discountFormatted}}
+                    </td>
+                  </tr>
+                  {{/hasDiscount}}
+
+                  <tr>
+                    <td colspan="2" style="height: 12px"></td>
+                  </tr>
+
+                  <tr>
+                    <td
+                      align="right"
+                      style="border-top: 1px solid #e5e7eb; padding-top: 8px"
+                    >
+                      <strong>Grand Total</strong>
+                    </td>
+                    <td
+                      align="right"
+                      style="border-top: 1px solid #e5e7eb; padding-top: 8px"
+                    >
+                      <strong>{{totalFormatted}}</strong>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- DELIVERY ADDRESS (table layout so clients don't collapse into "show more" toggle) -->
+            <tr>
+              <td style="padding: 16px 16px">
+                <table
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  role="presentation"
+                  style="font-size: 12px; color: #333"
+                >
+                  <tr>
+                    <td style="padding-bottom: 6px">
+                      <strong>Delivery Address</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 0">{{shippingAddress.name}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 0">{{shippingAddress.line1}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 0">
+                      {{shippingAddress.city}}, {{shippingAddress.state}}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 0">{{shippingAddress.country}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 2px 0">
+                      Phone: {{shippingAddress.phone}}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- FOOTER -->
+            <tr>
+              <td
+                class="mobile-pad mobile-font-footer mobile-tight-pad-sm"
+                align="center"
+                style="
+                  padding: 20px;
+                  font-size: 12px;
+                  color: #666;
+                  border-top: 1px solid #e5e7eb;
+                  background: #f9fafb;
+                "
+              >
+                <p style="margin: 0 0 6px">Need help with your order?</p>
+
+                <p style="margin: 0">
+                  Contact our support team at
+                  <strong>{{supportEmail}}</strong>
+                </p>
+
+                <p style="margin: 10px 0 0; color: #999">
+                  © {{year}} {{storeName}}. All rights reserved.
+                </p>
+              </td>
+            </tr>
           </table>
-
-          <!-- TOTALS -->
-          <table class="totals">
-            <tr>
-              <td class="label">Subtotal:</td>
-              <td class="value">₹{{subtotal}}</td>
-            </tr>
-
-            <tr>
-              <td class="label">Shipping:</td>
-              <td class="value">₹{{shippingCost}}</td>
-            </tr>
-
-            {{#hasDiscount}}
-            <tr>
-              <td class="label" style="color: #dc2626">Discount:</td>
-              <td class="value" style="color: #dc2626">-₹{{discount}}</td>
-            </tr>
-            {{/hasDiscount}}
-
-            <tr>
-              <td class="label grand-total">Total:</td>
-              <td class="value grand-total">₹{{total}}</td>
-            </tr>
-          </table>
-
-          <!-- BUTTON -->
-          <div class="button-wrapper">
-            <a class="button" href="{{frontendUrl}}/account/orders/{{orderId}}">
-              View Order Details
-            </a>
-          </div>
-
-          <p>
-            If you have any questions, feel free to contact our support team.
-          </p>
-
-          <p>Best regards,<br /><strong>Infants Care Team</strong></p>
-        </div>
-
-        <!-- FOOTER -->
-        <div class="footer">
-          <p>© 2026 Infants Care. All rights reserved.</p>
-          <p>This is an automated invoice email. Please do not reply.</p>
-        </div>
-      </div>
-    </div>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>

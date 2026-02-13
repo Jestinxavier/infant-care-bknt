@@ -1,266 +1,228 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-
+    <title>Order Shipped</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="x-apple-disable-message-reformatting" />
     <style>
-      body {
-        margin: 0;
-        padding: 0;
-        background: #f4f6f9;
-        font-family: Arial, sans-serif;
-        color: #334155;
+      img {
+        max-width: 100%;
+        height: auto;
       }
-
-      table {
-        border-spacing: 0;
-        border-collapse: collapse;
-      }
-
-      .wrapper {
+      .email-container {
+        max-width: 620px;
         width: 100%;
-        padding: 30px 0;
-        background: #f4f6f9;
       }
-
-      .container {
-        width: 100%;
-        max-width: 600px;
-        margin: auto;
-        background: #ffffff;
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid #e2e8f0;
-      }
-
-      .header {
-        background: #ffffff;
-        text-align: center;
-        padding: 25px;
-        color: #000000;
-        border-bottom: 1px solid #64748b;
-      }
-
-      .header img {
-        width: 110px;
-        margin-bottom: 12px;
-      }
-
-      .header h1 {
-        margin: 0;
-        font-size: 20px;
-        font-weight: bold;
-      }
-
-      .content {
-        padding: 30px;
-        color: #334155;
-        font-size: 14px;
-        line-height: 1.6;
-      }
-
-      .content p {
-        margin: 0 0 15px;
-      }
-
-      .tracking-box {
-        margin: 25px 0;
-        padding: 20px;
-        border-radius: 10px;
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        text-align: center;
-      }
-
-      .tracking-label {
-        font-size: 13px;
-        color: #64748b;
-        margin-bottom: 10px;
-      }
-
-      .tracking-id {
-        font-family: "Courier New", monospace;
-        font-size: 18px;
-        font-weight: bold;
-        color: #2563eb;
-        display: block;
-        padding: 10px 14px;
-        background: #ffffff;
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-        margin: 12px auto;
-        width: fit-content;
-      }
-
-      .button {
-        display: inline-block;
-        background: #1e293b;
-        color: #ffffff !important;
-        padding: 12px 20px;
-        text-decoration: none;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 14px;
-        margin-top: 12px;
-      }
-
-      .summary-title {
-        margin-top: 30px;
-        font-size: 15px;
-        font-weight: bold;
-        color: #0f172a;
-      }
-
-      .items-table {
-        width: 100%;
-        margin-top: 12px;
-        border-collapse: collapse;
-        table-layout: fixed;
-      }
-
-      .items-table th,
-      .items-table td {
-        padding: 10px 12px;
-        vertical-align: top;
-      }
-
-      .items-table th {
-        background: #f1f5f9;
-        font-size: 12px;
-        text-transform: uppercase;
-        color: #64748b;
-        text-align: left;
-      }
-
-      .items-table th:nth-child(1) {
-        width: 55%;
-      }
-      .items-table th:nth-child(2) {
-        width: 15%;
-        text-align: right;
-      }
-      .items-table th:nth-child(3) {
-        width: 30%;
-        text-align: right;
-      }
-
-      .items-table td {
-        border-bottom: 1px solid #e2e8f0;
-        font-size: 14px;
-      }
-
-      .items-table td:nth-child(1) {
-        text-align: left;
-      }
-      .items-table td:nth-child(2),
-      .items-table td:nth-child(3) {
-        text-align: right;
-      }
-
-      .footer {
-        background: #f1f5f9;
-        text-align: center;
-        padding: 18px;
-        font-size: 12px;
-        color: #64748b;
-      }
-
-      .footer p {
-        margin: 5px 0;
+      @media only screen and (max-width: 620px) {
+        .email-container {
+          width: 100% !important;
+          max-width: 100% !important;
+        }
       }
     </style>
   </head>
-
-  <body>
-    <div class="wrapper">
-      <table width="100%">
-        <tr>
-          <td align="center">
-            <table class="container">
-              <!-- HEADER -->
-              <tr>
-                <td class="header">
-                  <img
-                    src="https://res.cloudinary.com/dkosvbrgw/image/upload/v1770148372/assets/e44eb9eac16ad463dcc1cfd9ddf3dadff5682ea2650092c3b8f5787b7894f72c.jpg"
-                    alt="Infants Care"
-                  />
-                  <h1>Your Order Has Been Shipped</h1>
-                </td>
-              </tr>
-
-              <!-- CONTENT -->
-              <tr>
-                <td class="content">
-                  <p>Hello <strong>{{username}}</strong>,</p>
-
-                  <p>
-                    Great news! Your order
-                    <strong>#{{orderId}}</strong> has been shipped and is on its
-                    way.
-                  </p>
-
-                  <!-- TRACKING BOX -->
-                  <div class="tracking-box">
-                    <div class="tracking-label">Tracking Number</div>
-                    <span class="tracking-id">{{trackingId}}</span>
-
-                    {{#deliveryPartner}}
-                    <p style="margin: 8px 0; font-size: 13px; color: #475569">
-                      Courier: <strong>{{deliveryPartnerName}}</strong>
-                    </p>
-                    {{/deliveryPartner}} {{#trackingUrl}}
-                    <a href="{{trackingUrl}}" class="button">
-                      Track Your Package
-                    </a>
-                    {{/trackingUrl}}
-                  </div>
-
-                  <!-- ORDER SUMMARY -->
-                  <p class="summary-title">Order Summary</p>
-
-                  <table class="items-table">
-                    <thead>
-                      <tr>
-                        <th>Product</th>
-                        <th>Qty</th>
-                        <th>Price</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {{#items}}
-                      <tr>
-                        <td>{{productName}}</td>
-                        <td>{{quantity}}</td>
-                        <td>₹{{price}}</td>
-                      </tr>
-                      {{/items}}
-                    </tbody>
-                  </table>
-
-                  <p style="margin-top: 25px">
-                    If you have any questions, feel free to contact our support
-                    team.
-                  </p>
-
-                  <p>
-                    Thank you for shopping with us.<br />
-                    <strong>Infants Care Team</strong>
-                  </p>
-                </td>
-              </tr>
-
-              <!-- FOOTER -->
-              <tr>
-                <td class="footer">
-                  <p><strong>© 2025 Infants Care</strong></p>
-                  <p>This is an automated shipment notification email.</p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </div>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background: #e5e7eb;
+      font-family: Arial, sans-serif;
+    "
+  >
+    <table
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      style="min-width: 100%; background: #e5e7eb"
+    >
+      <tr>
+        <td align="center" style="padding: 8px 8px">
+          <table
+            class="email-container"
+            width="620"
+            cellpadding="0"
+            cellspacing="0"
+            style="background: #ffffff; margin: 0 auto"
+          >
+            <!-- HEADER -->
+            <tr>
+              <td
+                align="center"
+                style="
+                  padding: 16px 16px;
+                  border-bottom: 1px solid #e5e7eb;
+                  background: #f9fafb;
+                "
+              >
+                <img
+                  src="{{emailLogoDataUrl}}"
+                  alt="Infants Care"
+                  width="90"
+                  height="30"
+                  style="
+                    display: block;
+                    max-width: 90px;
+                    height: auto;
+                    border: 0;
+                  "
+                />
+                <p
+                  style="
+                    margin: 8px 0 0;
+                    font-size: 13px;
+                    font-weight: bold;
+                    color: #000;
+                  "
+                >
+                  Your Order Has Been Shipped
+                </p>
+              </td>
+            </tr>
+            <!-- CONTENT -->
+            <tr>
+              <td
+                style="
+                  padding: 16px 16px;
+                  font-size: 13px;
+                  color: #333;
+                  line-height: 1.5;
+                "
+              >
+                <p style="margin: 0 0 10px">
+                  Hello <strong>{{username}}</strong>,
+                </p>
+                <p style="margin: 0 0 12px">
+                  Your order <strong>#{{orderId}}</strong> has been shipped and
+                  is on its way.
+                </p>
+                <table
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  style="
+                    margin: 12px 0;
+                    border-radius: 8px;
+                    background: #eff6ff;
+                    border: 1px solid #bfdbfe;
+                  "
+                >
+                  <tr>
+                    <td style="padding: 16px; text-align: center">
+                      <p
+                        style="margin: 0 0 6px; font-size: 12px; color: #64748b"
+                      >
+                        Tracking Number
+                      </p>
+                      <p
+                        style="
+                          margin: 0;
+                          font-size: 16px;
+                          font-weight: bold;
+                          color: #2563eb;
+                          font-family: Courier New, monospace;
+                        "
+                      >
+                        {{trackingId}}
+                      </p>
+                      {{#deliveryPartner}}
+                      <p
+                        style="margin: 8px 0 0; font-size: 12px; color: #475569"
+                      >
+                        Courier: <strong>{{deliveryPartnerName}}</strong>
+                      </p>
+                      {{/deliveryPartner}} {{#trackingUrl}}
+                      <p style="margin: 12px 0 0">
+                        <a
+                          href="{{trackingUrl}}"
+                          style="
+                            display: inline-block;
+                            background: #1e293b;
+                            color: #ffffff !important;
+                            padding: 10px 18px;
+                            text-decoration: none;
+                            border-radius: 6px;
+                            font-weight: bold;
+                            font-size: 12px;
+                          "
+                          >Track Your Package</a
+                        >
+                      </p>
+                      {{/trackingUrl}}
+                    </td>
+                  </tr>
+                </table>
+                <p
+                  style="
+                    margin: 12px 0 6px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    color: #000;
+                  "
+                >
+                  Order Summary
+                </p>
+                <table
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  style="border-collapse: collapse; font-size: 12px"
+                >
+                  <tr style="border-bottom: 1px solid #e5e7eb; color: #666">
+                    <td style="padding: 8px 0" width="55%">Product</td>
+                    <td style="padding: 8px 0; text-align: right" width="15%">
+                      Qty
+                    </td>
+                    <td style="padding: 8px 0; text-align: right" width="30%">
+                      Price
+                    </td>
+                  </tr>
+                  {{#items}}
+                  <tr>
+                    <td style="padding: 10px 0">{{productName}}</td>
+                    <td style="padding: 10px 0; text-align: right">
+                      {{quantity}}
+                    </td>
+                    <td style="padding: 10px 0; text-align: right">
+                      ₹{{price}}
+                    </td>
+                  </tr>
+                  {{/items}}
+                </table>
+                <p style="margin: 12px 0 0; font-size: 12px; color: #666">
+                  If you have any questions, contact our support team.
+                </p>
+                <p style="margin: 12px 0 0; font-size: 12px">
+                  Thank you for shopping with us.<br /><strong
+                    >Infants Care Team</strong
+                  >
+                </p>
+              </td>
+            </tr>
+            <!-- FOOTER -->
+            <tr>
+              <td
+                align="center"
+                style="
+                  padding: 16px 16px;
+                  font-size: 11px;
+                  color: #666;
+                  border-top: 1px solid #e5e7eb;
+                  background: #f9fafb;
+                "
+              >
+                <p style="margin: 0">
+                  © Infants Care. This is an automated shipment notification
+                  email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>

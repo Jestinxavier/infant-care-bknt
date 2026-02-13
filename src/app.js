@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
@@ -180,6 +181,12 @@ app.use(
 
 // Default route
 app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI version 0.0.4v"));
+
+// Public email logo (URL used in emails to avoid large base64 → "Message clipped")
+app.get("/email-logo.png", (req, res) => {
+  const logoPath = path.join(__dirname, "mail_templates", "logo.png");
+  res.sendFile(logoPath, { maxAge: "1d" });
+});
 
 const {
   checkOrderStatus,
