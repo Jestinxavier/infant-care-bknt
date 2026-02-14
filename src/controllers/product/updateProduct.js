@@ -572,10 +572,18 @@ const updateProduct = async (req, res) => {
         missingFields.push("images (at least 1 required)");
       }
 
-      // Check price - support both structures
-      const hasPrice =
-        (product.pricing?.price && product.pricing.price > 0) ||
-        (pricing?.price && pricing.price > 0);
+      // Check price:
+      // - CONFIGURABLE: at least one variant must have price > 0
+      // - Others: parent price must be > 0
+      const isConfigurable = product.product_type === "CONFIGURABLE";
+      const hasConfigurableVariantPrice = isConfigurable
+        ? (product.variants || []).some((v) => Number(v.price) > 0)
+        : false;
+      const hasParentPrice =
+        Number(product.pricing?.price) > 0 || Number(pricing?.price) > 0;
+      const hasPrice = isConfigurable
+        ? hasConfigurableVariantPrice
+        : hasParentPrice;
       if (!hasPrice) {
         missingFields.push("price (must be greater than 0)");
       }

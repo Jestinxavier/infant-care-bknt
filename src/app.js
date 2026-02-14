@@ -179,8 +179,20 @@ app.use(
   })
 );
 
+const today = new Date();
+const version =
+  today.getFullYear() +
+  today.getMonth() +
+  today.getDate() +
+  today.getHours() +
+  today.getMinutes() +
+  today.getSeconds();
+const versionString = `0.0.${version}v`;
+
 // Default route
-app.get("/", (req, res) => res.send("API is running 🚀\n\nAPI version 0.0.4v"));
+app.get("/", (req, res) =>
+  res.send(`API is running 🚀\n\nAPI version ${versionString}`)
+);
 
 // Public email logo (URL used in emails to avoid large base64 → "Message clipped")
 app.get("/email-logo.png", (req, res) => {
