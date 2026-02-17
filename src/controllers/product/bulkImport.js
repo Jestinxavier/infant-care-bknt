@@ -13,7 +13,7 @@ const {
   generateVariantSku,
   generateUniqueSku,
 } = require("../../utils/skuGenerator");
-const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 
 // Cloudinary folder for permanent CSV imported images
@@ -21,6 +21,14 @@ const { processVariantOptions } = require("../../utils/variantNameFormatter");
 const PERMANENT_FOLDER = "assets";
 
 const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
+
+function normalizeVariantAttributeValueForHash(value) {
+  return String(value)
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
 
 /**
  * Resolve image entry from CSV to Cloudinary URL.
@@ -258,7 +266,7 @@ class BulkImportController {
 
       // 2️⃣ VARIANT VALIDATION & STRICT ATTRIBUTE CHECK
       if (product.variants && Array.isArray(product.variants)) {
-        const productVariantHashes = new Set();
+        const productVariantHashes = new Map();
 
         for (let j = 0; j < product.variants.length; j++) {
           const variant = product.variants[j];
@@ -352,7 +360,9 @@ class BulkImportController {
               } else {
                 // Track for hash generation
                 sortedAttributes.push(
-                  `${attributeDef._id}:${String(value).trim().toLowerCase()}`
+                  `${attributeDef._id}:${normalizeVariantAttributeValueForHash(
+                    value
+                  )}`
                 );
               }
             }
@@ -360,14 +370,15 @@ class BulkImportController {
             // DUPLICATE VARIANT DETECTION (In-memory)
             sortedAttributes.sort();
             const optionsHash = sortedAttributes.join("|");
-            if (productVariantHashes.has(optionsHash)) {
+            const firstSeenRow = productVariantHashes.get(optionsHash);
+            if (firstSeenRow) {
               errors.push({
                 row: variantRow,
                 field: "variants",
-                message: `Duplicate variant configuration detected within this product.`,
+                message: `Duplicate variant configuration detected within this product. This matches row ${firstSeenRow}.`,
               });
             }
-            productVariantHashes.add(optionsHash);
+            productVariantHashes.set(optionsHash, variantRow);
           }
 
           // Collect temp images from variant
@@ -666,8 +677,43 @@ class BulkImportController {
       // Cache for resolving asset IDs to Cloudinary URLs (CSV image_urls can be asset ID or URL)
       const assetUrlCache = new Map();
 
-      // Track url_keys assigned in this batch to avoid duplicates within the same import
+      // Track SKUs/url_keys assigned in this batch to avoid intra-import collisions
+      const usedSkusInBatch = new Set();
       const usedUrlKeysInBatch = new Set();
+
+      const skuExistsGlobally = async (sku, excludeProductId = null) => {
+        if (!sku) return false;
+        if (usedSkusInBatch.has(sku)) return true;
+
+        const query = {
+          $or: [{ sku }, { "variants.sku": sku }],
+        };
+        if (excludeProductId) {
+          query._id = { $ne: excludeProductId };
+        }
+
+        const exists = isTransactionStarted
+          ? await Product.findOne(query).select("_id").session(session)
+          : await Product.findOne(query).select("_id");
+        return !!exists;
+      };
+
+      const urlKeyExistsGlobally = async (urlKey, excludeProductId = null) => {
+        if (!urlKey) return false;
+        if (usedUrlKeysInBatch.has(urlKey)) return true;
+
+        const query = {
+          $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
+        };
+        if (excludeProductId) {
+          query._id = { $ne: excludeProductId };
+        }
+
+        const exists = isTransactionStarted
+          ? await Product.findOne(query).select("_id").session(session)
+          : await Product.findOne(query).select("_id");
+        return !!exists;
+      };
 
       // Step 2: Create/Update products
       for (const productData of products) {
@@ -708,23 +754,15 @@ class BulkImportController {
 
           // Check uniqueness and generate unique SKU
           finalProductSku = await generateUniqueSku(baseSku, async (sku) => {
-            const query = { sku };
-            const exists = isTransactionStarted
-              ? await Product.findOne(query).session(session)
-              : await Product.findOne(query);
-            return !!exists;
+            return skuExistsGlobally(sku);
           });
         }
+        if (finalProductSku) usedSkusInBatch.add(finalProductSku);
 
         // 0b. For new products: ensure unique url_key (avoids E11000 duplicate key in bulk import)
         if (!isUpdate) {
           const checkUrlKeyExists = async (urlKey) => {
-            if (usedUrlKeysInBatch.has(urlKey)) return true;
-            const query = { url_key: urlKey };
-            const exists = isTransactionStarted
-              ? await Product.findOne(query).session(session)
-              : await Product.findOne(query);
-            return !!exists;
+            return urlKeyExistsGlobally(urlKey);
           };
           productData.url_key = await generateUniqueUrlKey(
             productData.title,
@@ -763,7 +801,60 @@ class BulkImportController {
         const uniqueVariantOptions = new Map();
 
         if (productData.variants && productData.variants.length > 0) {
-          for (const variantData of productData.variants) {
+          const usedVariantSkus = new Set();
+          const usedVariantUrlKeys = new Set();
+
+          const ensureUniqueVariantSku = async (inputSku, variantIndex) => {
+            const fallbackBase = `${finalProductSku || "VAR"}-${String(
+              variantIndex + 1
+            ).padStart(2, "0")}`;
+            const baseSku = (inputSku || "").toString().trim() || fallbackBase;
+            let candidate = baseSku;
+            let counter = 2;
+
+            while (
+              usedVariantSkus.has(candidate) ||
+              (await skuExistsGlobally(candidate, isUpdate ? finalProductId : null))
+            ) {
+              candidate = `${baseSku}-${String(counter).padStart(2, "0")}`;
+              counter++;
+            }
+
+            usedVariantSkus.add(candidate);
+            usedSkusInBatch.add(candidate);
+            return candidate;
+          };
+
+          const ensureUniqueVariantUrlKey = async (
+            inputUrlKey,
+            variantIndex
+          ) => {
+            const fallbackBase = `${productData.url_key || "product"}-variant-${
+              variantIndex + 1
+            }`;
+            const normalizedBase = generateSlug(
+              (inputUrlKey || "").toString().trim() || fallbackBase
+            );
+            let candidate = normalizedBase;
+            let counter = 2;
+
+            while (
+              usedVariantUrlKeys.has(candidate) ||
+              (await urlKeyExistsGlobally(
+                candidate,
+                isUpdate ? finalProductId : null
+              ))
+            ) {
+              candidate = `${normalizedBase}-${counter}`;
+              counter++;
+            }
+
+            usedVariantUrlKeys.add(candidate);
+            usedUrlKeysInBatch.add(candidate);
+            return candidate;
+          };
+
+          for (const [variantIndex, variantData] of productData.variants.entries()) {
             // Build variant images - same type as product images: array of objects { url, public_id }
             // Then map to URL strings when assigning (schema is string[]).
             const variantImageObjects = [];
@@ -934,13 +1025,20 @@ class BulkImportController {
                 )}`;
               }
             }
+            finalVariantSku = await ensureUniqueVariantSku(
+              finalVariantSku,
+              variantIndex
+            );
+
+            const variantUrlKey = await ensureUniqueVariantUrlKey(
+              `${productData.url_key}-${finalVariantSku.toLowerCase()}`,
+              variantIndex
+            );
 
             embeddedVariants.push({
               id: variantId,
               parentId: finalProductId,
-              url_key: `${
-                productData.url_key
-              }-${finalVariantSku.toLowerCase()}`,
+              url_key: variantUrlKey,
               sku: finalVariantSku,
               price: variantData.price,
               stock: variantData.stock,

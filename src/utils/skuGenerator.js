@@ -13,7 +13,11 @@ const crypto = require("crypto");
 const generateShortCode = (value) => {
   if (!value || typeof value !== "string") return "UNK";
 
-  const normalized = value.toLowerCase().trim();
+  const normalized = value
+    .toLowerCase()
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   const abbreviations = {
     // Colors
@@ -32,6 +36,9 @@ const generateShortCode = (value) => {
     maroon: "MAR",
     beige: "BGE",
     cream: "CRM",
+    "pure white": "PRW",
+    "light gray": "LGR",
+    "light grey": "LGR",
 
     // Sizes
     "extra-small": "XS",
@@ -75,8 +82,22 @@ const generateShortCode = (value) => {
 
   if (abbreviations[normalized]) return abbreviations[normalized];
 
-  // Fallback: take first 3 chars uppercase
-  return normalized.toUpperCase().substring(0, 3);
+  // Multi-word fallback: use initials, e.g. "pure white" -> "PRW"
+  const parts = normalized
+    .split(/[\s\-_]+/)
+    .map((part) => part.replace(/[^a-z0-9]/g, ""))
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return parts
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+      .substring(0, 3);
+  }
+
+  // Single-word fallback: first 3 alphanumeric chars
+  const compact = normalized.replace(/[^a-z0-9]/g, "").toUpperCase();
+  return compact.substring(0, 3);
 };
 
 /**
@@ -175,12 +196,12 @@ const generateVariantSku = (baseSku, variantOptions = {}, config = {}) => {
 
   // Process variant options in a consistent order - Aligned with frontend
   const orderedKeys = ["color", "size", "age", "material", "style"].filter(
-    (key) => variantOptions[key],
+    (key) => variantOptions[key]
   );
 
   // Add any remaining keys not in the ordered list
   const remainingKeys = Object.keys(variantOptions).filter(
-    (key) => !orderedKeys.includes(key) && variantOptions[key],
+    (key) => !orderedKeys.includes(key) && variantOptions[key]
   );
 
   const allKeys = [...orderedKeys, ...remainingKeys];
@@ -259,7 +280,7 @@ const generateUniqueSku = async (
   baseSku,
   checkExists,
   excludeId = null,
-  options = {},
+  options = {}
 ) => {
   if (typeof checkExists !== "function") {
     throw new Error("checkExists function is required");

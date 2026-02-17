@@ -1,7 +1,7 @@
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
-const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
 const {
   generateUniqueSku,
   generateVariantSku,
@@ -114,9 +114,11 @@ const updateProduct = async (req, res) => {
       if (refreshSlug) {
         const checkUrlKeyExists = async (urlKey) => {
           const existing = await Product.findOne({
-            url_key: urlKey,
+            $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
             _id: { $ne: productId },
-          });
+          })
+            .select("_id")
+            .lean();
           return !!existing;
         };
 
@@ -328,8 +330,71 @@ const updateProduct = async (req, res) => {
 
     // Update variants (new structure)
     if (variantsArray !== undefined && Array.isArray(variantsArray)) {
-      const { generateSlug } = require("../../utils/slugGenerator");
       const usedVariantSkus = new Set();
+      const usedVariantUrlKeys = new Set();
+
+      const checkAnySkuExists = async (s) => {
+        if (!s) return false;
+        const existing = await Product.findOne({
+          $or: [{ sku: s }, { "variants.sku": s }],
+          _id: { $ne: productId },
+        })
+          .select("_id")
+          .lean();
+        return !!existing;
+      };
+
+      const checkAnyUrlKeyExists = async (urlKey) => {
+        if (!urlKey) return false;
+        const existing = await Product.findOne({
+          $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
+          _id: { $ne: productId },
+        })
+          .select("_id")
+          .lean();
+        return !!existing;
+      };
+
+      const ensureUniqueVariantSku = async (inputSku, index) => {
+        const fallbackBase = `${product.sku || "VAR"}-${String(index + 1).padStart(
+          2,
+          "0"
+        )}`;
+        const baseSku = (inputSku || "").toString().trim() || fallbackBase;
+        let candidate = baseSku;
+        let counter = 2;
+
+        while (
+          usedVariantSkus.has(candidate) ||
+          (await checkAnySkuExists(candidate))
+        ) {
+          candidate = `${baseSku}-${String(counter).padStart(2, "0")}`;
+          counter++;
+        }
+
+        usedVariantSkus.add(candidate);
+        return candidate;
+      };
+
+      const ensureUniqueVariantUrlKey = async (inputUrlKey, index) => {
+        const fallbackBase = `${product.url_key || "product"}-variant-${index + 1}`;
+        const normalizedBase = generateSlug(
+          (inputUrlKey || "").toString().trim() || fallbackBase
+        );
+        let candidate = normalizedBase;
+        let counter = 2;
+
+        while (
+          usedVariantUrlKeys.has(candidate) ||
+          (await checkAnyUrlKeyExists(candidate))
+        ) {
+          candidate = `${normalizedBase}-${counter}`;
+          counter++;
+        }
+
+        usedVariantUrlKeys.add(candidate);
+        return candidate;
+      };
 
       const processedVariants = [];
       for (let index = 0; index < variantsArray.length; index++) {
@@ -448,17 +513,8 @@ const updateProduct = async (req, res) => {
         ) {
           const attrsObj = Object.fromEntries(attributesMap);
           variantSku = generateVariantSku(product.sku, attrsObj);
-          let uniqueSku = variantSku;
-          let suffix = 2;
-          while (usedVariantSkus.has(uniqueSku)) {
-            uniqueSku = `${variantSku}-${suffix}`;
-            suffix++;
-          }
-          usedVariantSkus.add(uniqueSku);
-          variantSku = uniqueSku;
-        } else {
-          usedVariantSkus.add(variantSku);
         }
+        variantSku = await ensureUniqueVariantSku(variantSku, index);
 
         // Generate variant url_key: <parent-url-key>-<color>-<size>-<sku|index> (unique per variant)
         let variantUrlKey = v.url_key;
@@ -469,8 +525,9 @@ const updateProduct = async (req, res) => {
           if (attrsObj.size || attrsObj.age)
             parts.push(generateSlug(attrsObj.size || attrsObj.age));
           variantUrlKey = parts.join("-");
-          variantUrlKey = `${variantUrlKey}-${variantSku || index}`;
+          variantUrlKey = `${variantUrlKey}-${variantSku}`;
         }
+        variantUrlKey = await ensureUniqueVariantUrlKey(variantUrlKey, index);
 
         processedVariants.push({
           id: v.id || `variant-${crypto.randomUUID()}`,
