@@ -16,6 +16,46 @@ const {
 } = require("../../utils/variantNameFormatter");
 const bundleService = require("../../features/product/bundle.service");
 
+const norm = (v) =>
+  (v ?? "")
+    .toString()
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const buildVariantTitle = (parentTitle, productVariantOptions, attributesMap) => {
+  const attrsObj =
+    attributesMap instanceof Map
+      ? Object.fromEntries(attributesMap)
+      : { ...(attributesMap || {}) };
+
+  const getAttrValue = (option) => {
+    const code = option?.code;
+    const name = option?.name;
+    for (const [k, v] of Object.entries(attrsObj)) {
+      if (norm(k) === norm(code) || norm(k) === norm(name)) {
+        return String(v ?? "");
+      }
+    }
+    return "";
+  };
+
+  const labels = (productVariantOptions || [])
+    .map((option) => {
+      const rawValue = getAttrValue(option);
+      if (!rawValue) return null;
+      const valueDef = (option.values || []).find(
+        (val) => norm(val.value) === norm(rawValue)
+      );
+      return (valueDef?.label || rawValue).trim();
+    })
+    .filter(Boolean);
+
+  if (!labels.length) return parentTitle;
+  return `${parentTitle} - ${labels.join(" / ")}`;
+};
+
 const updateProduct = async (req, res) => {
   try {
     // Parse FormData JSON string fields (variants, etc. come as strings from multipart)
@@ -528,9 +568,15 @@ const updateProduct = async (req, res) => {
           variantUrlKey = `${variantUrlKey}-${variantSku}`;
         }
         variantUrlKey = await ensureUniqueVariantUrlKey(variantUrlKey, index);
+        const variantName = buildVariantTitle(
+          product.title,
+          product.variantOptions || [],
+          attributesMap
+        );
 
         processedVariants.push({
           id: v.id || `variant-${crypto.randomUUID()}`,
+          name: variantName,
           url_key: variantUrlKey,
           sku: variantSku,
           price,

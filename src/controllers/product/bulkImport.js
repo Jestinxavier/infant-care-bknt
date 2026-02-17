@@ -22,6 +22,46 @@ const PERMANENT_FOLDER = "assets";
 
 const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
 
+const norm = (v) =>
+  (v ?? "")
+    .toString()
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+function buildVariantTitle(parentTitle, productVariantOptions, attributesMap) {
+  const attrsObj =
+    attributesMap instanceof Map
+      ? Object.fromEntries(attributesMap)
+      : { ...(attributesMap || {}) };
+
+  const getAttrValue = (option) => {
+    const code = option?.code;
+    const name = option?.name;
+    for (const [k, v] of Object.entries(attrsObj)) {
+      if (norm(k) === norm(code) || norm(k) === norm(name)) {
+        return String(v ?? "");
+      }
+    }
+    return "";
+  };
+
+  const labels = (productVariantOptions || [])
+    .map((option) => {
+      const rawValue = getAttrValue(option);
+      if (!rawValue) return null;
+      const valueDef = (option.values || []).find(
+        (val) => norm(val.value) === norm(rawValue)
+      );
+      return (valueDef?.label || rawValue).trim();
+    })
+    .filter(Boolean);
+
+  if (!labels.length) return parentTitle;
+  return `${parentTitle} - ${labels.join(" / ")}`;
+}
+
 function normalizeVariantAttributeValueForHash(value) {
   return String(value)
     .replace(/\u00A0/g, " ")
@@ -1034,9 +1074,15 @@ class BulkImportController {
               `${productData.url_key}-${finalVariantSku.toLowerCase()}`,
               variantIndex
             );
+            const variantName = buildVariantTitle(
+              productData.title,
+              Array.from(uniqueVariantOptions.values()),
+              resolvedAttributes
+            );
 
             embeddedVariants.push({
               id: variantId,
+              name: variantName,
               parentId: finalProductId,
               url_key: variantUrlKey,
               sku: finalVariantSku,

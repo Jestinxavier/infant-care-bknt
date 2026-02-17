@@ -393,7 +393,21 @@ class ProductService {
           },
           // Accumulate data
           parentId: { $first: "$_id" },
-          title: { $first: "$title" },
+          title: {
+            $first: {
+              $cond: {
+                if: { $ifNull: ["$variants", false] },
+                then: {
+                  $cond: {
+                    if: "$hasColorOption",
+                    then: { $ifNull: ["$variants.name", "$title"] },
+                    else: "$title",
+                  },
+                },
+                else: "$title",
+              },
+            },
+          },
           product_type: { $first: "$product_type" },
           url_key: {
             $first: {

@@ -34,6 +34,7 @@ const variantOptionSchema = new mongoose.Schema(
 const variantSchema = new mongoose.Schema(
   {
     id: { type: String, required: true },
+    name: { type: String },
     url_key: { type: String }, // Made optional in schema, controller will generate
     sku: { type: String, unique: true, sparse: true },
     price: { type: Number, min: 0 },

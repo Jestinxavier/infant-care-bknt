@@ -47,6 +47,7 @@ const formatProductResponse = (product) => {
 
     return {
       id: variant.id,
+      name: variant.name || undefined,
       url_key: variant.url_key, // Include variant url_key in response
       sku: variant.sku,
       attributes: attributes,
