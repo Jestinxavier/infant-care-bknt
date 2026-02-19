@@ -143,6 +143,10 @@ const getProductById = async (req, res) => {
     // Format product for admin
     const productObj = { ...product };
     productObj._id = productObj._id?.toString();
+    productObj.collections = Array.isArray(productObj.collections)
+      ? productObj.collections.filter(Boolean)
+      : [];
+    productObj.badgeCollection = productObj.badgeCollection || null;
 
     // Fix categoryName - prefer populated category, fallback to categoryName field
     if (!productObj.categoryName && productObj.category) {

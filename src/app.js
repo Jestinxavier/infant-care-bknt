@@ -116,6 +116,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const deliveryPartnerRoutes = require("./routes/deliveryPartnerRoutes");
 const assetRoutes = require("./routes/asset");
 const attributeRoutes = require("./routes/attributeRoutes");
+const collectionRoutes = require("./routes/collectionRoutes");
 const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
 
 // Storefront routes (unchanged)
@@ -168,6 +169,7 @@ app.use(`/api/v1${ADMIN_PREFIX}/assets`, assetRoutes);
 // Attribute management routes (public GET, admin CUD)
 app.use("/api/v1/attributes", attributeRoutes);
 app.use(`/api/v1${ADMIN_PREFIX}/attributes`, attributeRoutes);
+app.use(`/api/v1${ADMIN_PREFIX}/collections`, collectionRoutes);
 
 // Swagger API Documentation
 app.use(

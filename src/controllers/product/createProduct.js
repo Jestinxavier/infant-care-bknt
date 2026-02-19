@@ -15,6 +15,10 @@ const {
   processVariantOptions,
   normalizeVariantAttributesToValues,
 } = require("../../utils/variantNameFormatter");
+const {
+  validateCollectionsAndBadge,
+  parseCollectionsInput,
+} = require("../../utils/collectionUtils");
 const bundleService = require("../../features/product/bundle.service");
 
 const norm = (v) =>
@@ -154,6 +158,8 @@ const createProduct = async (req, res) => {
       url_key,
       subtitle,
       shortDescription,
+      collections,
+      badgeCollection,
       tags,
       metaTitle,
       metaDescription,
@@ -573,15 +579,13 @@ const createProduct = async (req, res) => {
       }
     }
 
-    // Tags - keep as single string (comma-separated if multiple)
-    let parsedTags = "";
-    if (tags) {
-      if (typeof tags === "string") {
-        parsedTags = tags.trim(); // Keep as string
-      } else if (Array.isArray(tags)) {
-        parsedTags = tags.join(",").trim(); // Convert array to comma-separated string
-      }
-    }
+    // Collections/badgeCollection (strictly validated against collections collection)
+    const collectionsInput =
+      collections !== undefined ? collections : parseCollectionsInput(tags);
+    const parsedCollections = await validateCollectionsAndBadge({
+      collections: collectionsInput,
+      badgeCollection,
+    });
 
     // Extract URLs from image objects (Product model expects array of strings)
     const productImageUrls = productImages
@@ -724,7 +728,8 @@ const createProduct = async (req, res) => {
         : [],
       pricing: pricing || null, // Parent-level pricing
       stockObj: stockObj || null, // Parent-level stock
-      tags: parsedTags,
+      collections: parsedCollections.collections,
+      badgeCollection: parsedCollections.badgeCollection,
       images: productImageUrls.length > 0 ? productImageUrls : undefined,
       thumbnail: productImageUrls.length > 0 ? productImageUrls[0] : undefined,
       metaTitle: metaTitle || null,
@@ -820,6 +825,17 @@ const createProduct = async (req, res) => {
         success: false,
         message: `Duplicate value for ${duplicateField}. This ${duplicateField} already exists.`,
         error: err.message,
+      });
+    }
+
+    if (
+      err.code === "INVALID_COLLECTIONS" ||
+      err.code === "INVALID_BADGE_COLLECTION"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+        error: "Collection Validation Error",
       });
     }
 

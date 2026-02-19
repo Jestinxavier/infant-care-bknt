@@ -210,6 +210,10 @@ function transformForDashboard(product) {
 
   const currentPrice = getCurrentPrice(product);
   const currentDiscountPrice = getCurrentDiscountPrice(product);
+  const collections = Array.isArray(product.collections)
+    ? product.collections.filter(Boolean)
+    : [];
+  const badgeCollection = product.badgeCollection || null;
 
   return {
     // Core product data
@@ -237,6 +241,8 @@ function transformForDashboard(product) {
     // Display fields
     thumbnail,
     sku,
+    collections,
+    badgeCollection,
 
     // Timestamps
     createdAt: product.createdAt,

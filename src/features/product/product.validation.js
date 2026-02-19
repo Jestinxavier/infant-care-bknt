@@ -42,6 +42,14 @@ const productValidation = {
       .optional()
       .isFloat({ min: 0 })
       .withMessage("Price must be a positive number"),
+    body("collections")
+      .optional()
+      .isArray()
+      .withMessage("Collections must be an array"),
+    body("badgeCollection")
+      .optional({ nullable: true })
+      .isString()
+      .withMessage("badgeCollection must be a string or null"),
   ],
 
   // Update product validation
@@ -61,6 +69,14 @@ const productValidation = {
       .optional()
       .isArray()
       .withMessage("Variants must be an array"),
+    body("collections")
+      .optional()
+      .isArray()
+      .withMessage("Collections must be an array"),
+    body("badgeCollection")
+      .optional({ nullable: true })
+      .isString()
+      .withMessage("badgeCollection must be a string or null"),
   ],
 
   // Get products validation (query params)

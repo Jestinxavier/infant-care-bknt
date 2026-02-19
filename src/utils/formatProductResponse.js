@@ -106,6 +106,27 @@ const formatProductResponse = (product) => {
   }
 
   // Format response
+  const collections = Array.isArray(productObj.collections)
+    ? productObj.collections.filter(Boolean)
+    : [];
+  const badgeCollection = productObj.badgeCollection || null;
+  const collectionMetaBySlug = productObj.collectionMetaBySlug || {};
+  const badgeCollectionMeta =
+    productObj.badgeCollectionMeta ||
+    (badgeCollection ? collectionMetaBySlug[badgeCollection] : null);
+  const badge = badgeCollection
+    ? {
+        slug: badgeCollection,
+        label:
+          badgeCollectionMeta?.badgeLabel ||
+          badgeCollectionMeta?.name ||
+          badgeCollection,
+        color: badgeCollectionMeta?.badgeColor || null,
+        labelColor: badgeCollectionMeta?.badgeLabelColor || null,
+        name: badgeCollectionMeta?.name || null,
+      }
+    : null;
+
   return {
     id: productObj._id?.toString() || productObj.id,
     sku: productObj.sku, // ✅ Include SKU in response
@@ -237,8 +258,10 @@ const formatProductResponse = (product) => {
     variantOptions: formattedVariantOptions,
     variants: formattedVariants,
     details: formattedDetails,
-    // Additional fields
-    tags: productObj.tags || "",
+    collections: collections,
+    badgeCollection: badgeCollection,
+    badge: badge,
+    collectionMetaBySlug: collectionMetaBySlug,
     meta_title: productObj.metaTitle || productObj.meta_title || "",
     meta_description:
       productObj.metaDescription || productObj.meta_description || "",

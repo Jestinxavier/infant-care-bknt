@@ -249,7 +249,15 @@ const productSchema = new mongoose.Schema(
 
     // Legacy fields (for backward compatibility)
     name: { type: String }, // Auto-synced from title
-    tags: String, // Single string value (e.g., 'new-arrival')
+    collections: {
+      type: [String],
+      default: [],
+      index: true,
+    },
+    badgeCollection: {
+      type: String,
+      default: null,
+    },
     basePrice: Number,
 
     // SEO fields
@@ -295,9 +303,6 @@ productSchema.pre("save", function (next) {
   next();
 });
 
-// Index for url_key lookups
-productSchema.index({ url_key: 1 });
-
 // ✅ NEW: Unique index to prevent duplicate variants within the same parent product
 // Note: Sparse is needed because non-variant products (SIMPLE) won't have parentId or _optionsHash on the parent level
 // But wait, variants are embedded. We can't index embedded docs like this easily for uniqueness across array elements in Mongo < ???
@@ -311,8 +316,6 @@ productSchema.index({ url_key: 1 });
 // Actually, user might mean "Product Uniqueness" if modeled differently, but here it is embedded.
 // I will implement the PRE-SAVE VALIDATION for this.
 
-// Create index for fast lookups
-productSchema.index({ "variants.sku": 1 });
 productSchema.index({ "variants._optionsHash": 1 });
 
 // Force clear any cached model to ensure schema updates are applied

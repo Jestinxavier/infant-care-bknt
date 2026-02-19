@@ -1,6 +1,8 @@
 const Product = require("../../models/Product");
+const Collection = require("../../models/Collection");
 const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
+const { parseCollectionsInput } = require("../../utils/collectionUtils");
 
 /**
  * Get all products - returns variants as separate items if inStock, otherwise parent product
@@ -26,6 +28,7 @@ const getAllProducts = async (req, res) => {
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
       inStock = filters.inStock || requestData.inStock,
+      collection = filters.collection,
     } = { ...requestData, ...filters };
 
     // Delegate to ProductService (which now handles Aggregation & Grouping)
@@ -46,6 +49,7 @@ const getAllProducts = async (req, res) => {
       size,
       subCategories: filters.subCategories,
       search: requestData.search || requestData.q,
+      collection,
     };
 
     // If category is provided as code (e.g. "clothing"), resolve it to ID first
@@ -124,15 +128,36 @@ const getAllProducts = async (req, res) => {
       );
     }
 
+    if (serviceFilters.collection && !res.locals.categoryTitle) {
+      const collectionSlugs = Array.isArray(serviceFilters.collection)
+        ? serviceFilters.collection
+        : [serviceFilters.collection];
+      if (collectionSlugs.length === 1) {
+        const col = await Collection.findOne({ slug: collectionSlugs[0] })
+          .select("name")
+          .lean();
+        if (col?.name) {
+          res.locals.categoryTitle = col.name;
+        }
+      }
+    }
+
     // Call Service
     const result = await productService.getAllProducts(serviceFilters, {
       isAdmin: false,
     });
+    const normalizedItems = (result.items || []).map((item) => ({
+      ...item,
+      collections: Array.isArray(item.collections)
+        ? item.collections.filter(Boolean)
+        : [],
+      badgeCollection: item.badgeCollection || null,
+    }));
 
     res.status(200).json({
       success: true,
       categoryTitle: res.locals.categoryTitle || "All Products",
-      items: result.items,
+      items: normalizedItems,
       pagination: result.pagination,
     });
   } catch (err) {
@@ -365,9 +390,31 @@ const getProductByUrlKey = async (req, res) => {
     }
 
     // Format response in new structure
-    const formattedProduct = formatProductResponse(
-      product.product_type === "BUNDLE" ? productObj : product
-    );
+    const productCollections = parseCollectionsInput(productObj.collections);
+    const collectionDocs =
+      productCollections.length > 0
+        ? await Collection.find({ slug: { $in: productCollections } })
+            .select("slug name badgeLabel badgeColor badgeLabelColor")
+            .lean()
+        : [];
+    const collectionMetaBySlug = {};
+    collectionDocs.forEach((doc) => {
+      collectionMetaBySlug[doc.slug] = {
+        slug: doc.slug,
+        name: doc.name,
+        badgeLabel: doc.badgeLabel || null,
+        badgeColor: doc.badgeColor || null,
+        badgeLabelColor: doc.badgeLabelColor || null,
+      };
+    });
+    productObj.collectionMetaBySlug = collectionMetaBySlug;
+    productObj.collections = productCollections;
+    productObj.badgeCollection = productObj.badgeCollection || null;
+    productObj.badgeCollectionMeta = productObj.badgeCollection
+      ? collectionMetaBySlug[productObj.badgeCollection] || null
+      : null;
+
+    const formattedProduct = formatProductResponse(productObj);
 
     res.status(200).json({
       success: true,
@@ -424,6 +471,8 @@ const getProductById = async (req, res) => {
     // Ensure _id is a string
     const productObj = product.toObject();
     productObj._id = productObj._id?.toString() || productObj._id;
+    productObj.collections = parseCollectionsInput(productObj.collections);
+    productObj.badgeCollection = productObj.badgeCollection || null;
 
     // Populate category if it's an ObjectId reference
     if (productObj.category && typeof productObj.category === "object") {
@@ -496,7 +545,7 @@ const getSearchIndex = async (req, res) => {
     // Fetch all published products with minimal fields
     const products = await Product.find({ status: { $ne: "rejected" } })
       .select(
-        "title name url_key images pricing price category status variants"
+        "title name url_key images pricing price category status variants collections badgeCollection"
       )
       .populate("category", "name slug")
       .lean();
@@ -529,6 +578,10 @@ const getSearchIndex = async (req, res) => {
         image: image,
         category: product.category?.name || "Uncategorized",
         status: product.status,
+        collections: Array.isArray(product.collections)
+          ? product.collections.filter(Boolean)
+          : [],
+        badgeCollection: product.badgeCollection || null,
       };
     });
 

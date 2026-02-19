@@ -3,6 +3,56 @@ const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const { generateFilterConfig } = require("../../utils/generateFilterConfig");
 
+const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+const normalizeValue = (value) => (value ?? "").toString().trim().toLowerCase();
+
+const getHexFromUiMeta = (uiMetaColors, colorValue) => {
+  if (!uiMetaColors || typeof uiMetaColors !== "object") return null;
+
+  const directMeta = uiMetaColors[colorValue];
+  if (directMeta?.hex && HEX_COLOR_REGEX.test(directMeta.hex)) {
+    return directMeta.hex;
+  }
+
+  const normalizedColor = normalizeValue(colorValue);
+  for (const [key, meta] of Object.entries(uiMetaColors)) {
+    if (normalizeValue(key) === normalizedColor) {
+      if (meta?.hex && HEX_COLOR_REGEX.test(meta.hex)) {
+        return meta.hex;
+      }
+      break;
+    }
+  }
+
+  return null;
+};
+
+const getHexFromVariantOptions = (variantOptions, colorValue) => {
+  if (!Array.isArray(variantOptions)) return null;
+
+  const colorOption = variantOptions.find(
+    (option) =>
+      normalizeValue(option?.code) === "color" ||
+      normalizeValue(option?.name) === "color"
+  );
+  if (!colorOption || !Array.isArray(colorOption.values)) return null;
+
+  const normalizedColor = normalizeValue(colorValue);
+  const matchingValue = colorOption.values.find((optionValue) => {
+    const valueMatch =
+      normalizeValue(optionValue?.value) === normalizedColor ||
+      normalizeValue(optionValue?.label) === normalizedColor;
+    return valueMatch;
+  });
+
+  if (matchingValue?.hex && HEX_COLOR_REGEX.test(matchingValue.hex)) {
+    return matchingValue.hex;
+  }
+
+  return null;
+};
+
 /**
  * Get filter options for a category (or all products)
  * Returns FilterConfig[] format ready for frontend
@@ -16,7 +66,9 @@ const getFilters = async (req, res) => {
 
     // Use query param and slug to get all selected category codes
     const categoryFromQuery = parsedFilters.category;
+    const collectionFromQuery = parsedFilters.collection;
     let selectedCategoryCodes = [];
+    let selectedCollectionSlugs = [];
 
     if (slug && slug !== "all") {
       selectedCategoryCodes.push(slug);
@@ -29,9 +81,19 @@ const getFilters = async (req, res) => {
         selectedCategoryCodes.push(categoryFromQuery);
       }
     }
+    if (collectionFromQuery) {
+      if (Array.isArray(collectionFromQuery)) {
+        selectedCollectionSlugs.push(...collectionFromQuery);
+      } else {
+        selectedCollectionSlugs.push(collectionFromQuery);
+      }
+    }
 
     // Remove duplicates and 'all'
     selectedCategoryCodes = [...new Set(selectedCategoryCodes)].filter(c => c && c !== "all");
+    selectedCollectionSlugs = [...new Set(selectedCollectionSlugs)].filter(
+      (c) => c && c !== "all"
+    );
 
     // Build filter to get products for these categories (for filter generation)
     let productFilter = { status: "published" };
@@ -49,6 +111,9 @@ const getFilters = async (req, res) => {
       if (categoryDocs.length > 0) {
         productFilter.category = { $in: categoryDocs.map(d => d._id) };
       }
+    }
+    if (selectedCollectionSlugs.length > 0) {
+      productFilter.collections = { $in: selectedCollectionSlugs };
     }
 
     console.log("🛒 Product filter:", productFilter);
@@ -70,11 +135,13 @@ const getFilters = async (req, res) => {
 
     // Extract filter data from products and variants
     const filterColors = new Set();
+    const filterColorHexMap = new Map();
     const filterSizes = new Set();
     const filterBrands = new Set();
     const prices = [];
 
     const productIds = products.map((p) => p._id);
+    const productsById = new Map(products.map((product) => [String(product._id), product]));
 
     // Process new structure variants (embedded in products)
     for (const product of products) {
@@ -105,7 +172,23 @@ const getFilters = async (req, res) => {
           const variantColor = variantAttrs.color;
           const variantSize = variantAttrs.size || variantAttrs.age;
 
-          if (variantColor) filterColors.add(variantColor);
+          if (variantColor) {
+            filterColors.add(variantColor);
+
+            const colorHexFromUiMeta = getHexFromUiMeta(
+              product.uiMeta?.color,
+              variantColor
+            );
+            const colorHexFromVariantOptions = getHexFromVariantOptions(
+              product.variantOptions,
+              variantColor
+            );
+            const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
+
+            if (colorHex) {
+              filterColorHexMap.set(normalizeValue(variantColor), colorHex);
+            }
+          }
           if (variantSize) filterSizes.add(variantSize);
 
           // Use effective price (discountPrice if available, otherwise regular price)
@@ -122,7 +205,7 @@ const getFilters = async (req, res) => {
         }
       }
 
-      // Extract brand from product details or tags
+      // Extract brand from product details
       if (product.details) {
         const brandDetail = product.details.find(
           (d) =>
@@ -130,31 +213,6 @@ const getFilters = async (req, res) => {
             d.label?.toLowerCase() === "manufacturer"
         );
         if (brandDetail?.value) filterBrands.add(brandDetail.value);
-      }
-      if (product.tags) {
-        // Tags is now a string (single value or comma-separated)
-        const tagValue = product.tags;
-        if (typeof tagValue === "string" && tagValue.length > 0) {
-          // Split by comma if multiple tags, otherwise use as-is
-          const tagList = tagValue.includes(",")
-            ? tagValue
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean)
-            : [tagValue.trim()];
-          tagList.forEach((tag) => {
-            if (tag.length > 0) {
-              filterBrands.add(tag);
-            }
-          });
-        } else if (Array.isArray(tagValue)) {
-          // Legacy support for array format
-          tagValue.forEach((tag) => {
-            if (tag && tag.length > 0) {
-              filterBrands.add(tag);
-            }
-          });
-        }
       }
     }
 
@@ -165,7 +223,24 @@ const getFilters = async (req, res) => {
       }).lean();
 
       for (const variant of legacyVariants) {
-        if (variant.color) filterColors.add(variant.color);
+        if (variant.color) {
+          filterColors.add(variant.color);
+
+          const parentProduct = productsById.get(String(variant.productId));
+          const colorHexFromUiMeta = getHexFromUiMeta(
+            parentProduct?.uiMeta?.color,
+            variant.color
+          );
+          const colorHexFromVariantOptions = getHexFromVariantOptions(
+            parentProduct?.variantOptions,
+            variant.color
+          );
+          const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
+
+          if (colorHex) {
+            filterColorHexMap.set(normalizeValue(variant.color), colorHex);
+          }
+        }
         if (variant.age) filterSizes.add(variant.age);
         // Use effective price for legacy variants too
         const variantPrice = variant.price || 0;
@@ -183,6 +258,7 @@ const getFilters = async (req, res) => {
     // Generate raw filter data
     const rawFilters = {
       color: Array.from(filterColors).sort(),
+      colorMeta: Object.fromEntries(filterColorHexMap),
       size: Array.from(filterSizes).sort(),
       brand: Array.from(filterBrands).sort(),
       priceRange: {

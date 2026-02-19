@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
+const Collection = require("../../models/Collection");
 const CsvTempImage = require("../../models/CsvTempImage");
 const Asset = require("../../models/Asset");
 const { cloudinary } = require("../../config/cloudinary");
@@ -15,6 +16,11 @@ const {
 } = require("../../utils/skuGenerator");
 const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
+const {
+  parseCollectionsInput,
+  validateCollectionsAndBadge,
+  normalizeCollectionSlug,
+} = require("../../utils/collectionUtils");
 
 // Cloudinary folder for permanent CSV imported images
 // CSV imported images should be stored in "assets" folder
@@ -206,6 +212,12 @@ class BulkImportController {
       if (cat.code) categoryMap.set(cat.code.toLowerCase().trim(), cat._id);
       if (cat.slug) categoryMap.set(cat.slug.toLowerCase().trim(), cat._id);
     });
+    const existingCollections = await Collection.find({})
+      .select("slug")
+      .lean();
+    const collectionSlugSet = new Set(
+      existingCollections.map((item) => String(item.slug || "").trim())
+    );
 
     // Collect all SKUs from input for duplicate detection
     const inputSkus = new Set();
@@ -294,6 +306,39 @@ class BulkImportController {
         });
       }
       // If it's a variant product (has parentId), category is optional - skip validation
+
+      const normalizedCollections = parseCollectionsInput(
+        product.collections !== undefined ? product.collections : product.tag
+      );
+      const normalizedBadge = product.badge
+        ? normalizeCollectionSlug(product.badge)
+        : null;
+      const unknownCollections = normalizedCollections.filter(
+        (slug) => !collectionSlugSet.has(slug)
+      );
+      if (unknownCollections.length > 0) {
+        errors.push({
+          row: rowNum,
+          field: "collections",
+          message: `Unknown collection slug(s): ${unknownCollections.join(
+            ", "
+          )}`,
+        });
+      }
+      if (normalizedBadge && !collectionSlugSet.has(normalizedBadge)) {
+        errors.push({
+          row: rowNum,
+          field: "badge",
+          message: `Unknown badge collection slug: ${normalizedBadge}`,
+        });
+      }
+      if (normalizedBadge && !normalizedCollections.includes(normalizedBadge)) {
+        errors.push({
+          row: rowNum,
+          field: "badge",
+          message: "Badge must be one of the selected collections",
+        });
+      }
 
       // Collect temp images from product
       if (product.imageMetadata && Array.isArray(product.imageMetadata)) {
@@ -1145,6 +1190,17 @@ class BulkImportController {
           }
         }
 
+        const parsedCollections = await validateCollectionsAndBadge({
+          collections:
+            productData.collections !== undefined
+              ? productData.collections
+              : productData.tags || productData.tag,
+          badgeCollection:
+            productData.badgeCollection !== undefined
+              ? productData.badgeCollection
+              : productData.badge,
+        });
+
         if (isUpdate) {
           // Update existing product
           await Product.findByIdAndUpdate(
@@ -1189,7 +1245,8 @@ class BulkImportController {
                 isInStock: (productData.stock || 0) > 0,
               },
               details: normalizeDetailsForImport(productData.details || []),
-              tags: productData.tags || productData.tag, // ✅ Store as single string
+              collections: parsedCollections.collections,
+              badgeCollection: parsedCollections.badgeCollection,
               // New fields
               url_key: productData.url_key,
               metaTitle: productData.metaTitle,
@@ -1246,7 +1303,8 @@ class BulkImportController {
               isInStock: (productData.stock || 0) > 0,
             },
             details: normalizeDetailsForImport(productData.details || []),
-            tags: productData.tags || productData.tag,
+            collections: parsedCollections.collections,
+            badgeCollection: parsedCollections.badgeCollection,
             url_key: productData.url_key,
             metaTitle: productData.metaTitle,
             metaDescription: productData.metaDescription,
@@ -1307,6 +1365,23 @@ class BulkImportController {
       );
     } catch (error) {
       console.error(`❌ [Bulk Import] Error during commit:`, error.message);
+
+      if (
+        error.code === "INVALID_COLLECTIONS" ||
+        error.code === "INVALID_BADGE_COLLECTION"
+      ) {
+        if (isTransactionStarted) {
+          try {
+            await session.abortTransaction();
+          } catch (_) {}
+        }
+        session.endSession();
+        return res.status(400).json(
+          ApiResponse.error(error.message, {
+            code: error.code,
+          }).toJSON()
+        );
+      }
 
       // Rollback transaction if started
       if (isTransactionStarted) {

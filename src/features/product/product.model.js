@@ -195,9 +195,9 @@ const productSchema = new mongoose.Schema(
       ref: "Category",
       required: true,
     },
-    sku: { type: String, sparse: true, index: true },
+    sku: { type: String },
     skuLocked: { type: Boolean, default: false },
-    url_key: { type: String, unique: true, sparse: true, index: true },
+    url_key: { type: String, unique: true, sparse: true },
     urlKeyHistory: [urlKeyHistorySchema],
     status: {
       type: String,
@@ -240,7 +240,16 @@ const productSchema = new mongoose.Schema(
     },
     details: [detailSchema],
     images: [imageMetadataSchema],
-    tags: [{ type: String, trim: true }],
+    collections: {
+      type: [{ type: String, trim: true }],
+      default: [],
+      index: true,
+    },
+    badgeCollection: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     price: { type: Number, min: 0 },
     // Offer pricing (discountPrice is computed at runtime, not stored)
     offerPrice: { type: Number, min: 0 },
@@ -274,11 +283,8 @@ const productSchema = new mongoose.Schema(
 );
 
 // Indexes
-productSchema.index({ url_key: 1 });
-productSchema.index({ sku: 1 });
 productSchema.index({ category: 1, status: 1 });
 productSchema.index({ title: "text", description: "text" });
-productSchema.index({ "variants.sku": 1 });
 // product_type index is already declared in schema with `index: true`
 
 // Compound unique index for product SKU

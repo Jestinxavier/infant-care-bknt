@@ -14,6 +14,10 @@ const {
   processVariantOptions,
   normalizeVariantAttributesToValues,
 } = require("../../utils/variantNameFormatter");
+const {
+  validateCollectionsAndBadge,
+  parseCollectionsInput,
+} = require("../../utils/collectionUtils");
 const bundleService = require("../../features/product/bundle.service");
 
 const norm = (v) =>
@@ -87,6 +91,8 @@ const updateProduct = async (req, res) => {
       url_key,
       subtitle,
       shortDescription,
+      collections,
+      badgeCollection,
       tags,
       metaTitle,
       metaDescription,
@@ -327,7 +333,35 @@ const updateProduct = async (req, res) => {
     if (subtitle !== undefined) product.subtitle = subtitle;
     if (shortDescription !== undefined)
       product.shortDescription = shortDescription;
-    if (tags !== undefined) product.tags = tags;
+    if (
+      collections !== undefined ||
+      badgeCollection !== undefined ||
+      tags !== undefined
+    ) {
+      const effectiveCollectionsInput =
+        collections !== undefined
+          ? collections
+          : tags !== undefined
+          ? parseCollectionsInput(tags)
+          : product.collections || [];
+      const normalizedIncomingCollections = parseCollectionsInput(
+        effectiveCollectionsInput
+      );
+      const effectiveBadgeInput =
+        badgeCollection !== undefined
+          ? badgeCollection
+          : collections !== undefined &&
+            product.badgeCollection &&
+            !normalizedIncomingCollections.includes(product.badgeCollection)
+          ? null
+          : product.badgeCollection || null;
+      const parsedCollections = await validateCollectionsAndBadge({
+        collections: effectiveCollectionsInput,
+        badgeCollection: effectiveBadgeInput,
+      });
+      product.collections = parsedCollections.collections;
+      product.badgeCollection = parsedCollections.badgeCollection;
+    }
     if (metaTitle !== undefined) product.metaTitle = metaTitle;
     if (metaDescription !== undefined)
       product.metaDescription = metaDescription;
@@ -760,6 +794,17 @@ const updateProduct = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error updating product:", err);
+
+    if (
+      err.code === "INVALID_COLLECTIONS" ||
+      err.code === "INVALID_BADGE_COLLECTION"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+        error: "Collection Validation Error",
+      });
+    }
 
     // Handle validation errors (Mongoose ValidationError)
     if (err.name === "ValidationError") {

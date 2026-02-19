@@ -82,6 +82,18 @@ const parseQueryFilters = (query) => {
       filters.category = query.category.trim();
     }
   }
+  if (query.collection) {
+    if (Array.isArray(query.collection)) {
+      filters.collection = query.collection;
+    } else if (
+      typeof query.collection === "string" &&
+      query.collection.includes(",")
+    ) {
+      filters.collection = query.collection.split(",").map((c) => c.trim());
+    } else {
+      filters.collection = query.collection.trim();
+    }
+  }
   if (query.brand) filters.brand = query.brand;
   if (query.material) filters.material = query.material;
   if (query.pattern) filters.pattern = query.pattern;

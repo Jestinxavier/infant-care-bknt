@@ -9,6 +9,10 @@ const {
   generateUniqueSku,
   validateSku,
 } = require("../../utils/skuGenerator");
+const {
+  validateCollectionsAndBadge,
+  parseCollectionsInput,
+} = require("../../utils/collectionUtils");
 const mongoose = require("mongoose");
 
 /**
@@ -112,6 +116,13 @@ class ProductService {
       if (subCatIds.length > 0) {
         matchStage.subCategories = { $in: subCatIds };
       }
+    }
+
+    if (filters.collection) {
+      const collectionSlugs = Array.isArray(filters.collection)
+        ? filters.collection
+        : [filters.collection];
+      matchStage.collections = { $in: collectionSlugs.filter(Boolean) };
     }
 
     // Search Filter (Regex on title/name)
@@ -442,6 +453,8 @@ class ProductService {
           sku: { $first: "$sku" },
           category: { $first: "$category" },
           categoryName: { $first: "$categoryName" },
+          collections: { $first: { $ifNull: ["$collections", []] } },
+          badgeCollection: { $first: { $ifNull: ["$badgeCollection", null] } },
 
           // Variant/Product specific data (variantId null when no color option → PDP shows size picker)
           variantId: {
@@ -535,6 +548,53 @@ class ProductService {
           },
         },
       },
+      {
+        $lookup: {
+          from: "collections",
+          localField: "badgeCollection",
+          foreignField: "slug",
+          as: "badgeCollectionMeta",
+        },
+      },
+      {
+        $addFields: {
+          badgeCollectionMeta: {
+            $cond: {
+              if: { $gt: [{ $size: "$badgeCollectionMeta" }, 0] },
+              then: { $arrayElemAt: ["$badgeCollectionMeta", 0] },
+              else: null,
+            },
+          }
+        },
+      },
+      {
+        $addFields: {
+          badge: {
+            $cond: {
+              if: {
+                $and: [
+                  { $ne: ["$badgeCollection", null] },
+                  { $ne: ["$badgeCollectionMeta", null] },
+                ],
+              },
+              then: {
+                slug: "$badgeCollection",
+                label: {
+                  $ifNull: [
+                    "$badgeCollectionMeta.badgeLabel",
+                    { $ifNull: ["$badgeCollectionMeta.name", "$badgeCollection"] },
+                  ],
+                },
+                color: { $ifNull: ["$badgeCollectionMeta.badgeColor", null] },
+                labelColor: {
+                  $ifNull: ["$badgeCollectionMeta.badgeLabelColor", null],
+                },
+              },
+              else: null,
+            },
+          },
+        },
+      },
 
       // Remove internal MongoDB IDs and unnecessary fields
       {
@@ -543,6 +603,9 @@ class ProductService {
           category: 0, // Remove category ObjectId
           slug: 0, // Remove slug
           colors: 0, // Remove colors array
+          "badgeCollectionMeta.__v": 0,
+          "badgeCollectionMeta.createdAt": 0,
+          "badgeCollectionMeta.updatedAt": 0,
         },
       },
 
@@ -624,6 +687,15 @@ class ProductService {
 
     // Clone input
     const productData = { ...inputData };
+    const parsedCollections = await validateCollectionsAndBadge({
+      collections:
+        productData.collections !== undefined
+          ? productData.collections
+          : parseCollectionsInput(productData.tags),
+      badgeCollection: productData.badgeCollection,
+    });
+    productData.collections = parsedCollections.collections;
+    productData.badgeCollection = parsedCollections.badgeCollection;
 
     // Generate URL key if not provided
     if (!productData.url_key && productData.title) {
@@ -821,6 +893,35 @@ class ProductService {
 
     if (!product) {
       throw ApiError.notFound("Product not found");
+    }
+
+    if (
+      updateData.collections !== undefined ||
+      updateData.badgeCollection !== undefined ||
+      updateData.tags !== undefined
+    ) {
+      const incomingCollections =
+        updateData.collections !== undefined
+          ? updateData.collections
+          : updateData.tags !== undefined
+          ? parseCollectionsInput(updateData.tags)
+          : product.collections || [];
+      const normalizedIncomingCollections = parseCollectionsInput(
+        incomingCollections
+      );
+      const parsedCollections = await validateCollectionsAndBadge({
+        collections: incomingCollections,
+        badgeCollection:
+          updateData.badgeCollection !== undefined
+            ? updateData.badgeCollection
+            : updateData.collections !== undefined &&
+              product.badgeCollection &&
+              !normalizedIncomingCollections.includes(product.badgeCollection)
+            ? null
+            : product.badgeCollection || null,
+      });
+      updateData.collections = parsedCollections.collections;
+      updateData.badgeCollection = parsedCollections.badgeCollection;
     }
 
     // Auto-generate SKU if missing in DB or if explicit empty string provided

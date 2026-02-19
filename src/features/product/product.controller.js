@@ -8,6 +8,16 @@ const asyncHandler = require("../../core/middleware/asyncHandler");
  * Delegates all business logic to ProductService
  */
 class ProductController {
+  normalizeCollections(product) {
+    if (!product) return product;
+    const normalized = product.toObject ? product.toObject() : { ...product };
+    normalized.collections = Array.isArray(normalized.collections)
+      ? normalized.collections.filter(Boolean)
+      : [];
+    normalized.badgeCollection = normalized.badgeCollection || null;
+    return normalized;
+  }
+
   /**
    * Get all products (storefront - only published)
    */
@@ -34,11 +44,12 @@ class ProductController {
   getProductById = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const product = await productService.getProductById(id, { isAdmin: false });
+    const normalized = this.normalizeCollections(product);
 
     res
       .status(200)
       .json(
-        ApiResponse.success("Product fetched successfully", product).toJSON(),
+        ApiResponse.success("Product fetched successfully", normalized).toJSON(),
       );
   });
 
@@ -50,11 +61,12 @@ class ProductController {
     const product = await productService.getProductByUrlKey(urlKey, {
       isAdmin: false,
     });
+    const normalized = this.normalizeCollections(product);
 
     res
       .status(200)
       .json(
-        ApiResponse.success("Product fetched successfully", product).toJSON(),
+        ApiResponse.success("Product fetched successfully", normalized).toJSON(),
       );
   });
 

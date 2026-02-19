@@ -138,16 +138,51 @@ class CmsProductController {
           discountPrice,
           image,
           stock,
-          tags: product.tags || [],
+          collections: Array.isArray(product.collections)
+            ? product.collections
+            : [],
+          badgeCollection: product.badgeCollection || null,
         };
       })
       .filter((p) => p !== null) // Remove nulls
       .slice(0, filters.limit); // Limit to requested amount
 
+    const badgeSlugs = [
+      ...new Set(
+        minimalProducts
+          .map((item) => item.badgeCollection)
+          .filter((slug) => !!slug)
+      ),
+    ];
+    let badgeMap = new Map();
+    if (badgeSlugs.length > 0) {
+      const Collection = require("../../models/Collection");
+      const docs = await Collection.find({ slug: { $in: badgeSlugs } })
+        .select("slug name badgeLabel badgeColor badgeLabelColor")
+        .lean();
+      badgeMap = new Map(
+        docs.map((doc) => [
+          doc.slug,
+          {
+            slug: doc.slug,
+            label: doc.badgeLabel || doc.name || doc.slug,
+            color: doc.badgeColor || null,
+            labelColor: doc.badgeLabelColor || null,
+            name: doc.name || null,
+          },
+        ])
+      );
+    }
+
+    const withBadges = minimalProducts.map((item) => ({
+      ...item,
+      badge: item.badgeCollection ? badgeMap.get(item.badgeCollection) || null : null,
+    }));
+
     res.status(200).json(
       ApiResponse.success("Products fetched successfully", {
-        data: minimalProducts,
-        total: minimalProducts.length,
+        data: withBadges,
+        total: withBadges.length,
       }).toJSON()
     );
   });

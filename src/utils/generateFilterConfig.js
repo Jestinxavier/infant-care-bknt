@@ -1,5 +1,7 @@
 const { formatLabel } = require("./formatLabel");
 
+const normalizeValue = (value) => (value ?? "").toString().trim().toLowerCase();
+
 /**
  * Transform raw filter data into FilterConfig format for frontend
  * This matches the structure expected by FilterContent component
@@ -51,6 +53,10 @@ const generateFilterConfig = (rawFilters) => {
 
   // Color Checkbox
   if (rawFilters.color && Array.isArray(rawFilters.color) && rawFilters.color.length > 0) {
+    const colorMeta = rawFilters.colorMeta && typeof rawFilters.colorMeta === "object"
+      ? rawFilters.colorMeta
+      : {};
+
     filterConfigs.push({
       key: "color",
       label: "Color",
@@ -58,6 +64,10 @@ const generateFilterConfig = (rawFilters) => {
       options: rawFilters.color.map((color) => ({
         value: color, // Keep original value
         label: formatLabel(color), // Format label for display
+        hex:
+          colorMeta[color] ||
+          colorMeta[normalizeValue(color)] ||
+          null,
       })),
     });
   }
