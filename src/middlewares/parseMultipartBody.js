@@ -10,6 +10,10 @@ const parseMultipartBody = (req, res, next) => {
     "details",
     "pricing",
     "stockObj",
+    "filterAttributes",
+    "uiMeta",
+    "quantityRules",
+    "collections",
     "bundle_config", // For bundle products
     "subCategories", // Array of sub-category IDs
   ];
@@ -17,12 +21,10 @@ const parseMultipartBody = (req, res, next) => {
   jsonFields.forEach((field) => {
     if (req.body[field] && typeof req.body[field] === "string") {
       try {
+        const raw = req.body[field].trim();
         // Only parse if it looks like a JSON array or object
-        if (
-          req.body[field].startsWith("[") ||
-          req.body[field].startsWith("{")
-        ) {
-          req.body[field] = JSON.parse(req.body[field]);
+        if (raw.startsWith("[") || raw.startsWith("{")) {
+          req.body[field] = JSON.parse(raw);
         }
       } catch (error) {
         console.warn(`Failed to parse ${field} from multipart body:`, error);

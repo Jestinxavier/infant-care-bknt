@@ -18,6 +18,12 @@ const {
   validateCollectionsAndBadge,
   parseCollectionsInput,
 } = require("../../utils/collectionUtils");
+const {
+  sanitizeIncomingFilterAttributes,
+  getFilterAttributeCardinalityViolations,
+  normalizeFilterValue,
+} = require("../../utils/filterAttributes");
+const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
 
 const norm = (v) =>
@@ -72,9 +78,28 @@ const updateProduct = async (req, res) => {
         parsedBody.variants = [];
       }
     }
+    if (typeof parsedBody.filterAttributes === "string") {
+      try {
+        parsedBody.filterAttributes = JSON.parse(parsedBody.filterAttributes);
+      } catch (e) {
+        console.error(
+          "Error parsing filterAttributes JSON in updateProduct:",
+          e
+        );
+        parsedBody.filterAttributes = {};
+      }
+    }
+    if (typeof parsedBody.uiMeta === "string") {
+      try {
+        parsedBody.uiMeta = JSON.parse(parsedBody.uiMeta);
+      } catch (e) {
+        console.error("Error parsing uiMeta JSON in updateProduct:", e);
+        parsedBody.uiMeta = {};
+      }
+    }
 
     const {
-      productId,
+      productId: bodyProductId,
       // New structure fields
       title,
       description,
@@ -108,9 +133,13 @@ const updateProduct = async (req, res) => {
       offerEndAt,
       // Quantity-based tier pricing
       quantityRules,
+      filterAttributes,
+      filterColorHex,
+      uiMeta,
       // Legacy fields
       name,
     } = parsedBody;
+    const productId = bodyProductId || req.params.productId;
 
     // DEBUG: Log bundle-related fields
     console.log("📦 [updateProduct] Received bundle fields:", {
@@ -192,6 +221,35 @@ const updateProduct = async (req, res) => {
     if (offerPrice !== undefined) product.offerPrice = offerPrice;
     if (offerStartAt !== undefined) product.offerStartAt = offerStartAt;
     if (offerEndAt !== undefined) product.offerEndAt = offerEndAt;
+    const sanitizedFilterAttributes =
+      filterAttributes !== undefined
+        ? sanitizeIncomingFilterAttributes(filterAttributes)
+        : undefined;
+
+    if (filterAttributes && typeof filterAttributes === "object") {
+      const cardinalityViolations = getFilterAttributeCardinalityViolations(
+        filterAttributes,
+        {
+          productType: product_type || product.product_type,
+        }
+      );
+
+      if (cardinalityViolations.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid filterAttributes: some fields accept only a single value.",
+          error: "FILTER_ATTRIBUTES_CARDINALITY_ERROR",
+          violations: cardinalityViolations.map((item) => ({
+            key: item.key,
+            values: item.values,
+          })),
+        });
+      }
+    }
+    if (filterAttributes !== undefined) {
+      product.filterAttributes = sanitizedFilterAttributes;
+    }
 
     // CLEANUP: Explicitly remove choice_config if it exists (deprecated/misplaced)
     if (product.toObject().choice_config) {
@@ -249,6 +307,10 @@ const updateProduct = async (req, res) => {
     }
 
     // Update variantOptions with validation
+    const rawVariantOptionsForUiMeta = Array.isArray(variantOptions)
+      ? variantOptions
+      : undefined;
+
     if (variantOptions !== undefined) {
       // Validate variant option codes are unique
       if (Array.isArray(variantOptions)) {
@@ -295,6 +357,35 @@ const updateProduct = async (req, res) => {
       );
 
       product.variantOptions = cleanedVariantOptions;
+    }
+
+    const shouldSyncColorHexMeta =
+      uiMeta !== undefined ||
+      filterColorHex !== undefined ||
+      variantOptions !== undefined ||
+      filterAttributes !== undefined;
+
+    if (shouldSyncColorHexMeta) {
+      const normalizeColorToken = (value) => normalizeFilterValue(value, "color");
+      const colorAllowList =
+        filterAttributes !== undefined
+          ? sanitizedFilterAttributes?.color
+          : product.filterAttributes?.color;
+
+      const mergedUiMeta = mergeColorHexUiMeta({
+        existingUiMeta: uiMeta !== undefined ? uiMeta : product.uiMeta,
+        variantOptions: rawVariantOptionsForUiMeta,
+        colorHexInput: filterColorHex,
+        normalizeColorToken,
+        colorAllowList,
+      });
+
+      product.uiMeta =
+        mergedUiMeta &&
+        typeof mergedUiMeta === "object" &&
+        Object.keys(mergedUiMeta).length > 0
+          ? mergedUiMeta
+          : undefined;
     }
 
     // Update additional fields

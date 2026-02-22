@@ -1,3 +1,5 @@
+const { normalizeFilterArray } = require("./filterAttributes");
+
 /**
  * Parse query parameters from new URL structure
  * Handles: ?page=1&price=554,999&color=blue,green&age=0-3,newborn&inStock=false&sort=price_low
@@ -29,25 +31,37 @@ const parseQueryFilters = (query) => {
     if (query.maxPrice) filters.maxPrice = parseFloat(query.maxPrice);
   }
 
-  // Parse color: color=blue,green -> ['blue', 'green']
-  if (query.color) {
-    if (Array.isArray(query.color)) {
-      filters.color = query.color;
-    } else if (typeof query.color === "string" && query.color.includes(",")) {
-      filters.color = query.color.split(",").map((c) => c.trim());
-    } else {
-      filters.color = [query.color.trim()];
+  const parseListParam = (value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string" && value.includes(",")) {
+      return value.split(",").map((v) => v.trim());
     }
-  }
+    if (typeof value === "string") return [value.trim()];
+    return [];
+  };
+
+  // Parse filter attributes (all facets are stored/queried as slug arrays)
+  const filterFacetKeys = [
+    "color",
+    "material",
+    "season",
+    "gender",
+    "sleeve",
+    "occasion",
+    "pattern",
+    "pack",
+  ];
+  filterFacetKeys.forEach((key) => {
+    if (!query[key]) return;
+    const normalized = normalizeFilterArray(parseListParam(query[key]), key);
+    if (normalized.length > 0) filters[key] = normalized;
+  });
 
   // Size filter (replaces legacy 'age' parameter)
-  const sizeParam = query.size || query.s;
+  const sizeParam = query.size || query.s || query.age;
   if (sizeParam) {
-    if (typeof sizeParam === "string" && sizeParam.includes(",")) {
-      filters.size = sizeParam.split(",").map((s) => s.trim());
-    } else {
-      filters.size = [sizeParam.trim()];
-    }
+    const normalized = normalizeFilterArray(parseListParam(sizeParam), "size");
+    if (normalized.length > 0) filters.size = normalized;
   }
 
   // Parse inStock: inStock=false -> 'false'
@@ -95,8 +109,6 @@ const parseQueryFilters = (query) => {
     }
   }
   if (query.brand) filters.brand = query.brand;
-  if (query.material) filters.material = query.material;
-  if (query.pattern) filters.pattern = query.pattern;
   if (query.minRating) filters.minRating = parseFloat(query.minRating);
 
   return filters;

@@ -1,5 +1,9 @@
 // models/Product.js
 const mongoose = require("mongoose");
+const {
+  FILTER_ATTRIBUTE_KEYS,
+  syncFilterAttributes,
+} = require("../utils/filterAttributes");
 
 // Variant Option Schema (for variantOptions array)
 const variantOptionValueSchema = new mongoose.Schema(
@@ -141,6 +145,21 @@ const giftSlotSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const filterAttributesSchema = new mongoose.Schema(
+  {
+    color: [{ type: String }],
+    size: [{ type: String }],
+    material: [{ type: String }],
+    season: [{ type: String }],
+    gender: [{ type: String }],
+    sleeve: [{ type: String }],
+    occasion: [{ type: String }],
+    pattern: [{ type: String }],
+    pack: [{ type: String }],
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     // Primary fields
@@ -239,6 +258,10 @@ const productSchema = new mongoose.Schema(
     // Variant structure
     variantOptions: [variantOptionSchema],
     variants: [variantSchema],
+    filterAttributes: {
+      type: filterAttributesSchema,
+      default: {},
+    },
 
     // Details array
     details: [detailSchema],
@@ -283,6 +306,12 @@ productSchema.pre("save", function (next) {
     this.title = this.name;
   }
 
+  this.filterAttributes = syncFilterAttributes({
+    productType: this.product_type,
+    variants: this.variants,
+    filterAttributes: this.filterAttributes,
+  });
+
   // ✅ VALIDATION: Ensure no duplicate variants based on _optionsHash
   if (this.variants && this.variants.length > 0) {
     const hashes = new Set();
@@ -303,6 +332,127 @@ productSchema.pre("save", function (next) {
   next();
 });
 
+const getUpdateValue = (update, key) => {
+  if (!update || typeof update !== "object") return undefined;
+
+  if (Object.prototype.hasOwnProperty.call(update, key)) {
+    return update[key];
+  }
+
+  if (
+    update.$set &&
+    typeof update.$set === "object" &&
+    Object.prototype.hasOwnProperty.call(update.$set, key)
+  ) {
+    return update.$set[key];
+  }
+
+  return undefined;
+};
+
+const extractFilterAttributesFromUpdate = (update) => {
+  if (!update || typeof update !== "object") return undefined;
+
+  const direct = getUpdateValue(update, "filterAttributes");
+  const nestedSet = update.$set || {};
+
+  const fromNested = {};
+  FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+    const pathKey = `filterAttributes.${key}`;
+    if (Object.prototype.hasOwnProperty.call(nestedSet, pathKey)) {
+      fromNested[key] = nestedSet[pathKey];
+    }
+  });
+
+  if (
+    direct === undefined &&
+    Object.keys(fromNested).length === 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(direct && typeof direct === "object" ? direct : {}),
+    ...fromNested,
+  };
+};
+
+const setFilterAttributesOnUpdate = (update, filterAttributes) => {
+  if (!update || typeof update !== "object") return update;
+
+  const hasOperators = Object.keys(update).some((key) => key.startsWith("$"));
+  if (hasOperators) {
+    update.$set = {
+      ...(update.$set || {}),
+      filterAttributes,
+    };
+
+    FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+      if (update.$set) {
+        delete update.$set[`filterAttributes.${key}`];
+      }
+    });
+  } else {
+    update.filterAttributes = filterAttributes;
+  }
+
+  return update;
+};
+
+const touchesFilterAttributesInputs = (update) => {
+  if (!update || typeof update !== "object") return false;
+
+  const keys = new Set([
+    ...Object.keys(update || {}),
+    ...Object.keys(update.$set || {}),
+    ...Object.keys(update.$unset || {}),
+  ]);
+
+  for (const key of keys) {
+    if (
+      key === "product_type" ||
+      key === "variants" ||
+      key === "filterAttributes" ||
+      key.startsWith("filterAttributes.")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const syncFilterAttributesOnQueryUpdate = async function (next) {
+  try {
+    const update = this.getUpdate() || {};
+    if (!touchesFilterAttributesInputs(update)) {
+      return next();
+    }
+
+    const existing = await this.model
+      .findOne(this.getQuery())
+      .select("product_type variants filterAttributes")
+      .lean();
+
+    const mergedFilterAttributes = extractFilterAttributesFromUpdate(update);
+
+    const normalized = syncFilterAttributes({
+      productType: getUpdateValue(update, "product_type") || existing?.product_type,
+      variants: getUpdateValue(update, "variants") || existing?.variants,
+      filterAttributes: mergedFilterAttributes,
+      fallbackFilterAttributes: existing?.filterAttributes,
+    });
+
+    this.setUpdate(setFilterAttributesOnUpdate(update, normalized));
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+productSchema.pre("findOneAndUpdate", syncFilterAttributesOnQueryUpdate);
+productSchema.pre("findByIdAndUpdate", syncFilterAttributesOnQueryUpdate);
+
 // ✅ NEW: Unique index to prevent duplicate variants within the same parent product
 // Note: Sparse is needed because non-variant products (SIMPLE) won't have parentId or _optionsHash on the parent level
 // But wait, variants are embedded. We can't index embedded docs like this easily for uniqueness across array elements in Mongo < ???
@@ -317,6 +467,15 @@ productSchema.pre("save", function (next) {
 // I will implement the PRE-SAVE VALIDATION for this.
 
 productSchema.index({ "variants._optionsHash": 1 });
+productSchema.index({ "filterAttributes.color": 1 });
+productSchema.index({ "filterAttributes.size": 1 });
+productSchema.index({ "filterAttributes.material": 1 });
+productSchema.index({ "filterAttributes.season": 1 });
+productSchema.index({ "filterAttributes.gender": 1 });
+productSchema.index({ "filterAttributes.sleeve": 1 });
+productSchema.index({ "filterAttributes.occasion": 1 });
+productSchema.index({ "filterAttributes.pattern": 1 });
+productSchema.index({ "filterAttributes.pack": 1 });
 
 // Force clear any cached model to ensure schema updates are applied
 if (mongoose.connection.models.Product) {

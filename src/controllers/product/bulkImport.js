@@ -36,6 +36,39 @@ const norm = (v) =>
     .trim()
     .toLowerCase();
 
+const normalizeImportFieldKey = (key) =>
+  String(key || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+const isFilterAttributesImportField = (key) => {
+  const normalized = normalizeImportFieldKey(key);
+  return (
+    normalized === "filterattributes" ||
+    normalized === "filter_attributes" ||
+    normalized.startsWith("filterattributes.") ||
+    normalized.startsWith("filter_attributes.") ||
+    normalized.startsWith("filterattributes_") ||
+    normalized.startsWith("filter_attributes_") ||
+    normalized.startsWith("filterattributes[") ||
+    normalized.startsWith("filter_attributes[")
+  );
+};
+
+const stripFilterAttributesFromImportObject = (obj) => {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return [];
+
+  const removed = [];
+  Object.keys(obj).forEach((key) => {
+    if (isFilterAttributesImportField(key)) {
+      removed.push(key);
+      delete obj[key];
+    }
+  });
+  return removed;
+};
+
 function buildVariantTitle(parentTitle, productVariantOptions, attributesMap) {
   const attrsObj =
     attributesMap instanceof Map
@@ -226,6 +259,36 @@ class BulkImportController {
     for (let i = 0; i < products.length; i++) {
       const product = products[i];
       const rowNum = i + 1;
+
+      // CSV bulk import intentionally excludes filterAttributes fields.
+      const removedImportFields = new Set(
+        stripFilterAttributesFromImportObject(product)
+      );
+      if (Array.isArray(product.variants)) {
+        product.variants.forEach((variant) => {
+          stripFilterAttributesFromImportObject(variant).forEach((key) =>
+            removedImportFields.add(`variants.${key}`)
+          );
+          if (
+            variant &&
+            typeof variant.attributes === "object" &&
+            !Array.isArray(variant.attributes)
+          ) {
+            stripFilterAttributesFromImportObject(variant.attributes).forEach(
+              (key) => removedImportFields.add(`variants.attributes.${key}`)
+            );
+          }
+        });
+      }
+      if (removedImportFields.size > 0) {
+        warnings.push({
+          row: rowNum,
+          field: "filterAttributes",
+          message: `Ignored unsupported filterAttributes fields in CSV import: ${Array.from(
+            removedImportFields
+          ).join(", ")}`,
+        });
+      }
 
       // Check for duplicate SKUs in input
       if (product.sku) {
@@ -606,6 +669,32 @@ class BulkImportController {
       return res
         .status(400)
         .json(ApiResponse.error("Products array is required", 400).toJSON());
+    }
+
+    // CSV bulk import intentionally excludes filterAttributes fields.
+    let ignoredFilterAttributeFieldsCount = 0;
+    products.forEach((product) => {
+      ignoredFilterAttributeFieldsCount +=
+        stripFilterAttributesFromImportObject(product).length;
+      if (Array.isArray(product?.variants)) {
+        product.variants.forEach((variant) => {
+          ignoredFilterAttributeFieldsCount +=
+            stripFilterAttributesFromImportObject(variant).length;
+          if (
+            variant &&
+            typeof variant.attributes === "object" &&
+            !Array.isArray(variant.attributes)
+          ) {
+            ignoredFilterAttributeFieldsCount +=
+              stripFilterAttributesFromImportObject(variant.attributes).length;
+          }
+        });
+      }
+    });
+    if (ignoredFilterAttributeFieldsCount > 0) {
+      console.warn(
+        `⚠️ [Bulk Import] Ignored ${ignoredFilterAttributeFieldsCount} filterAttributes field(s). CSV bulk import does not support filterAttributes.`
+      );
     }
 
     // Initialize session for transaction support

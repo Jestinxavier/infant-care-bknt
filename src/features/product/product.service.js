@@ -13,6 +13,11 @@ const {
   validateCollectionsAndBadge,
   parseCollectionsInput,
 } = require("../../utils/collectionUtils");
+const {
+  buildFilterAttributesQuery,
+  sanitizeIncomingFilterAttributes,
+  getFilterAttributeCardinalityViolations,
+} = require("../../utils/filterAttributes");
 const mongoose = require("mongoose");
 
 /**
@@ -125,6 +130,8 @@ class ProductService {
       matchStage.collections = { $in: collectionSlugs.filter(Boolean) };
     }
 
+    Object.assign(matchStage, buildFilterAttributesQuery(filters));
+
     // Search Filter (Regex on title/name)
     if (filters.search) {
       const searchRegex = { $regex: filters.search, $options: "i" };
@@ -219,34 +226,6 @@ class ProductService {
           },
         },
       },
-
-      // Apply Variant Level Filters (Color, Size)
-      ...(filters.color || filters.size
-        ? [
-            {
-              $match: {
-                ...(filters.color
-                  ? {
-                      "variants.attributes.color": {
-                        $in: Array.isArray(filters.color)
-                          ? filters.color
-                          : [filters.color],
-                      },
-                    }
-                  : {}),
-                ...(filters.size
-                  ? {
-                      "variants.attributes.size": {
-                        $in: Array.isArray(filters.size)
-                          ? filters.size
-                          : [filters.size],
-                      },
-                    }
-                  : {}),
-              },
-            },
-          ]
-        : []),
 
       // Calculate effective price and stock (Handle both Variant and Simple Product)
       {
@@ -687,6 +666,40 @@ class ProductService {
 
     // Clone input
     const productData = { ...inputData };
+    if (typeof productData.filterAttributes === "string") {
+      try {
+        productData.filterAttributes = JSON.parse(productData.filterAttributes);
+      } catch (_error) {
+        productData.filterAttributes = {};
+      }
+    }
+
+    if (
+      productData.filterAttributes &&
+      typeof productData.filterAttributes === "object"
+    ) {
+      const cardinalityViolations = getFilterAttributeCardinalityViolations(
+        productData.filterAttributes,
+        {
+          productType: productData.product_type || "SIMPLE",
+        }
+      );
+
+      if (cardinalityViolations.length > 0) {
+        throw ApiError.validation(
+          "Invalid filterAttributes: some fields accept only a single value.",
+          cardinalityViolations.map((item) => ({
+            key: item.key,
+            values: item.values,
+          }))
+        );
+      }
+
+      productData.filterAttributes = sanitizeIncomingFilterAttributes(
+        productData.filterAttributes
+      );
+    }
+
     const parsedCollections = await validateCollectionsAndBadge({
       collections:
         productData.collections !== undefined
@@ -893,6 +906,40 @@ class ProductService {
 
     if (!product) {
       throw ApiError.notFound("Product not found");
+    }
+
+    if (typeof updateData.filterAttributes === "string") {
+      try {
+        updateData.filterAttributes = JSON.parse(updateData.filterAttributes);
+      } catch (_error) {
+        updateData.filterAttributes = {};
+      }
+    }
+
+    if (
+      updateData.filterAttributes &&
+      typeof updateData.filterAttributes === "object"
+    ) {
+      const cardinalityViolations = getFilterAttributeCardinalityViolations(
+        updateData.filterAttributes,
+        {
+          productType: updateData.product_type || product.product_type,
+        }
+      );
+
+      if (cardinalityViolations.length > 0) {
+        throw ApiError.validation(
+          "Invalid filterAttributes: some fields accept only a single value.",
+          cardinalityViolations.map((item) => ({
+            key: item.key,
+            values: item.values,
+          }))
+        );
+      }
+
+      updateData.filterAttributes = sanitizeIncomingFilterAttributes(
+        updateData.filterAttributes
+      );
     }
 
     if (

@@ -1,7 +1,10 @@
 const Product = require("../../models/Product");
-const Variant = require("../../models/Variant");
 const Category = require("../../models/Category");
 const { generateFilterConfig } = require("../../utils/generateFilterConfig");
+const {
+  FILTER_ATTRIBUTE_KEYS,
+  buildFilterAttributesQuery,
+} = require("../../utils/filterAttributes");
 
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -115,6 +118,7 @@ const getFilters = async (req, res) => {
     if (selectedCollectionSlugs.length > 0) {
       productFilter.collections = { $in: selectedCollectionSlugs };
     }
+    Object.assign(productFilter, buildFilterAttributesQuery(parsedFilters));
 
     console.log("🛒 Product filter:", productFilter);
 
@@ -133,19 +137,45 @@ const getFilters = async (req, res) => {
       });
     }
 
-    // Extract filter data from products and variants
-    const filterColors = new Set();
+    // Extract filter data only from filterAttributes (denormalized search layer)
+    const filterSets = FILTER_ATTRIBUTE_KEYS.reduce((acc, key) => {
+      acc[key] = new Set();
+      return acc;
+    }, {});
     const filterColorHexMap = new Map();
-    const filterSizes = new Set();
-    const filterBrands = new Set();
     const prices = [];
 
-    const productIds = products.map((p) => p._id);
-    const productsById = new Map(products.map((product) => [String(product._id), product]));
-
-    // Process new structure variants (embedded in products)
     for (const product of products) {
-      // Also check parent product price if no variants
+      const productFilterAttributes =
+        product.filterAttributes && typeof product.filterAttributes === "object"
+          ? product.filterAttributes
+          : {};
+
+      FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+        const values = Array.isArray(productFilterAttributes[key])
+          ? productFilterAttributes[key]
+          : [];
+        values.forEach((value) => {
+          if (!value) return;
+          filterSets[key].add(value);
+
+          if (key === "color") {
+            const colorHexFromUiMeta = getHexFromUiMeta(
+              product.uiMeta?.color,
+              value
+            );
+            const colorHexFromVariantOptions = getHexFromVariantOptions(
+              product.variantOptions,
+              value
+            );
+            const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
+            if (colorHex) {
+              filterColorHexMap.set(normalizeValue(value), colorHex);
+            }
+          }
+        });
+      });
+
       if (!product.variants || product.variants.length === 0) {
         const parentPrice = product.pricing?.price || product.price || 0;
         const parentDiscountPrice =
@@ -157,94 +187,13 @@ const getFilters = async (req, res) => {
         if (effectivePrice && effectivePrice > 0) {
           prices.push(effectivePrice);
         }
+        continue;
       }
 
-      if (product.variants && product.variants.length > 0) {
-        for (const variant of product.variants) {
-          const variantAttrs = variant.attributes
-            ? variant.attributes instanceof Map
-              ? Object.fromEntries(variant.attributes)
-              : variant.attributes
-            : variant.options instanceof Map
-              ? Object.fromEntries(variant.options)
-              : variant.options || {};
-
-          const variantColor = variantAttrs.color;
-          const variantSize = variantAttrs.size || variantAttrs.age;
-
-          if (variantColor) {
-            filterColors.add(variantColor);
-
-            const colorHexFromUiMeta = getHexFromUiMeta(
-              product.uiMeta?.color,
-              variantColor
-            );
-            const colorHexFromVariantOptions = getHexFromVariantOptions(
-              product.variantOptions,
-              variantColor
-            );
-            const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
-
-            if (colorHex) {
-              filterColorHexMap.set(normalizeValue(variantColor), colorHex);
-            }
-          }
-          if (variantSize) filterSizes.add(variantSize);
-
-          // Use effective price (discountPrice if available, otherwise regular price)
-          const variantPrice = variant.pricing?.price || variant.price || 0;
-          const variantDiscountPrice =
-            variant.pricing?.discountPrice || variant.discountPrice;
-          const effectivePrice =
-            variantDiscountPrice && variantDiscountPrice > 0
-              ? variantDiscountPrice
-              : variantPrice;
-          if (effectivePrice && effectivePrice > 0) {
-            prices.push(effectivePrice);
-          }
-        }
-      }
-
-      // Extract brand from product details
-      if (product.details) {
-        const brandDetail = product.details.find(
-          (d) =>
-            d.label?.toLowerCase() === "brand" ||
-            d.label?.toLowerCase() === "manufacturer"
-        );
-        if (brandDetail?.value) filterBrands.add(brandDetail.value);
-      }
-    }
-
-    // Process legacy variants (separate collection)
-    if (productIds.length > 0) {
-      const legacyVariants = await Variant.find({
-        productId: { $in: productIds },
-      }).lean();
-
-      for (const variant of legacyVariants) {
-        if (variant.color) {
-          filterColors.add(variant.color);
-
-          const parentProduct = productsById.get(String(variant.productId));
-          const colorHexFromUiMeta = getHexFromUiMeta(
-            parentProduct?.uiMeta?.color,
-            variant.color
-          );
-          const colorHexFromVariantOptions = getHexFromVariantOptions(
-            parentProduct?.variantOptions,
-            variant.color
-          );
-          const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
-
-          if (colorHex) {
-            filterColorHexMap.set(normalizeValue(variant.color), colorHex);
-          }
-        }
-        if (variant.age) filterSizes.add(variant.age);
-        // Use effective price for legacy variants too
-        const variantPrice = variant.price || 0;
-        const variantDiscountPrice = variant.discountPrice;
+      for (const variant of product.variants) {
+        const variantPrice = variant.pricing?.price || variant.price || 0;
+        const variantDiscountPrice =
+          variant.pricing?.discountPrice || variant.discountPrice;
         const effectivePrice =
           variantDiscountPrice && variantDiscountPrice > 0
             ? variantDiscountPrice
@@ -257,10 +206,16 @@ const getFilters = async (req, res) => {
 
     // Generate raw filter data
     const rawFilters = {
-      color: Array.from(filterColors).sort(),
+      color: Array.from(filterSets.color).sort(),
+      size: Array.from(filterSets.size).sort(),
+      material: Array.from(filterSets.material).sort(),
+      season: Array.from(filterSets.season).sort(),
+      gender: Array.from(filterSets.gender).sort(),
+      sleeve: Array.from(filterSets.sleeve).sort(),
+      occasion: Array.from(filterSets.occasion).sort(),
+      pattern: Array.from(filterSets.pattern).sort(),
+      pack: Array.from(filterSets.pack).sort(),
       colorMeta: Object.fromEntries(filterColorHexMap),
-      size: Array.from(filterSizes).sort(),
-      brand: Array.from(filterBrands).sort(),
       priceRange: {
         min: prices.length > 0 ? Math.min(...prices) : 0,
         max: prices.length > 0 ? Math.max(...prices) : 0,

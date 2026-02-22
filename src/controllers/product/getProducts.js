@@ -25,6 +25,13 @@ const getAllProducts = async (req, res) => {
       // Filters - prioritize parsed filters over raw query params
       color = filters.color,
       size = filters.size, // Removed legacy 'age' fallback
+      material = filters.material,
+      season = filters.season,
+      gender = filters.gender,
+      sleeve = filters.sleeve,
+      occasion = filters.occasion,
+      pattern = filters.pattern,
+      pack = filters.pack,
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
       inStock = filters.inStock || requestData.inStock,
@@ -47,6 +54,13 @@ const getAllProducts = async (req, res) => {
       sortOrder: "desc", // Default, could be extracted from sortBy
       color,
       size,
+      material,
+      season,
+      gender,
+      sleeve,
+      occasion,
+      pattern,
+      pack,
       subCategories: filters.subCategories,
       search: requestData.search || requestData.q,
       collection,

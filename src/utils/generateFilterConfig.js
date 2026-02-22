@@ -85,6 +85,36 @@ const generateFilterConfig = (rawFilters) => {
     });
   }
 
+  const facetDefinitions = [
+    { key: "material", label: "Material" },
+    { key: "season", label: "Season" },
+    { key: "gender", label: "Gender" },
+    { key: "sleeve", label: "Sleeve" },
+    { key: "occasion", label: "Occasion" },
+    { key: "pattern", label: "Pattern" },
+    { key: "pack", label: "Pack" },
+  ];
+
+  facetDefinitions.forEach(({ key, label }) => {
+    if (
+      !rawFilters[key] ||
+      !Array.isArray(rawFilters[key]) ||
+      rawFilters[key].length === 0
+    ) {
+      return;
+    }
+
+    filterConfigs.push({
+      key,
+      label,
+      type: "checkbox",
+      options: rawFilters[key].map((value) => ({
+        value,
+        label: formatLabel(value),
+      })),
+    });
+  });
+
   // Brand Checkbox (if available)
   // Note: Brand is not currently in FilterConfig type, so we skip it
   // If you want to add brand filtering, update FilterConfig type to include it

@@ -1,5 +1,6 @@
 const BaseRepository = require("../../core/BaseRepository");
 const Product = require("./product.model");
+const { buildFilterAttributesQuery } = require("../../utils/filterAttributes");
 
 /**
  * Product Repository
@@ -78,18 +79,17 @@ class ProductRepository extends BaseRepository {
       query.category = filters.category;
     }
 
+    Object.assign(query, buildFilterAttributesQuery(filters));
+
+    // Legacy fallback for simple repository lookups (primary PLP uses aggregation service)
     if (filters.minPrice || filters.maxPrice) {
-      query["variants.price"] = {};
-      if (filters.minPrice) {
-        query["variants.price"].$gte = filters.minPrice;
-      }
-      if (filters.maxPrice) {
-        query["variants.price"].$lte = filters.maxPrice;
-      }
+      query.price = {};
+      if (filters.minPrice) query.price.$gte = filters.minPrice;
+      if (filters.maxPrice) query.price.$lte = filters.maxPrice;
     }
 
     if (filters.inStock !== undefined) {
-      query["variants.stock"] = filters.inStock ? { $gt: 0 } : 0;
+      query["stockObj.isInStock"] = !!filters.inStock;
     }
 
     return this.findAll(query, options);

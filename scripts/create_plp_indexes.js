@@ -13,26 +13,50 @@ async function createIndexes() {
 
     console.log("Creating PLP indexes...");
 
-    // Main PLP Index for filtering and grouping
+    // PLP indexes: filter only on denormalized filterAttributes.*
     await Product.collection.createIndex(
-      {
-        status: 1,
-        category: 1,
-        "variants.attributes.color": 1,
-        "variants.attributes.size": 1,
-        "variants.stockObj.isInStock": 1,
-        createdAt: -1,
-        averageRating: -1,
-      },
-      { name: "plp_filter_group_idx" }
+      { status: 1, category: 1, "filterAttributes.color": 1 },
+      { name: "plp_filter_color_idx" }
     );
 
-    // Price sorting index
     await Product.collection.createIndex(
-      {
-        "variants.pricing.discountPrice": 1,
-      },
-      { name: "plp_price_sort_idx" }
+      { status: 1, category: 1, "filterAttributes.size": 1 },
+      { name: "plp_filter_size_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.material": 1 },
+      { name: "plp_filter_material_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.season": 1 },
+      { name: "plp_filter_season_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.gender": 1 },
+      { name: "plp_filter_gender_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.sleeve": 1 },
+      { name: "plp_filter_sleeve_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.occasion": 1 },
+      { name: "plp_filter_occasion_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.pattern": 1 },
+      { name: "plp_filter_pattern_idx" }
+    );
+
+    await Product.collection.createIndex(
+      { status: 1, category: 1, "filterAttributes.pack": 1 },
+      { name: "plp_filter_pack_idx" }
     );
 
     console.log("Indexes created successfully:");

@@ -19,6 +19,12 @@ const {
   validateCollectionsAndBadge,
   parseCollectionsInput,
 } = require("../../utils/collectionUtils");
+const {
+  sanitizeIncomingFilterAttributes,
+  getFilterAttributeCardinalityViolations,
+  normalizeFilterValue,
+} = require("../../utils/filterAttributes");
+const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
 
 const norm = (v) =>
@@ -138,6 +144,22 @@ const createProduct = async (req, res) => {
       }
     }
 
+    if (typeof parsedBody.filterAttributes === "string") {
+      try {
+        parsedBody.filterAttributes = JSON.parse(parsedBody.filterAttributes);
+      } catch (e) {
+        parsedBody.filterAttributes = {};
+      }
+    }
+
+    if (typeof parsedBody.uiMeta === "string") {
+      try {
+        parsedBody.uiMeta = JSON.parse(parsedBody.uiMeta);
+      } catch (e) {
+        parsedBody.uiMeta = {};
+      }
+    }
+
     // Support both new structure and legacy structure
     const {
       // New structure fields
@@ -175,6 +197,9 @@ const createProduct = async (req, res) => {
       offerEndAt,
       // Quantity-based tier pricing
       quantityRules,
+      filterAttributes,
+      filterColorHex,
+      uiMeta,
     } = parsedBody;
 
     // Use title or name (backward compatibility)
@@ -199,6 +224,33 @@ const createProduct = async (req, res) => {
         });
       }
     }
+
+    if (filterAttributes && typeof filterAttributes === "object") {
+      const cardinalityViolations = getFilterAttributeCardinalityViolations(
+        filterAttributes,
+        {
+          productType: product_type || "SIMPLE",
+        }
+      );
+
+      if (cardinalityViolations.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Invalid filterAttributes: some fields accept only a single value.",
+          error: "FILTER_ATTRIBUTES_CARDINALITY_ERROR",
+          violations: cardinalityViolations.map((item) => ({
+            key: item.key,
+            values: item.values,
+          })),
+        });
+      }
+    }
+
+    const sanitizedFilterAttributes =
+      filterAttributes && typeof filterAttributes === "object"
+        ? sanitizeIncomingFilterAttributes(filterAttributes)
+        : undefined;
 
     // Normalize status to lowercase - Product model expects: draft, published, archived
     let normalizedStatus = status || "draft";
@@ -661,6 +713,26 @@ const createProduct = async (req, res) => {
     // ✅ Lock options if variants exist
     const optionsLocked = processedVariants.length > 0;
 
+    const cleanedVariantOptions = variantOptions
+      ? processVariantOptions(variantOptions).map((opt) => ({
+          ...opt,
+          values: (opt.values || []).map(({ hex, ...rest }) => rest),
+        }))
+      : [];
+
+    const normalizeColorToken = (value) => normalizeFilterValue(value, "color");
+    const mergedUiMeta = mergeColorHexUiMeta({
+      existingUiMeta: uiMeta,
+      variantOptions,
+      colorHexInput: filterColorHex,
+      normalizeColorToken,
+      colorAllowList: sanitizedFilterAttributes?.color,
+    });
+    const hasUiMeta =
+      mergedUiMeta &&
+      typeof mergedUiMeta === "object" &&
+      Object.keys(mergedUiMeta).length > 0;
+
     // Create product with new structure
     const productData = {
       title: productTitle,
@@ -676,12 +748,7 @@ const createProduct = async (req, res) => {
       sku: productSku || null,
       // Strip hex values from variantOptions.values - uiMeta handles hex separately
       // Also capitalize variant option names and add "M" suffix for size patterns
-      variantOptions: variantOptions
-        ? processVariantOptions(variantOptions).map((opt) => ({
-            ...opt,
-            values: (opt.values || []).map(({ hex, ...rest }) => rest),
-          }))
-        : [],
+      variantOptions: cleanedVariantOptions,
       variants: processedVariants,
       optionsLocked: optionsLocked, // ✅ NEW: Lock if variants exist
       details: details
@@ -752,6 +819,8 @@ const createProduct = async (req, res) => {
               price: parseFloat(rule.price),
             }))
           : [],
+      filterAttributes: sanitizedFilterAttributes,
+      uiMeta: hasUiMeta ? mergedUiMeta : undefined,
       // DO NOT allow rating fields to be set manually
       averageRating: 0,
       totalReviews: 0,
