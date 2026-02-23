@@ -54,9 +54,10 @@ const getAssets = async (req, res) => {
         });
       }
 
+      const cursorObjectId = new mongoose.Types.ObjectId(cursor);
       const query = {
         ...baseQuery,
-        _id: { $lt: new mongoose.Types.ObjectId(cursor) },
+        _id: { $lt: cursorObjectId },
       };
 
       // Cursor mode: fetch one extra to determine hasMore
@@ -70,20 +71,58 @@ const getAssets = async (req, res) => {
       items = hasMore ? assets.slice(0, limit) : assets;
       nextCursor =
         hasMore && items.length > 0 ? String(items[items.length - 1]._id) : null;
+
+      // Defensive guard: if backend/windowing ever returns a non-decreasing cursor page,
+      // stop further pagination to prevent infinite fetch loops on the client.
+      if (items.length > 0) {
+        const firstIdHex = String(items[0]._id);
+        const cursorHex = String(cursorObjectId);
+        if (firstIdHex >= cursorHex) {
+          console.warn(
+            `[Assets] Cursor anomaly detected (firstId=${firstIdHex}, cursor=${cursorHex}). Forcing hasMore=false.`
+          );
+          hasMore = false;
+          nextCursor = null;
+        }
+      }
     } else {
-      // Page mode: skip/limit with full pagination metadata
+      // Page mode: skip/limit with one-extra probing for hasMore
       const skip = (page - 1) * limit;
       assets = await Asset.find(baseQuery)
         .sort({ _id: -1 })
         .skip(skip)
-        .limit(limit)
+        .limit(limit + 1)
         .populate("uploadedBy", "name email")
         .lean();
 
-      items = assets;
-      hasMore = page < pages;
+      hasMore = assets.length > limit;
+      items = hasMore ? assets.slice(0, limit) : assets;
       nextCursor =
         hasMore && items.length > 0 ? String(items[items.length - 1]._id) : null;
+
+      // Defensive guard for unstable/looping page windows:
+      // if page>1 returns the same first document as previous page, stop pagination.
+      if (page > 1 && items.length > 0) {
+        const previousFirst = await Asset.find(baseQuery)
+          .sort({ _id: -1 })
+          .skip((page - 2) * limit)
+          .limit(1)
+          .select("_id")
+          .lean();
+
+        if (
+          previousFirst.length > 0 &&
+          String(previousFirst[0]._id) === String(items[0]._id)
+        ) {
+          console.warn(
+            `[Assets] Page window anomaly detected at page=${page}. Repeated first _id=${String(
+              items[0]._id
+            )}. Forcing hasMore=false.`
+          );
+          hasMore = false;
+          nextCursor = null;
+        }
+      }
     }
 
     res.status(200).json({
