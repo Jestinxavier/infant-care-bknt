@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
  * CSV Temp Image Model
  * Tracks temporarily uploaded images for CSV import
  * These images are stored in a separate Cloudinary folder
- * and cleaned up after 24 hours if not used
+ * and cleaned up after 7 days if not used
  */
 const csvTempImageSchema = new mongoose.Schema(
   {

@@ -353,11 +353,15 @@ class CmsService {
         const order = i;
 
         // Prepare block data
-        // If the block has an ID that looks like a MongoID, try to use it
-        // Otherwise, it's a temp ID or we rely on block_type matching
+        // If the block has an ID that looks like a MongoID, try to use it.
+        // Temp/non-Mongo IDs are treated as new documents.
         let match = null;
 
-        // Strategy 1: Match by valid MongoDB _id
+        // Strategy 1: Match by valid MongoDB _id only.
+        // For duplicate block types, matching by block_type can cause data swaps
+        // (new temp block overwriting an existing block of the same type).
+        // Existing blocks must carry Mongo IDs from frontend; blocks without valid
+        // Mongo IDs are treated as new documents and created below.
         if (block.id && mongoose.isValidObjectId(block.id)) {
           // Verify this ID hasn't been processed yet to prevent duplicate/collision
           if (!processedIds.has(block.id)) {
@@ -369,19 +373,8 @@ class CmsService {
           }
         }
 
-        // Strategy 2: Match by block_type (fallback) if we haven't used this doc yet
-        // This is crucial for initial sync or if IDs are temp strings (e.g. "block-0-...")
         // Also safeguard: if block_type is missing, try to use component (legacy support for Our Story)
         const targetBlockType = block.block_type || block.component;
-
-        if (!match && targetBlockType) {
-          match = existingDocs.find(
-            (d) =>
-              (d.block_type === targetBlockType ||
-                d.component === targetBlockType) &&
-              !processedIds.has(d._id.toString())
-          );
-        }
 
         const blockPayload = {
           ...block,
@@ -422,8 +415,11 @@ class CmsService {
       const newDocs = await pageConfig.model.find({}).sort({ order: 1 });
       updatedContent = newDocs.map((doc) => {
         const d = doc.toObject ? doc.toObject() : doc;
-        const { __v, createdAt, updatedAt, ...rest } = d;
-        return rest;
+        const { _id, __v, createdAt, updatedAt, ...rest } = d;
+        return {
+          ...rest,
+          id: _id.toString(),
+        };
       });
     } else {
       // Legacy/Single-Doc logic for Header, Footer
@@ -645,8 +641,30 @@ class CmsService {
       transformedContent = blockData.reviews;
     }
 
-    // Find existing document for this block type
-    let existing = await pageConfig.model.findOne({ block_type: blockType });
+    // Find existing document.
+    // Prefer explicit Mongo _id from blockData.id to avoid collisions when
+    // multiple widgets share the same block_type.
+    let existing = null;
+    const incomingBlockId = blockData?.id;
+    const hasIncomingId = typeof incomingBlockId === "string" && incomingBlockId.trim() !== "";
+    const hasValidIncomingMongoId =
+      hasIncomingId && mongoose.isValidObjectId(incomingBlockId);
+
+    if (hasValidIncomingMongoId) {
+      existing = await pageConfig.model.findById(incomingBlockId);
+    } else if (!hasIncomingId) {
+      // Legacy fallback only when no id is provided.
+      // Prefer block_type + order, then block_type.
+      if (blockData.order !== undefined) {
+        existing = await pageConfig.model.findOne({
+          block_type: blockType,
+          order: blockData.order,
+        });
+      }
+      if (!existing) {
+        existing = await pageConfig.model.findOne({ block_type: blockType });
+      }
+    }
 
     // Build the flat document structure
     const flatDocument = {
@@ -684,14 +702,18 @@ class CmsService {
       console.log(
         `[CMS Service] Updating existing document for block '${blockType}'`
       );
-      result = await pageConfig.model.findOneAndUpdate(
-        { block_type: blockType },
+      result = await pageConfig.model.findByIdAndUpdate(
+        existing._id,
         { $set: flatDocument },
         { new: true }
       );
     }
 
     const resultObj = result.toObject ? result.toObject() : result;
+    const normalizedResultObj =
+      resultObj && resultObj._id
+        ? { ...resultObj, id: resultObj._id.toString() }
+        : resultObj;
 
     console.log(
       `✅ [CMS Service] Successfully saved block '${blockType}' with flat structure`
@@ -700,7 +722,7 @@ class CmsService {
     return {
       page,
       title: pageConfig.title,
-      block: resultObj,
+      block: normalizedResultObj,
       blockType,
     };
   }

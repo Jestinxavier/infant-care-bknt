@@ -96,7 +96,7 @@ const uploadAsset = [
         assetId: uploadResult.public_id,
         hash,
         status: "temp",
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
         origin: {
           source: origin.source,
           sourceContext: origin.sourceContext,

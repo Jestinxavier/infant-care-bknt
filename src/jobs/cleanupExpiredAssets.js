@@ -30,7 +30,7 @@ const executeCleanup = async (options = {}) => {
   };
 
   try {
-    // 1. Find expired temp assets (24h default)
+    // 1. Find expired temp assets (7-day default)
     const expiredTempAssets = await Asset.find({
       status: "temp",
       expiresAt: { $lt: now },

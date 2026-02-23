@@ -9,7 +9,7 @@ const { cloudinary } = require("../config/cloudinary");
 const CsvTempImage = require("../models/CsvTempImage");
 
 /**
- * Cleanup stale CSV temp images older than 24 hours
+ * Cleanup stale CSV temp images older than 7 days
  */
 async function cleanupStaleCsvTempImages() {
   try {
@@ -17,10 +17,10 @@ async function cleanupStaleCsvTempImages() {
       "🧹 [CSV Cleanup] Starting cleanup of stale CSV temp images..."
     );
 
-    // Find all temp images older than 24 hours
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Find all temp images older than 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const staleImages = await CsvTempImage.find({
-      uploadedAt: { $lt: twentyFourHoursAgo },
+      uploadedAt: { $lt: sevenDaysAgo },
     });
 
     console.log(

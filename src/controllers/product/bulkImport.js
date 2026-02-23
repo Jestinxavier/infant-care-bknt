@@ -56,12 +56,30 @@ const isFilterAttributesImportField = (key) => {
   );
 };
 
+const isDeprecatedTagImportField = (key) => {
+  const normalized = normalizeImportFieldKey(key);
+  return normalized === "tag" || normalized === "tags";
+};
+
 const stripFilterAttributesFromImportObject = (obj) => {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return [];
 
   const removed = [];
   Object.keys(obj).forEach((key) => {
     if (isFilterAttributesImportField(key)) {
+      removed.push(key);
+      delete obj[key];
+    }
+  });
+  return removed;
+};
+
+const stripDeprecatedTagFieldsFromImportObject = (obj) => {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return [];
+
+  const removed = [];
+  Object.keys(obj).forEach((key) => {
+    if (isDeprecatedTagImportField(key)) {
       removed.push(key);
       delete obj[key];
     }
@@ -264,10 +282,16 @@ class BulkImportController {
       const removedImportFields = new Set(
         stripFilterAttributesFromImportObject(product)
       );
+      const removedDeprecatedTagFields = new Set(
+        stripDeprecatedTagFieldsFromImportObject(product)
+      );
       if (Array.isArray(product.variants)) {
         product.variants.forEach((variant) => {
           stripFilterAttributesFromImportObject(variant).forEach((key) =>
             removedImportFields.add(`variants.${key}`)
+          );
+          stripDeprecatedTagFieldsFromImportObject(variant).forEach((key) =>
+            removedDeprecatedTagFields.add(`variants.${key}`)
           );
           if (
             variant &&
@@ -276,6 +300,11 @@ class BulkImportController {
           ) {
             stripFilterAttributesFromImportObject(variant.attributes).forEach(
               (key) => removedImportFields.add(`variants.attributes.${key}`)
+            );
+            stripDeprecatedTagFieldsFromImportObject(
+              variant.attributes
+            ).forEach((key) =>
+              removedDeprecatedTagFields.add(`variants.attributes.${key}`)
             );
           }
         });
@@ -287,6 +316,15 @@ class BulkImportController {
           message: `Ignored unsupported filterAttributes fields in CSV import: ${Array.from(
             removedImportFields
           ).join(", ")}`,
+        });
+      }
+      if (removedDeprecatedTagFields.size > 0) {
+        warnings.push({
+          row: rowNum,
+          field: "tag",
+          message: `Ignored deprecated tag field(s): ${Array.from(
+            removedDeprecatedTagFields
+          ).join(", ")}. Use collections instead.`,
         });
       }
 
@@ -370,9 +408,7 @@ class BulkImportController {
       }
       // If it's a variant product (has parentId), category is optional - skip validation
 
-      const normalizedCollections = parseCollectionsInput(
-        product.collections !== undefined ? product.collections : product.tag
-      );
+      const normalizedCollections = parseCollectionsInput(product.collections);
       const normalizedBadge = product.badge
         ? normalizeCollectionSlug(product.badge)
         : null;
@@ -673,13 +709,18 @@ class BulkImportController {
 
     // CSV bulk import intentionally excludes filterAttributes fields.
     let ignoredFilterAttributeFieldsCount = 0;
+    let ignoredDeprecatedTagFieldsCount = 0;
     products.forEach((product) => {
       ignoredFilterAttributeFieldsCount +=
         stripFilterAttributesFromImportObject(product).length;
+      ignoredDeprecatedTagFieldsCount +=
+        stripDeprecatedTagFieldsFromImportObject(product).length;
       if (Array.isArray(product?.variants)) {
         product.variants.forEach((variant) => {
           ignoredFilterAttributeFieldsCount +=
             stripFilterAttributesFromImportObject(variant).length;
+          ignoredDeprecatedTagFieldsCount +=
+            stripDeprecatedTagFieldsFromImportObject(variant).length;
           if (
             variant &&
             typeof variant.attributes === "object" &&
@@ -687,6 +728,9 @@ class BulkImportController {
           ) {
             ignoredFilterAttributeFieldsCount +=
               stripFilterAttributesFromImportObject(variant.attributes).length;
+            ignoredDeprecatedTagFieldsCount +=
+              stripDeprecatedTagFieldsFromImportObject(variant.attributes)
+                .length;
           }
         });
       }
@@ -694,6 +738,11 @@ class BulkImportController {
     if (ignoredFilterAttributeFieldsCount > 0) {
       console.warn(
         `⚠️ [Bulk Import] Ignored ${ignoredFilterAttributeFieldsCount} filterAttributes field(s). CSV bulk import does not support filterAttributes.`
+      );
+    }
+    if (ignoredDeprecatedTagFieldsCount > 0) {
+      console.warn(
+        `⚠️ [Bulk Import] Ignored ${ignoredDeprecatedTagFieldsCount} deprecated tag field(s). Use collections instead.`
       );
     }
 
@@ -1280,10 +1329,7 @@ class BulkImportController {
         }
 
         const parsedCollections = await validateCollectionsAndBadge({
-          collections:
-            productData.collections !== undefined
-              ? productData.collections
-              : productData.tags || productData.tag,
+          collections: productData.collections,
           badgeCollection:
             productData.badgeCollection !== undefined
               ? productData.badgeCollection

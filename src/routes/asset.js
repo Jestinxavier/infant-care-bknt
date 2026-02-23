@@ -82,6 +82,11 @@ router.post("/upload", verifyToken, uploadAsset);
  *         schema:
  *           type: string
  *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
  *         name: limit
  *         schema:
  *           type: integer

@@ -112,7 +112,7 @@ const startServer = async () => {
         );
       }
 
-      // Start expired assets cleanup cron job (temp images after 24h)
+      // Start expired assets cleanup cron job (temp images after 7 days)
       try {
         const {
           startCleanupCron,

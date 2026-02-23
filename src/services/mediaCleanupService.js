@@ -8,18 +8,18 @@ const { cloudinary } = require("../config/cloudinary");
 const Media = require("../models/Media");
 
 /**
- * Cleanup stale temporary images older than 24 hours
+ * Cleanup stale temporary images older than 7 days
  * Runs daily at 2 AM
  */
 async function cleanupStaleTempImages() {
   try {
     console.log("🧹 [Media Cleanup] Starting cleanup of stale temp images...");
 
-    // Find all temp images older than 24 hours
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Find all temp images older than 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const staleTempImages = await Media.find({
       isTemp: true,
-      uploadedAt: { $lt: twentyFourHoursAgo },
+      uploadedAt: { $lt: sevenDaysAgo },
     });
 
     console.log(
@@ -64,7 +64,7 @@ async function cleanupStaleTempImages() {
       }
     }
 
-    // Also clean up any Cloudinary assets with temp-upload tag that are older than 24h
+    // Also clean up any Cloudinary assets with temp-upload tag that are older than 7 days
     // This catches any images that might not be in our DB
     try {
       const cloudinaryResources = await cloudinary.api.resources_by_tag(
@@ -78,7 +78,7 @@ async function cleanupStaleTempImages() {
       const staleCloudinaryAssets = cloudinaryResources.resources.filter(
         (resource) => {
           const createdAt = new Date(resource.created_at);
-          return createdAt < twentyFourHoursAgo;
+          return createdAt < sevenDaysAgo;
         }
       );
 
