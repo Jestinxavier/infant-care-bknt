@@ -9,6 +9,9 @@ const {
   updateSetting,
   deleteSetting,
   getPublicSettings,
+  getPopularSearches,
+  getPopularSearchesAdmin,
+  upsertPopularSearches,
 } = require("../controllers/siteSettingsController");
 
 /**
@@ -28,6 +31,75 @@ const {
  *         description: Public settings retrieved
  */
 router.get("/public", getPublicSettings);
+
+/**
+ * @swagger
+ * /api/v1/settings/popular-searches:
+ *   get:
+ *     summary: Get popular search keywords for storefront search drawer
+ *     tags: [Settings]
+ *     responses:
+ *       200:
+ *         description: Popular search keywords retrieved
+ */
+router.get("/popular-searches", getPopularSearches);
+
+/**
+ * @swagger
+ * /api/v1/admin/settings/popular-searches:
+ *   get:
+ *     summary: Get popular search keyword setting (admin only)
+ *     tags: [Settings]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Popular search setting retrieved
+ */
+router.get("/popular-searches", verifyToken, requireAdmin, getPopularSearchesAdmin);
+
+// Backward-compatible alias
+router.get(
+  "/popular-searches/admin",
+  verifyToken,
+  requireAdmin,
+  getPopularSearchesAdmin
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/settings/popular-searches:
+ *   put:
+ *     summary: Upsert popular search keywords (admin only)
+ *     tags: [Settings]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - searches
+ *             properties:
+ *               searches:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Popular search setting updated
+ */
+router.put("/popular-searches", verifyToken, requireAdmin, upsertPopularSearches);
+
+// Backward-compatible alias
+router.put(
+  "/popular-searches/admin",
+  verifyToken,
+  requireAdmin,
+  upsertPopularSearches
+);
 
 /**
  * @swagger

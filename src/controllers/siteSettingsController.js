@@ -1,4 +1,11 @@
 const SiteSetting = require("../models/SiteSetting");
+const POPULAR_SEARCHES_KEY = "search.popular_terms";
+const POPULAR_SEARCHES_DESCRIPTION =
+  "Popular search keywords shown in the storefront search drawer.";
+const POPULAR_SEARCHES_SCOPE = "product";
+const POPULAR_SEARCHES_MAX_ITEMS = 4;
+const POPULAR_SEARCH_TERM_MIN_LENGTH = 2;
+const POPULAR_SEARCH_TERM_MAX_LENGTH = 50;
 
 /**
  * GET /api/v1/admin/settings
@@ -251,6 +258,171 @@ const getPublicSettings = async (req, res) => {
 };
 
 /**
+ * GET /api/v1/settings/popular-searches
+ * Public endpoint for storefront popular search keywords
+ */
+const getPopularSearches = async (req, res) => {
+  try {
+    const setting = await SiteSetting.findOne({
+      key: POPULAR_SEARCHES_KEY,
+      isPublic: true,
+    })
+      .select({ _id: 0, value: 1, updatedAt: 1 })
+      .lean();
+
+    const searches = normalizePopularSearches(
+      Array.isArray(setting?.value) ? setting.value : []
+    );
+
+    res.json({
+      success: true,
+      searches,
+      updatedAt: setting?.updatedAt || null,
+    });
+  } catch (error) {
+    console.error("Error fetching popular searches:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch popular searches",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/v1/admin/settings/popular-searches/admin
+ * Admin endpoint to manage popular search keywords
+ */
+const getPopularSearchesAdmin = async (req, res) => {
+  try {
+    const setting = await SiteSetting.findOne({ key: POPULAR_SEARCHES_KEY })
+      .select({
+        key: 1,
+        value: 1,
+        type: 1,
+        scope: 1,
+        description: 1,
+        isPublic: 1,
+        updatedAt: 1,
+      })
+      .lean();
+
+    res.json({
+      success: true,
+      setting: {
+        key: POPULAR_SEARCHES_KEY,
+        type: "json",
+        scope: setting?.scope || POPULAR_SEARCHES_SCOPE,
+        description: setting?.description || POPULAR_SEARCHES_DESCRIPTION,
+        isPublic: setting?.isPublic ?? true,
+        searches: normalizePopularSearches(
+          Array.isArray(setting?.value) ? setting.value : []
+        ),
+        updatedAt: setting?.updatedAt || null,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching admin popular searches:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch popular searches",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * PUT /api/v1/admin/settings/popular-searches/admin
+ * Upsert popular search keywords
+ */
+const upsertPopularSearches = async (req, res) => {
+  try {
+    const { searches } = req.body || {};
+
+    if (!Array.isArray(searches)) {
+      return res.status(400).json({
+        success: false,
+        message: "searches must be an array of strings",
+      });
+    }
+
+    const normalizedSearches = normalizePopularSearches(searches);
+
+    if (searches.length > 0 && normalizedSearches.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "No valid search terms found. Use 2-50 characters per term and avoid empty values.",
+      });
+    }
+
+    const updatedSetting = await SiteSetting.findOneAndUpdate(
+      { key: POPULAR_SEARCHES_KEY },
+      {
+        $set: {
+          value: normalizedSearches,
+          type: "json",
+          scope: POPULAR_SEARCHES_SCOPE,
+          description: POPULAR_SEARCHES_DESCRIPTION,
+          isPublic: true,
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    res.json({
+      success: true,
+      setting: {
+        key: updatedSetting.key,
+        type: updatedSetting.type,
+        scope: updatedSetting.scope,
+        description: updatedSetting.description,
+        isPublic: updatedSetting.isPublic,
+        searches: normalizePopularSearches(
+          Array.isArray(updatedSetting.value) ? updatedSetting.value : []
+        ),
+        updatedAt: updatedSetting.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating popular searches:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update popular searches",
+      error: error.message,
+    });
+  }
+};
+
+function normalizePopularSearches(rawSearches = []) {
+  const normalized = [];
+  const seen = new Set();
+
+  for (const raw of rawSearches) {
+    if (typeof raw !== "string") continue;
+
+    const term = raw.replace(/\s+/g, " ").trim();
+    if (term.length < POPULAR_SEARCH_TERM_MIN_LENGTH) continue;
+    if (term.length > POPULAR_SEARCH_TERM_MAX_LENGTH) continue;
+
+    const dedupeKey = term.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+
+    seen.add(dedupeKey);
+    normalized.push(term);
+
+    if (normalized.length >= POPULAR_SEARCHES_MAX_ITEMS) break;
+  }
+
+  return normalized;
+}
+
+/**
  * Helper function to validate value type
  */
 function validateType(value, type) {
@@ -275,4 +447,7 @@ module.exports = {
   updateSetting,
   deleteSetting,
   getPublicSettings,
+  getPopularSearches,
+  getPopularSearchesAdmin,
+  upsertPopularSearches,
 };

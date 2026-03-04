@@ -20,6 +20,190 @@ const {
 } = require("../../utils/filterAttributes");
 const mongoose = require("mongoose");
 
+const MIN_FUZZY_QUERY_LENGTH = 3;
+const MIN_VARIANT_QUERY_LENGTH = 3;
+const MAX_SEARCH_VARIANTS = 600;
+const SEARCH_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
+const VOWELS = new Set(["a", "e", "i", "o", "u"]);
+const COMMON_REPLACEMENTS = {
+  b: ["p"],
+  p: ["b"],
+  d: ["t"],
+  t: ["d"],
+  m: ["n"],
+  n: ["m"],
+  c: ["k"],
+  k: ["c"],
+};
+const SEARCH_TEXT_FIELDS = [
+  "title",
+  "name",
+  "categoryName",
+];
+const SKU_SEARCH_FIELD = "variants.sku";
+
+const escapeRegexLiteral = (value = "") =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const addPluralPair = (variants, term) => {
+  if (!term || term.length < 4) return;
+
+  if (term.endsWith("s") && !term.endsWith("ss")) {
+    variants.add(term.slice(0, -1));
+  } else if (!term.endsWith("s")) {
+    variants.add(`${term}s`);
+  }
+};
+
+const getReplacementCandidates = (char) => {
+  const candidates = new Set();
+  if (VOWELS.has(char)) {
+    VOWELS.forEach((v) => {
+      if (v !== char) candidates.add(v);
+    });
+  }
+
+  (COMMON_REPLACEMENTS[char] || []).forEach((candidate) =>
+    candidates.add(candidate)
+  );
+
+  return Array.from(candidates);
+};
+
+const buildSingleTermVariants = (term = "") => {
+  const variants = new Set();
+  const normalizedTerm = String(term).trim().toLowerCase();
+  if (!normalizedTerm) return variants;
+
+  variants.add(normalizedTerm);
+  addPluralPair(variants, normalizedTerm);
+
+  if (normalizedTerm.length < MIN_VARIANT_QUERY_LENGTH) {
+    return variants;
+  }
+
+  const chars = normalizedTerm.split("");
+  const push = (candidate) => {
+    if (!candidate) return;
+    if (variants.size >= MAX_SEARCH_VARIANTS) return;
+    variants.add(candidate);
+    addPluralPair(variants, candidate);
+  };
+
+  // Delete one char (handles accidental extra char)
+  for (let i = 0; i < chars.length; i += 1) {
+    push(`${normalizedTerm.slice(0, i)}${normalizedTerm.slice(i + 1)}`);
+  }
+
+  // Insert one char (handles missing-char typos)
+  for (let i = 0; i <= chars.length; i += 1) {
+    for (const letter of SEARCH_ALPHABET) {
+      push(`${normalizedTerm.slice(0, i)}${letter}${normalizedTerm.slice(i)}`);
+    }
+  }
+
+  // Swap adjacent chars (handles transposition typos)
+  for (let i = 0; i < chars.length - 1; i += 1) {
+    const swapped = [...chars];
+    [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
+    push(swapped.join(""));
+  }
+
+  // Replace one char using targeted common substitutions.
+  for (let i = 0; i < chars.length; i += 1) {
+    const candidates = getReplacementCandidates(chars[i]);
+    for (const letter of candidates) {
+      if (letter === chars[i]) continue;
+      push(`${normalizedTerm.slice(0, i)}${letter}${normalizedTerm.slice(i + 1)}`);
+    }
+  }
+
+  return variants;
+};
+
+const buildSearchVariants = (searchTerm = "") => {
+  const normalized = String(searchTerm)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!normalized) return [];
+
+  if (normalized.includes(" ")) {
+    const variants = new Set([normalized]);
+    addPluralPair(variants, normalized);
+    return Array.from(variants).filter(Boolean);
+  }
+
+  return Array.from(buildSingleTermVariants(normalized)).filter(Boolean);
+};
+
+const buildFuzzySearchPattern = (searchTerm = "") => {
+  const normalized = String(searchTerm).trim().toLowerCase();
+  if (normalized.length < MIN_FUZZY_QUERY_LENGTH) return null;
+
+  return normalized
+    .split("")
+    .map((char) => escapeRegexLiteral(char))
+    .join(".{0,2}");
+};
+
+const tokenizeSearchTerm = (searchTerm = "") =>
+  String(searchTerm)
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+const getSearchFields = (searchTerm = "") => {
+  const raw = String(searchTerm || "");
+  if (/[0-9-]/.test(raw)) {
+    return [...SEARCH_TEXT_FIELDS, SKU_SEARCH_FIELD];
+  }
+  return SEARCH_TEXT_FIELDS;
+};
+
+const buildTokenRegex = (token, { includeFuzzy = false } = {}) => {
+  const variants = buildSearchVariants(token);
+  if (variants.length === 0) return null;
+
+  const variantPattern = variants.map((term) => escapeRegexLiteral(term)).join("|");
+  const patternParts = [`\\b(?:${variantPattern})`];
+
+  if (includeFuzzy) {
+    const fuzzyPattern = buildFuzzySearchPattern(token);
+    if (fuzzyPattern) {
+      patternParts.push(`\\b${fuzzyPattern}`);
+    }
+  }
+
+  return {
+    $regex: patternParts.join("|"),
+    $options: "i",
+  };
+};
+
+const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
+  const tokens = tokenizeSearchTerm(searchTerm);
+  if (tokens.length === 0) return null;
+  const fields = getSearchFields(searchTerm);
+
+  const tokenClauses = tokens
+    .map((token) => {
+      const tokenRegex = buildTokenRegex(token, { includeFuzzy });
+      if (!tokenRegex) return null;
+
+      return {
+        $or: fields.map((field) => ({ [field]: tokenRegex })),
+      };
+    })
+    .filter(Boolean);
+
+  if (tokenClauses.length === 0) return null;
+  if (tokenClauses.length === 1) return tokenClauses[0];
+
+  return { $and: tokenClauses };
+};
+
 /**
  * Product Service
  * Contains all business logic for products
@@ -134,13 +318,17 @@ class ProductService {
 
     // Search Filter (Regex on title/name)
     if (filters.search) {
-      const searchRegex = { $regex: filters.search, $options: "i" };
-      matchStage.$or = [
-        { title: searchRegex },
-        { name: searchRegex },
-        { description: searchRegex },
-        { "variants.sku": searchRegex },
-      ];
+      const rawSearchTerm = String(filters.search).trim();
+      if (rawSearchTerm) {
+        const searchQuery = buildSearchQuery(rawSearchTerm, {
+          includeFuzzy: !!filters.searchFuzzy,
+        });
+        if (searchQuery?.$or) {
+          matchStage.$or = searchQuery.$or;
+        } else if (searchQuery?.$and) {
+          matchStage.$and = searchQuery.$and;
+        }
+      }
     }
 
     // When filtering for out-of-stock only: exclude products that have product-level stock.

@@ -156,10 +156,12 @@ const getAllProducts = async (req, res) => {
       }
     }
 
-    // Call Service
-    const result = await productService.getAllProducts(serviceFilters, {
+    // Call service with exact match first, then fuzzy retry for typo tolerance.
+    const searchTerm = String(serviceFilters.search || "").trim();
+    let result = await productService.getAllProducts(serviceFilters, {
       isAdmin: false,
     });
+
     const normalizedItems = (result.items || []).map((item) => ({
       ...item,
       collections: Array.isArray(item.collections)
