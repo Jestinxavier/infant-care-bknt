@@ -177,7 +177,7 @@ app.use(
 // Keep your version logic if needed, but make timestamp dynamic
 app.get("/", (req, res) => {
   const now = new Date().toISOString();
-  const versionString = `0.0.${version}v`; // Your existing version
+  const versionString = `1.0.1`;
   res.send(
     `API is running 🚀\n\nServer time: ${now}\n\nAPI version: ${versionString}`,
   );
