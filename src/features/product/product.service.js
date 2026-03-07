@@ -15,6 +15,7 @@ const {
 } = require("../../utils/collectionUtils");
 const {
   buildFilterAttributesQuery,
+  normalizeFilterArray,
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
@@ -38,9 +39,52 @@ const COMMON_REPLACEMENTS = {
 const SEARCH_TEXT_FIELDS = [
   "title",
   "name",
+  "description",
   "categoryName",
+  "filterAttributes.gender",
+  "filterAttributes.material",
+  "filterAttributes.occasion",
+  "filterAttributes.pattern",
+  "collections",
+  "variants.name",
 ];
 const SKU_SEARCH_FIELD = "variants.sku";
+const SEARCH_TERM_SYNONYMS = {
+  dress: ["frock", "gown", "one-piece", "onepiece"],
+  frock: ["dress", "gown"],
+  gown: ["dress", "frock"],
+  romper: ["onesie", "jumpsuit"],
+  onesie: ["romper", "jumpsuit"],
+  jumpsuit: ["romper", "onesie"],
+  tshirt: ["t-shirt", "tee", "top"],
+  "t-shirt": ["tshirt", "tee", "top"],
+  pant: ["pants", "trouser", "trousers", "bottom"],
+  pants: ["pant", "trouser", "trousers", "bottom"],
+};
+const SEARCH_INTENT_PHRASE_MAP = {
+  "all season": { season: "all-season" },
+  "short sleeve": { sleeve: "short-sleeve" },
+  "long sleeve": { sleeve: "long-sleeve" },
+  sleeveless: { sleeve: "sleeveless" },
+  "pack of 2": { pack: "pack-of-2" },
+  "pack of 3": { pack: "pack-of-3" },
+  "pack of 4": { pack: "pack-of-4" },
+};
+const SEARCH_INTENT_TOKEN_MAP = {
+  boy: { gender: "boys" },
+  boys: { gender: "boys" },
+  male: { gender: "boys" },
+  girl: { gender: "girls" },
+  girls: { gender: "girls" },
+  female: { gender: "girls" },
+  unisex: { gender: "unisex" },
+  newborn: { size: "newborn" },
+  "new-born": { size: "newborn" },
+  onesize: { size: "free-size" },
+  "one-size": { size: "free-size" },
+  freesize: { size: "free-size" },
+  "free-size": { size: "free-size" },
+};
 
 const escapeRegexLiteral = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -131,10 +175,26 @@ const buildSearchVariants = (searchTerm = "") => {
   if (normalized.includes(" ")) {
     const variants = new Set([normalized]);
     addPluralPair(variants, normalized);
+    const phraseSynonyms = SEARCH_TERM_SYNONYMS[normalized] || [];
+    phraseSynonyms.forEach((synonym) => {
+      const normalizedSynonym = String(synonym).trim().toLowerCase();
+      if (!normalizedSynonym) return;
+      variants.add(normalizedSynonym);
+      addPluralPair(variants, normalizedSynonym);
+    });
     return Array.from(variants).filter(Boolean);
   }
 
-  return Array.from(buildSingleTermVariants(normalized)).filter(Boolean);
+  const variants = buildSingleTermVariants(normalized);
+  const synonyms = SEARCH_TERM_SYNONYMS[normalized] || [];
+  synonyms.forEach((synonym) => {
+    const normalizedSynonym = String(synonym).trim().toLowerCase();
+    if (!normalizedSynonym) return;
+    variants.add(normalizedSynonym);
+    addPluralPair(variants, normalizedSynonym);
+  });
+
+  return Array.from(variants).filter(Boolean);
 };
 
 const buildFuzzySearchPattern = (searchTerm = "") => {
@@ -153,6 +213,63 @@ const tokenizeSearchTerm = (searchTerm = "") =>
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean);
+
+const mergeSearchIntentValue = (target, key, rawValue) => {
+  const normalizedValues = normalizeFilterArray(rawValue, key);
+  if (normalizedValues.length === 0) return;
+
+  if (!target[key]) target[key] = [];
+  target[key].push(...normalizedValues);
+};
+
+const applySearchIntentFilters = (filters = {}) => {
+  const nextFilters = { ...filters };
+  const searchTerm = String(filters.search || "").trim();
+  if (!searchTerm) return nextFilters;
+
+  let remaining = searchTerm.toLowerCase().replace(/\s+/g, " ");
+  const inferredFilters = {};
+
+  const sortedPhraseEntries = Object.entries(SEARCH_INTENT_PHRASE_MAP).sort(
+    (a, b) => b[0].length - a[0].length
+  );
+
+  sortedPhraseEntries.forEach(([phrase, mapping]) => {
+    const phrasePattern = new RegExp(`\\b${escapeRegexLiteral(phrase)}\\b`, "i");
+    while (phrasePattern.test(remaining)) {
+      remaining = remaining.replace(phrasePattern, " ").replace(/\s+/g, " ").trim();
+      Object.entries(mapping).forEach(([key, value]) =>
+        mergeSearchIntentValue(inferredFilters, key, value)
+      );
+    }
+  });
+
+  const residualTokens = [];
+  tokenizeSearchTerm(remaining).forEach((token) => {
+    const intentMapping = SEARCH_INTENT_TOKEN_MAP[token];
+    if (!intentMapping) {
+      residualTokens.push(token);
+      return;
+    }
+
+    Object.entries(intentMapping).forEach(([key, value]) =>
+      mergeSearchIntentValue(inferredFilters, key, value)
+    );
+  });
+
+  Object.entries(inferredFilters).forEach(([key, values]) => {
+    const mergedValues = normalizeFilterArray(
+      [...normalizeFilterArray(nextFilters[key], key), ...values],
+      key
+    );
+    if (mergedValues.length > 0) {
+      nextFilters[key] = mergedValues;
+    }
+  });
+
+  nextFilters.search = residualTokens.join(" ").trim();
+  return nextFilters;
+};
 
 const getSearchFields = (searchTerm = "") => {
   const raw = String(searchTerm || "");
@@ -219,6 +336,7 @@ class ProductService {
   async getAllProducts(filters = {}, options = {}) {
     // Current time for offer validation
     const now = new Date();
+    const effectiveFilters = applySearchIntentFilters(filters);
     const {
       page = 1,
       limit = 20,
@@ -227,7 +345,7 @@ class ProductService {
       minPrice,
       maxPrice,
       inStock: inStockParam,
-    } = filters;
+    } = effectiveFilters;
 
     // Normalize inStock so filter is applied correctly (query params are strings)
     const inStock =
@@ -237,11 +355,11 @@ class ProductService {
         ? false
         : undefined;
 
-    let { sortBy = "createdAt", sortOrder = "desc" } = filters;
+    let { sortBy = "createdAt", sortOrder = "desc" } = effectiveFilters;
 
     // Handle combined "sort" parameter (e.g. price_low, price_high, newest)
     // Check raw filters to avoid default "createdAt" unless explicitly checking
-    const sortParam = filters.sort || filters.sortBy;
+    const sortParam = effectiveFilters.sort || effectiveFilters.sortBy;
 
     if (sortParam) {
       const parts = sortParam.split("_");
@@ -293,13 +411,13 @@ class ProductService {
       }
     }
 
-    if (filters.subCategories) {
-      const subCatIds = Array.isArray(filters.subCategories)
-        ? filters.subCategories
+    if (effectiveFilters.subCategories) {
+      const subCatIds = Array.isArray(effectiveFilters.subCategories)
+        ? effectiveFilters.subCategories
             .filter((id) => mongoose.Types.ObjectId.isValid(id))
             .map((id) => new mongoose.Types.ObjectId(id))
-        : mongoose.Types.ObjectId.isValid(filters.subCategories)
-        ? [new mongoose.Types.ObjectId(filters.subCategories)]
+        : mongoose.Types.ObjectId.isValid(effectiveFilters.subCategories)
+        ? [new mongoose.Types.ObjectId(effectiveFilters.subCategories)]
         : [];
 
       if (subCatIds.length > 0) {
@@ -307,21 +425,21 @@ class ProductService {
       }
     }
 
-    if (filters.collection) {
-      const collectionSlugs = Array.isArray(filters.collection)
-        ? filters.collection
-        : [filters.collection];
+    if (effectiveFilters.collection) {
+      const collectionSlugs = Array.isArray(effectiveFilters.collection)
+        ? effectiveFilters.collection
+        : [effectiveFilters.collection];
       matchStage.collections = { $in: collectionSlugs.filter(Boolean) };
     }
 
-    Object.assign(matchStage, buildFilterAttributesQuery(filters));
+    Object.assign(matchStage, buildFilterAttributesQuery(effectiveFilters));
 
     // Search Filter (Regex on title/name)
-    if (filters.search) {
-      const rawSearchTerm = String(filters.search).trim();
+    if (effectiveFilters.search) {
+      const rawSearchTerm = String(effectiveFilters.search).trim();
       if (rawSearchTerm) {
         const searchQuery = buildSearchQuery(rawSearchTerm, {
-          includeFuzzy: !!filters.searchFuzzy,
+          includeFuzzy: !!effectiveFilters.searchFuzzy,
         });
         if (searchQuery?.$or) {
           matchStage.$or = searchQuery.$or;

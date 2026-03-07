@@ -555,13 +555,88 @@ const getVariantById = async (req, res) => {
   }
 };
 
+const SEARCH_INDEX_TERM_SYNONYMS = {
+  dress: ["frock", "gown", "one-piece", "onepiece"],
+  frock: ["dress", "gown"],
+  gown: ["dress", "frock"],
+  romper: ["onesie", "jumpsuit"],
+  onesie: ["romper", "jumpsuit"],
+  jumpsuit: ["romper", "onesie"],
+  tshirt: ["t-shirt", "tee", "top"],
+  "t-shirt": ["tshirt", "tee", "top"],
+  pant: ["pants", "trouser", "trousers", "bottom"],
+  pants: ["pant", "trouser", "trousers", "bottom"],
+};
+
+const GENDER_SEARCH_KEYWORD_EXPANSION = {
+  boys: ["boy", "male", "for-boys"],
+  girls: ["girl", "female", "for-girls"],
+  unisex: ["uni-sex", "for-all"],
+};
+
+const tokenizeForSearch = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .filter(Boolean);
+
+const collectSearchKeywords = (product = {}) => {
+  const keywordSet = new Set();
+  const pushKeyword = (rawKeyword) => {
+    const keyword = String(rawKeyword || "")
+      .trim()
+      .toLowerCase();
+    if (keyword) keywordSet.add(keyword);
+  };
+
+  const title = product.title || product.name || "";
+  const categoryName = product.category?.name || "";
+  pushKeyword(title);
+  pushKeyword(categoryName);
+  pushKeyword(product.badgeCollection);
+
+  (Array.isArray(product.collections) ? product.collections : []).forEach(
+    pushKeyword
+  );
+
+  const filterAttributes =
+    product.filterAttributes && typeof product.filterAttributes === "object"
+      ? product.filterAttributes
+      : {};
+
+  Object.values(filterAttributes).forEach((attributeValue) => {
+    const values = Array.isArray(attributeValue)
+      ? attributeValue
+      : [attributeValue];
+    values.forEach(pushKeyword);
+  });
+
+  const genderValues = Array.isArray(filterAttributes.gender)
+    ? filterAttributes.gender
+    : [];
+  genderValues.forEach((value) => {
+    const expanded = GENDER_SEARCH_KEYWORD_EXPANSION[value] || [];
+    expanded.forEach(pushKeyword);
+  });
+
+  [...tokenizeForSearch(title), ...tokenizeForSearch(categoryName)].forEach(
+    (token) => {
+      pushKeyword(token);
+      const synonyms = SEARCH_INDEX_TERM_SYNONYMS[token] || [];
+      synonyms.forEach(pushKeyword);
+    }
+  );
+
+  return Array.from(keywordSet);
+};
+
 const getSearchIndex = async (req, res) => {
   console.log("🔍 Search Index API called");
   try {
     // Fetch all published products with minimal fields
     const products = await Product.find({ status: { $ne: "rejected" } })
       .select(
-        "title name url_key images pricing price category status variants collections badgeCollection"
+        "title name url_key images pricing price category status variants collections badgeCollection filterAttributes"
       )
       .populate("category", "name slug")
       .lean();
@@ -598,6 +673,7 @@ const getSearchIndex = async (req, res) => {
           ? product.collections.filter(Boolean)
           : [],
         badgeCollection: product.badgeCollection || null,
+        searchKeywords: collectSearchKeywords(product),
       };
     });
 
