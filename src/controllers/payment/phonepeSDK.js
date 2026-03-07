@@ -514,23 +514,48 @@ const phonepeWebhook = async (req, res) => {
  * @param {object} res - Express response
  */
 const initiateRefund = async (req, res) => {
-  try {
-    const { orderId, refundAmount, reason } = req.body;
+  const { orderId, refundAmount, reason } = req.body;
 
+  console.log("📤 [initiateRefund] Refund request received", {
+    orderId,
+    refundAmount,
+    reason,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    // ── 1. Input validation ──────────────────────────────────────────────────
     if (!orderId) {
+      console.warn("⚠️ [initiateRefund] Missing orderId in request body");
       return res
         .status(400)
         .json({ success: false, message: "orderId is required" });
     }
 
+    // ── 2. Order lookup ──────────────────────────────────────────────────────
     const order = await Order.findOne({ orderId }).lean();
     if (!order) {
+      console.warn(`⚠️ [initiateRefund] Order not found in DB: ${orderId}`);
       return res
         .status(404)
         .json({ success: false, message: "Order not found" });
     }
 
+    console.log("📋 [initiateRefund] Order found", {
+      orderId,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      orderStatus: order.orderStatus,
+      totalAmount: order.totalAmount,
+      phonepeTransactionId: order.phonepeTransactionId,
+    });
+
+    // ── 3. Eligibility checks ────────────────────────────────────────────────
     if (order.paymentMethod !== "PHONEPE") {
+      console.warn(
+        `⚠️ [initiateRefund] Refund rejected – unsupported payment method: ${order.paymentMethod}`,
+        { orderId },
+      );
       return res.status(400).json({
         success: false,
         message: "Refund is only supported for PhonePe payments",
@@ -538,26 +563,41 @@ const initiateRefund = async (req, res) => {
     }
 
     if (order.paymentStatus !== "paid") {
+      console.warn(
+        `⚠️ [initiateRefund] Refund rejected – invalid payment status: ${order.paymentStatus}`,
+        { orderId },
+      );
       return res.status(400).json({
         success: false,
         message: `Cannot refund order with payment status: ${order.paymentStatus}`,
       });
     }
 
-    // Amount in paise – default to full order amount
+    // ── 4. Amount validation ─────────────────────────────────────────────────
     const orderAmountPaise = Math.round(order.totalAmount * 100);
     const amountToRefund = refundAmount
       ? Math.round(Number(refundAmount))
       : orderAmountPaise;
 
+    console.log("📋 [initiateRefund] Refund amount resolved", {
+      orderId,
+      orderAmountPaise,
+      requestedRefundAmount: refundAmount ?? "(not provided — full refund)",
+      amountToRefund,
+    });
+
     if (amountToRefund < 1 || amountToRefund > orderAmountPaise) {
+      console.warn(
+        `⚠️ [initiateRefund] Refund rejected – amount out of range: ${amountToRefund} paise`,
+        { orderId, orderAmountPaise },
+      );
       return res.status(400).json({
         success: false,
         message: `Invalid refund amount. Must be between 1 and ${orderAmountPaise} paise`,
       });
     }
 
-    // Build a unique refund ID
+    // ── 5. Build SDK request ─────────────────────────────────────────────────
     const merchantRefundId = `REF-${orderId}-${Date.now()}`;
 
     const request = RefundRequest.builder()
@@ -566,29 +606,75 @@ const initiateRefund = async (req, res) => {
       .originalMerchantOrderId(orderId)
       .build();
 
-    console.log("📤 PhonePe refund request", {
+    console.log("📤 [initiateRefund] Sending refund request to PhonePe SDK", {
       orderId,
-      amountToRefund,
       merchantRefundId,
+      amountToRefund,
+      originalMerchantOrderId: orderId,
     });
 
-    const response = await client.refund(request);
+    // ── 6. Call PhonePe SDK ──────────────────────────────────────────────────
+    let response;
+    try {
+      response = await client.refund(request);
+    } catch (sdkErr) {
+      if (sdkErr instanceof PhonePeException) {
+        console.error("❌ [initiateRefund] PhonePe SDK refund call failed", {
+          orderId,
+          merchantRefundId,
+          amountToRefund,
+          code: sdkErr.code,
+          httpStatusCode: sdkErr.httpStatusCode,
+          message: sdkErr.message,
+          data: sdkErr.data,
+        });
+        return res.status(502).json({
+          success: false,
+          message: sdkErr.message || "Refund initiation failed via PhonePe",
+          code: sdkErr.code,
+        });
+      }
+      throw sdkErr;
+    }
 
-    console.log("📋 PhonePe refund response", response);
+    console.log("✅ [initiateRefund] PhonePe SDK refund response received", {
+      orderId,
+      merchantRefundId,
+      refundId: response.refundId,
+      state: response.state,
+      amount: response.amount,
+    });
 
-    // Update order payment status to refunded in DB
-    await Order.findOneAndUpdate(
+    // ── 7. Persist refund state to DB ────────────────────────────────────────
+    const updatedOrder = await Order.findOneAndUpdate(
       { orderId },
       {
         $set: {
           paymentStatus: "refunded",
+          refundStatus: "initiated",
           refundId: response.refundId,
           refundedAt: new Date(),
           refundReason: reason || null,
           refundAmountPaise: amountToRefund,
         },
       },
+      { new: true },
     );
+
+    if (!updatedOrder) {
+      console.error(
+        "❌ [initiateRefund] DB update returned null — order may have been deleted",
+        { orderId, merchantRefundId },
+      );
+    } else {
+      console.log("💾 [initiateRefund] Order DB updated after refund", {
+        orderId,
+        paymentStatus: updatedOrder.paymentStatus,
+        refundStatus: updatedOrder.refundStatus,
+        refundId: updatedOrder.refundId,
+        refundAmountPaise: updatedOrder.refundAmountPaise,
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -602,20 +688,11 @@ const initiateRefund = async (req, res) => {
       },
     });
   } catch (err) {
-    if (err instanceof PhonePeException) {
-      console.error("❌ PhonePe refund SDK error", {
-        code: err.code,
-        httpStatusCode: err.httpStatusCode,
-        message: err.message,
-        data: err.data,
-      });
-      return res.status(502).json({
-        success: false,
-        message: err.message || "Refund initiation failed via PhonePe",
-        code: err.code,
-      });
-    }
-    console.error("❌ initiateRefund error:", err);
+    console.error("❌ [initiateRefund] Unexpected error", {
+      orderId,
+      message: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({
       success: false,
       message: err.message || "Internal server error",
@@ -629,20 +706,54 @@ const initiateRefund = async (req, res) => {
  * @param {object} res - Express response
  */
 const getRefundStatus = async (req, res) => {
-  try {
-    const { refundId } = req.params;
+  const { refundId } = req.params;
 
+  console.log("📤 [getRefundStatus] Status check request received", {
+    refundId,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    // ── 1. Input validation ──────────────────────────────────────────────────
     if (!refundId) {
+      console.warn("⚠️ [getRefundStatus] Missing refundId in request params");
       return res
         .status(400)
         .json({ success: false, message: "refundId is required" });
     }
 
-    console.log("📤 PhonePe getRefundStatus request", { refundId });
+    // ── 2. Call PhonePe SDK ──────────────────────────────────────────────────
+    let response;
+    try {
+      response = await client.getRefundStatus(refundId);
+    } catch (sdkErr) {
+      if (sdkErr instanceof PhonePeException) {
+        console.error(
+          "❌ [getRefundStatus] PhonePe SDK getRefundStatus call failed",
+          {
+            refundId,
+            code: sdkErr.code,
+            httpStatusCode: sdkErr.httpStatusCode,
+            message: sdkErr.message,
+            data: sdkErr.data,
+          },
+        );
+        return res.status(502).json({
+          success: false,
+          message: sdkErr.message || "Failed to fetch refund status",
+          code: sdkErr.code,
+        });
+      }
+      throw sdkErr;
+    }
 
-    const response = await client.getRefundStatus(refundId);
-
-    console.log("📋 PhonePe getRefundStatus response", response);
+    console.log("✅ [getRefundStatus] PhonePe SDK response received", {
+      refundId,
+      merchantRefundId: response.merchantRefundId,
+      state: response.state,
+      amount: response.amount,
+      paymentDetailsCount: response.paymentDetails?.length ?? 0,
+    });
 
     return res.status(200).json({
       success: true,
@@ -655,19 +766,11 @@ const getRefundStatus = async (req, res) => {
       },
     });
   } catch (err) {
-    if (err instanceof PhonePeException) {
-      console.error("❌ PhonePe getRefundStatus SDK error", {
-        code: err.code,
-        httpStatusCode: err.httpStatusCode,
-        message: err.message,
-      });
-      return res.status(502).json({
-        success: false,
-        message: err.message || "Failed to fetch refund status",
-        code: err.code,
-      });
-    }
-    console.error("❌ getRefundStatus error:", err);
+    console.error("❌ [getRefundStatus] Unexpected error", {
+      refundId,
+      message: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({
       success: false,
       message: err.message || "Internal server error",

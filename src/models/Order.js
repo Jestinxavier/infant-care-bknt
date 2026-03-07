@@ -131,6 +131,7 @@ const orderSchema = new mongoose.Schema(
         "processing",
         "shipped",
         "delivered",
+        "returned",
         "cancelled",
       ],
       default: "pending",
@@ -153,6 +154,11 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
     // Refund tracking (populated when a refund is initiated via PhonePe)
+    refundStatus: {
+      type: String,
+      enum: ["initiated", "success", "failed"],
+      default: null,
+    },
     refundId: {
       type: String,
       default: null,
@@ -194,6 +200,7 @@ const orderSchema = new mongoose.Schema(
             "processing",
             "shipped",
             "delivered",
+            "returned",
             "cancelled",
           ],
           required: true,
