@@ -6,6 +6,10 @@ const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
 
+// Escape user-provided search strings so they are treated as literal text in regex
+const escapeRegex = (str = "") =>
+  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * Admin: Get all orders (not filtered by user)
  * Supports filtering and pagination
@@ -90,10 +94,12 @@ const getAllOrders = async (req, res) => {
 
     // Advanced Search
     if (search) {
-      const searchRegex = new RegExp(search, "i");
+      const safeSearch = escapeRegex(search);
+      const searchRegex = new RegExp(safeSearch, "i");
       // Remove leading '#' for ID searching
       const sanitizedSearch = search.replace(/^#/, "");
-      const sanitizedRegex = new RegExp(sanitizedSearch, "i");
+      const safeSanitized = escapeRegex(sanitizedSearch);
+      const sanitizedRegex = new RegExp(safeSanitized, "i");
 
       // 1. Find users matching the search term
       const matchingUsers = await User.find({

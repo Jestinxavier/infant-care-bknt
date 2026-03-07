@@ -1,7 +1,10 @@
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
-const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
+const {
+  generateUniqueUrlKey,
+  generateSlug,
+} = require("../../utils/slugGenerator");
 const {
   generateUniqueSku,
   generateVariantSku,
@@ -35,7 +38,11 @@ const norm = (v) =>
     .trim()
     .toLowerCase();
 
-const buildVariantTitle = (parentTitle, productVariantOptions, attributesMap) => {
+const buildVariantTitle = (
+  parentTitle,
+  productVariantOptions,
+  attributesMap,
+) => {
   const attrsObj =
     attributesMap instanceof Map
       ? Object.fromEntries(attributesMap)
@@ -57,7 +64,7 @@ const buildVariantTitle = (parentTitle, productVariantOptions, attributesMap) =>
       const rawValue = getAttrValue(option);
       if (!rawValue) return null;
       const valueDef = (option.values || []).find(
-        (val) => norm(val.value) === norm(rawValue)
+        (val) => norm(val.value) === norm(rawValue),
       );
       return (valueDef?.label || rawValue).trim();
     })
@@ -230,7 +237,7 @@ const createProduct = async (req, res) => {
         filterAttributes,
         {
           productType: product_type || "SIMPLE",
-        }
+        },
       );
 
       if (cardinalityViolations.length > 0) {
@@ -265,9 +272,8 @@ const createProduct = async (req, res) => {
 
     // Validate bundle configuration for BUNDLE products
     if (product_type === "BUNDLE") {
-      const bundleValidation = await bundleService.validateBundleConfig(
-        bundle_config
-      );
+      const bundleValidation =
+        await bundleService.validateBundleConfig(bundle_config);
       if (!bundleValidation.valid) {
         return res.status(400).json({
           success: false,
@@ -358,7 +364,7 @@ const createProduct = async (req, res) => {
     if (!productUrlKey || (await checkUrlKeyExists(productUrlKey))) {
       productUrlKey = await generateUniqueUrlKey(
         productTitle,
-        checkUrlKeyExists
+        checkUrlKeyExists,
       );
     }
 
@@ -398,7 +404,7 @@ const createProduct = async (req, res) => {
           console.error("Error parsing images JSON:", e);
           console.error(
             "Images string value:",
-            parsedBody.images.substring(0, 200)
+            parsedBody.images.substring(0, 200),
           );
           // If parsing fails, try to extract URL if it's a simple string
           if (parsedBody.images.startsWith("http")) {
@@ -422,7 +428,7 @@ const createProduct = async (req, res) => {
           (f.fieldname.startsWith("product_image_") ||
             f.fieldname.startsWith("images")) &&
           !f.fieldname.includes("variant_") &&
-          !f.fieldname.includes("variant")
+          !f.fieldname.includes("variant"),
       );
 
       // Files are already uploaded to Cloudinary by multer-cloudinary
@@ -446,10 +452,9 @@ const createProduct = async (req, res) => {
       const usedVariantUrlKeys = new Set();
 
       const ensureUniqueVariantSku = async (inputSku, index) => {
-        const fallbackBase = `${productSku || "VAR"}-${String(index + 1).padStart(
-          2,
-          "0"
-        )}`;
+        const fallbackBase = `${productSku || "VAR"}-${String(
+          index + 1,
+        ).padStart(2, "0")}`;
         const baseSku = (inputSku || "").toString().trim() || fallbackBase;
         let candidate = baseSku;
         let counter = 2;
@@ -469,7 +474,7 @@ const createProduct = async (req, res) => {
       const ensureUniqueVariantUrlKey = async (inputUrlKey, index) => {
         const fallbackBase = `${productUrlKey || "product"}-variant-${index + 1}`;
         const normalizedBase = generateSlug(
-          (inputUrlKey || "").toString().trim() || fallbackBase
+          (inputUrlKey || "").toString().trim() || fallbackBase,
         );
         let candidate = normalizedBase;
         let counter = 2;
@@ -553,7 +558,7 @@ const createProduct = async (req, res) => {
         }
         attributesMap = normalizeVariantAttributesToValues(
           variantOptions || [],
-          attributesMap
+          attributesMap,
         );
 
         // Support both direct fields and nested pricing/stock
@@ -598,7 +603,7 @@ const createProduct = async (req, res) => {
         const variantName = buildVariantTitle(
           productTitle,
           variantOptions || [],
-          attributesMap
+          attributesMap,
         );
 
         processedVariants.push({
@@ -702,8 +707,8 @@ const createProduct = async (req, res) => {
       if (missingFields.length > 0) {
         console.log(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
-            ", "
-          )}`
+            ", ",
+          )}`,
         );
         console.log("   → Auto-saving as 'draft' instead");
         normalizedStatus = "draft";
@@ -837,7 +842,7 @@ const createProduct = async (req, res) => {
         const finalizeResult = await finalizeImages(
           imagePublicIds,
           "product",
-          product._id
+          product._id,
         );
         console.log("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
@@ -849,7 +854,7 @@ const createProduct = async (req, res) => {
       // Non-critical error - log but don't fail the request
       console.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
-        finalizeError
+        finalizeError,
       );
     }
 

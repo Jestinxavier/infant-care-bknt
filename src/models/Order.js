@@ -51,7 +51,7 @@ const orderItemSchema = new mongoose.Schema(
     },
     isGift: { type: Boolean, default: false },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const orderSchema = new mongoose.Schema(
@@ -152,6 +152,23 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Refund tracking (populated when a refund is initiated via PhonePe)
+    refundId: {
+      type: String,
+      default: null,
+    },
+    refundedAt: {
+      type: Date,
+      default: null,
+    },
+    refundReason: {
+      type: String,
+      default: null,
+    },
+    refundAmountPaise: {
+      type: Number,
+      default: null,
+    },
     placedAt: {
       type: Date,
       default: Date.now,
@@ -187,7 +204,7 @@ const orderSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Order", orderSchema);

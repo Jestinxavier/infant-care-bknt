@@ -14,13 +14,6 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
   process.env.FRONTEND_URL_WWW,
-  "https://66.116.227.13",
-  "http://66.116.227.13",
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:5175",
-  "http://localhost:3000",
-  "http://localhost:3001",
 ]
   .filter(Boolean)
   .map((url) => url.trim().replace(/\/$/, ""));
@@ -79,7 +72,7 @@ app.post(
       req.rawBody = buf.toString();
     },
   }),
-  phonepeWebhook
+  phonepeWebhook,
 );
 
 // Middleware
@@ -178,23 +171,17 @@ app.use(
   swaggerUi.setup(swaggerSpec, {
     customCss: ".swagger-ui .topbar { display: none }",
     customSiteTitle: "Online Shopping API Docs",
-  })
+  }),
 );
 
-const today = new Date();
-const version =
-  today.getFullYear() +
-  today.getMonth() +
-  today.getDate() +
-  today.getHours() +
-  today.getMinutes() +
-  today.getSeconds();
-const versionString = `0.0.${version}v`;
-
-// Default route
-app.get("/", (req, res) =>
-  res.send(`API is running 🚀\n\nAPI version ${versionString}`)
-);
+// Keep your version logic if needed, but make timestamp dynamic
+app.get("/", (req, res) => {
+  const now = new Date().toISOString();
+  const versionString = `0.0.${version}v`; // Your existing version
+  res.send(
+    `API is running 🚀\n\nServer time: ${now}\n\nAPI version: ${versionString}`,
+  );
+});
 
 // Public email logo (URL used in emails to avoid large base64 → "Message clipped")
 app.get("/email-logo.png", (req, res) => {

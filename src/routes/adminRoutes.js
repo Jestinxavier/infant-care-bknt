@@ -195,7 +195,7 @@ router.post(
   "/products/bulk-delete",
   verifyToken,
   requireAdmin,
-  bulkDeleteProducts
+  bulkDeleteProducts,
 );
 
 // Import Product model for lean search
@@ -343,13 +343,13 @@ router.get(
         status: "published",
       })
         .select(
-          "title url_key product_type variants.sku variants.url_key variants.attributes variants.options variants.stockObj variants.stock"
+          "title url_key product_type variants.sku variants.url_key variants.attributes variants.options variants.stockObj variants.stock",
         )
         .lean();
 
       if (product) {
         const variant = (product.variants || []).find(
-          (v) => v.sku === trimmedSku
+          (v) => v.sku === trimmedSku,
         );
         const variantUrlKey = variant?.url_key || product.url_key;
         const attrs = variant?.attributes || variant?.options;
@@ -383,7 +383,7 @@ router.get(
         message: error.message || "Lookup failed",
       });
     }
-  }
+  },
 );
 
 // Import bulk import controller
@@ -416,7 +416,7 @@ router.post(
   "/products/validate-import",
   verifyToken,
   requireAdmin,
-  bulkImportController.validateImport
+  bulkImportController.validateImport,
 );
 
 /**
@@ -448,7 +448,7 @@ router.post(
   "/products/commit-import",
   verifyToken,
   requireAdmin,
-  bulkImportController.commitImport
+  bulkImportController.commitImport,
 );
 
 /**
@@ -536,7 +536,7 @@ router.post(
       next();
     });
   },
-  createProduct
+  createProduct,
 );
 
 /**
@@ -674,7 +674,7 @@ router.patch(
   requireAdmin,
   (req, res, next) => parser.any()(req, res, next),
   parseMultipartBody,
-  updateProduct
+  updateProduct,
 );
 
 /**
@@ -924,9 +924,108 @@ router.post(
   "/orders/send-invoice",
   verifyToken,
   requireAdmin,
-  sendOrderInvoice
+  sendOrderInvoice,
 );
 
+// ==================== REFUNDS (developer / super-admin only) ====================
+// IMPORTANT: These specific routes must be registered BEFORE the /:orderId wildcard below.
+
+const {
+  initiateRefund,
+  getRefundStatus,
+} = require("../controllers/payment/phonepeSDK");
+
+/**
+ * Middleware: only developer or super-admin may initiate/check refunds
+ */
+const requireSuperPrivilege = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== "developer" && role !== "super-admin") {
+    return res.status(403).json({
+      success: false,
+      message:
+        "Access denied. Only developer or super-admin can manage refunds.",
+    });
+  }
+  next();
+};
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/refund:
+ *   post:
+ *     summary: "[Admin] Initiate a PhonePe refund"
+ *     description: Initiates a refund for a paid PhonePe order. Restricted to developer and super-admin roles.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 description: The merchant order ID to refund
+ *               refundAmount:
+ *                 type: integer
+ *                 description: Amount to refund in paise (defaults to full order amount)
+ *               reason:
+ *                 type: string
+ *                 description: Reason for the refund
+ *     responses:
+ *       200:
+ *         description: Refund initiated successfully
+ *       400:
+ *         description: Invalid request or order not eligible for refund
+ *       403:
+ *         description: Insufficient privileges
+ *       404:
+ *         description: Order not found
+ */
+router.post(
+  "/orders/refund",
+  verifyToken,
+  requireAdmin,
+  requireSuperPrivilege,
+  initiateRefund,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/refund/{refundId}:
+ *   get:
+ *     summary: "[Admin] Get PhonePe refund status"
+ *     description: Retrieves the current status of a refund by its refund ID. Restricted to developer and super-admin roles.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: refundId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The refund ID returned by the refund initiation
+ *     responses:
+ *       200:
+ *         description: Refund status retrieved successfully
+ *       403:
+ *         description: Insufficient privileges
+ */
+router.get(
+  "/orders/refund/:refundId",
+  verifyToken,
+  requireAdmin,
+  requireSuperPrivilege,
+  getRefundStatus,
+);
+
+// Wildcard route — must come AFTER all specific /orders/* routes
 router.get("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
 router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
 
@@ -971,7 +1070,7 @@ router.patch(
   "/orders/update-status",
   verifyToken,
   requireAdmin,
-  updateOrderStatus
+  updateOrderStatus,
 );
 
 // ==================== CUSTOMERS ====================
@@ -1030,7 +1129,7 @@ router.get(
   "/customers/:customerId",
   verifyToken,
   requireAdmin,
-  getCustomerById
+  getCustomerById,
 );
 
 // ==================== REVIEWS ====================
@@ -1207,7 +1306,7 @@ router.post(
   "/categories/bulk-delete",
   verifyToken,
   requireAdmin,
-  bulkDeleteCategories
+  bulkDeleteCategories,
 );
 
 /**
@@ -1283,13 +1382,13 @@ router.get(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  getCategoryById
+  getCategoryById,
 );
 router.post(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  getCategoryById
+  getCategoryById,
 );
 
 /**
@@ -1365,7 +1464,7 @@ router.post(
       next();
     });
   },
-  createCategory
+  createCategory,
 );
 
 /**
@@ -1444,7 +1543,7 @@ router.patch(
       next();
     });
   },
-  updateCategory
+  updateCategory,
 );
 
 /**
@@ -1489,7 +1588,7 @@ router.delete(
   "/categories/:categoryId",
   verifyToken,
   requireAdmin,
-  deleteCategory
+  deleteCategory,
 );
 
 /**

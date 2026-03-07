@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 const User = require("../../models/user");
 const Order = require("../../models/Order");
 
+// Escape user-provided search strings so they are treated as literal text in regex
+const escapeRegex = (str = "") =>
+  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * Admin: Get all customers with pagination and order stats
  */
@@ -26,7 +30,8 @@ const getAllCustomers = async (req, res) => {
     };
 
     if (search) {
-      const regex = new RegExp(search, "i");
+      const safeSearch = escapeRegex(search);
+      const regex = new RegExp(safeSearch, "i");
       filter.$or = [
         { username: regex },
         { email: regex },

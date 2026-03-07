@@ -95,12 +95,15 @@ const bulkDeleteProducts = async (req, res) => {
         await Product.findByIdAndDelete(productId);
 
         // Track successful deletion
+        // At this point images are only queued for batch deletion,
+        // so per-product deletedImages is not yet known. Use 0 here;
+        // the aggregated deletedImagesCount is computed after batch deletion.
         results.successful.push({
           productId,
           name: product.name,
           deletedVariants: deletedVariantsCount,
           deletedReviews: deletedReviewsCount,
-          deletedImages: deletedImagesCount,
+          deletedImages: 0,
         });
         results.successCount++;
 

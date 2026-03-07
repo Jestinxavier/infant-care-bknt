@@ -3,6 +3,10 @@ const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { transformForDashboard } = require("../../utils/transformForDashboard");
 
+// Escape user-provided search strings so they are treated as literal text in regex
+const escapeRegex = (str = "") =>
+  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * Admin: Get all products with full details (including drafts, all variants)
  * Supports filtering and pagination
@@ -60,7 +64,8 @@ const getAllProducts = async (req, res) => {
     // Search filter - search by name/title, description, or SKU
     // SKU is typically made from product name, so we search in variants too
     if (search) {
-      const searchRegex = { $regex: search, $options: "i" };
+      const safeSearch = escapeRegex(search);
+      const searchRegex = { $regex: safeSearch, $options: "i" };
       filter.$or = [
         { title: searchRegex },
         { name: searchRegex },
