@@ -646,18 +646,44 @@ const initiateRefund = async (req, res) => {
     });
 
     // ── 7. Persist refund state to DB ────────────────────────────────────────
+    let newOrderStatus = order.orderStatus;
+    let pushToHistory = null;
+    let stockShouldBeRestored = false;
+
+    // If order is not already cancelled or returned, cancel it automatically
+    if (order.orderStatus !== "cancelled" && order.orderStatus !== "returned") {
+      newOrderStatus = "cancelled";
+      stockShouldBeRestored = true;
+      pushToHistory = {
+        status: "cancelled",
+        timestamp: new Date(),
+        note: reason
+          ? `Order cancelled automatically due to refund: ${reason}`
+          : "Order cancelled automatically due to refund initiation",
+      };
+    }
+
+    const updateQuery = {
+      $set: {
+        paymentStatus: "refunded",
+        refundStatus: "initiated",
+        refundId: response.refundId,
+        refundedAt: new Date(),
+        refundReason: reason || null,
+        refundAmountPaise: amountToRefund,
+        orderStatus: newOrderStatus,
+      },
+    };
+
+    if (pushToHistory) {
+      updateQuery.$push = {
+        statusHistory: pushToHistory,
+      };
+    }
+
     const updatedOrder = await Order.findOneAndUpdate(
       { orderId },
-      {
-        $set: {
-          paymentStatus: "refunded",
-          refundStatus: "initiated",
-          refundId: response.refundId,
-          refundedAt: new Date(),
-          refundReason: reason || null,
-          refundAmountPaise: amountToRefund,
-        },
-      },
+      updateQuery,
       { new: true },
     );
 
@@ -673,7 +699,27 @@ const initiateRefund = async (req, res) => {
         refundStatus: updatedOrder.refundStatus,
         refundId: updatedOrder.refundId,
         refundAmountPaise: updatedOrder.refundAmountPaise,
+        orderStatus: updatedOrder.orderStatus,
       });
+
+      // Restore stock if the order was just cancelled
+      if (stockShouldBeRestored) {
+        try {
+          await restoreOrderStock(updatedOrder);
+          console.log(
+            "📦 [initiateRefund] Stock restored successfully for cancelled order",
+            { orderId },
+          );
+        } catch (stockErr) {
+          console.error(
+            "❌ [initiateRefund] Failed to restore stock after cancellation",
+            {
+              orderId,
+              message: stockErr.message,
+            },
+          );
+        }
+      }
     }
 
     return res.status(200).json({
