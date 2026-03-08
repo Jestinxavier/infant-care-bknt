@@ -66,8 +66,8 @@ importers:
         specifier: ^7.0.0
         version: 7.2.3
       pg-sdk-node:
-        specifier: https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz
-        version: https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz
+        specifier: ^2.0.2
+        version: 2.0.2
       socket.io:
         specifier: ^4.8.3
         version: 4.8.3
@@ -1875,9 +1875,8 @@ packages:
   pend@1.2.0:
     resolution: {integrity: sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==}
 
-  pg-sdk-node@https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz:
-    resolution: {tarball: https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz}
-    version: 2.0.3
+  pg-sdk-node@2.0.2:
+    resolution: {integrity: sha512-kAMI1zzfO0ojUWytPInTOc+MWHeuHI56tfMLzPDE3R0puYbvzPgwrCFG72AAU76L7jYAttU1XNukuduEo/J6SA==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -4350,7 +4349,7 @@ snapshots:
 
   pend@1.2.0: {}
 
-  pg-sdk-node@https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-node/releases/v2/phonepe-pg-sdk-node-2.0.3.tgz:
+  pg-sdk-node@2.0.2:
     dependencies:
       async-mutex: 0.5.0
       axios: 1.13.2
