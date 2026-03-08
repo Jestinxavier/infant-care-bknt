@@ -27,7 +27,7 @@ const validateCart = async (req, res, next) => {
       const userCart = await Cart.findOne({
         userId: req.user.id,
         status: { $in: ["active", "checkout"] },
-      });
+      }).sort({ updatedAt: -1 });
 
       if (userCart) {
         // Restore cart by setting cookie

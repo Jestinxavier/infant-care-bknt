@@ -45,7 +45,7 @@ const cartItemSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { _id: true, timestamps: false }
+  { _id: true, timestamps: false },
 );
 
 // Cart Schema
@@ -136,8 +136,31 @@ const cartSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
+
+// Pre-validate middleware to handle deleted products
+// When a product is deleted from the DB, calling populate('items.productId') sets it to null.
+// This hook cleans up items with missing product references before validation schemas are checked,
+// preventing 'Path `productId` is required' 500 errors.
+cartSchema.pre("validate", function (next) {
+  if (this.items && this.items.length > 0) {
+    let changed = false;
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      // If productId is null (meaning the product was deleted and then populated)
+      if (this.items[i].productId == null) {
+        this.items.pull(this.items[i]._id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      console.warn(
+        `[Cart Pre-Validate] Cleaned up ${this.cartId}: removed items with deleted products`,
+      );
+    }
+  }
+  next();
+});
 
 // Pre-save middleware
 // NOTE: Totals are no longer computed from stored price snapshots.
@@ -196,7 +219,7 @@ cartSchema.methods.addItem = function (itemData) {
     (item) =>
       item.productId.toString() === productId.toString() &&
       item.variantId === variantId &&
-      item.selectedGiftSku === (selectedGiftSku || null)
+      item.selectedGiftSku === (selectedGiftSku || null),
   );
 
   if (existingItemIndex !== -1) {

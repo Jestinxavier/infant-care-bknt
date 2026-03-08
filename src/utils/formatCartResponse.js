@@ -41,14 +41,14 @@ const formatCartResponse = (
   cart,
   bundleStocks = null,
   itemPrices = null,
-  giftProductsMap = null
+  giftProductsMap = null,
 ) => {
   if (!cart) return null;
 
   // Enforce bundleStocks for carts with bundles (prevents regressions)
   if (!bundleStocks && cartHasBundles(cart)) {
     console.error(
-      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products"
+      "⚠️ formatCartResponse: bundleStocks required for cart with BUNDLE products",
     );
   }
 
@@ -126,7 +126,7 @@ const formatCartResponse = (
       attributesSnapshot: normalizeAttributesSnapshot(
         item.attributesSnapshot
           ? Object.fromEntries(item.attributesSnapshot)
-          : null
+          : null,
       ),
       selectedGiftSku: item.selectedGiftSku || null,
       selectedGift: null, // Default
@@ -143,7 +143,7 @@ const formatCartResponse = (
       const bundleConfig = product?.bundle_config;
       if (bundleConfig?.gift_slot?.options) {
         const option = bundleConfig.gift_slot.options.find(
-          (o) => o.sku === item.selectedGiftSku
+          (o) => o.sku === item.selectedGiftSku,
         );
         if (option) label = option.label;
       }
@@ -177,7 +177,7 @@ const formatCartResponse = (
                   // Handle actual object case (as before)
                   try {
                     const sortedKeys = Object.keys(img).sort(
-                      (a, b) => parseInt(a) - parseInt(b)
+                      (a, b) => parseInt(a) - parseInt(b),
                     );
                     return sortedKeys.map((k) => img[k]).join("");
                   } catch (e) {
@@ -210,7 +210,7 @@ const formatCartResponse = (
               })
               .filter(
                 (url) =>
-                  url && typeof url === "string" && url.startsWith("http")
+                  url && typeof url === "string" && url.startsWith("http"),
               )
           : [],
       };
@@ -231,6 +231,7 @@ const formatCartResponse = (
     total: cart.total || 0,
     itemCount: cart.items.reduce((sum, item) => sum + item.quantity, 0),
     updatedAt: cart.updatedAt,
+    coupon: cart.coupon || undefined,
     priceSummary: generatePriceSummary(cart, formattedItems),
   };
 };
