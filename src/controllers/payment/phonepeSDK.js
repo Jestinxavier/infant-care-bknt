@@ -13,6 +13,7 @@ const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
 const { randomUUID } = require("crypto");
+const emailService = require("../../services/emailService");
 
 const client = StandardCheckoutClient.getInstance(
   phonePeConfig.credentials.clientId,
@@ -624,7 +625,7 @@ const initiateRefund = async (req, res) => {
       if (sdkErr instanceof PhonePeException) {
         console.error("❌ [initiateRefund] PhonePe SDK refund call failed", {
           orderId,
-          merchantRefundId,
+          refundId,
           amountToRefund,
           code: sdkErr.code,
           httpStatusCode: sdkErr.httpStatusCode,
@@ -699,7 +700,7 @@ const initiateRefund = async (req, res) => {
     if (!updatedOrder) {
       console.error(
         "❌ [initiateRefund] DB update returned null — order may have been deleted",
-        { orderId, merchantRefundId },
+        { orderId, refundId },
       );
     } else {
       console.log("💾 [initiateRefund] Order DB updated after refund", {
@@ -729,7 +730,33 @@ const initiateRefund = async (req, res) => {
           );
         }
       }
-    }
+
+      // ── Send refund confirmation email to customer (fire-and-forget) ─────────
+      try {
+        const User = require("../../models/user");
+        const user = await User.findById(updatedOrder.userId).select(
+          "username email",
+        );
+        if (user?.email) {
+          emailService
+            .sendRefundInitiatedEmail(user, updatedOrder, amountToRefund)
+            .catch((emailErr) =>
+              console.error(
+                "❌ [initiateRefund] Failed to send refund email:",
+                emailErr.message,
+              ),
+            );
+          console.log(
+            `📧 [initiateRefund] Refund email dispatched to ${user.email}`,
+          );
+        }
+      } catch (emailLookupErr) {
+        console.error(
+          "❌ [initiateRefund] Failed to look up user for refund email:",
+          emailLookupErr.message,
+        );
+      }
+    } // end else (updatedOrder)
 
     return res.status(200).json({
       success: true,

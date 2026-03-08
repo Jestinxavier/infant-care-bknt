@@ -17,7 +17,7 @@ const loadTemplate = (templateName, data = {}) => {
   const templatePath = path.join(
     __dirname,
     "../mail_templates",
-    `${templateName}.html`
+    `${templateName}.html`,
   );
 
   if (!fs.existsSync(templatePath)) {
@@ -48,7 +48,7 @@ const loadTemplate = (templateName, data = {}) => {
             Object.keys(item).forEach((itemKey) => {
               block = block.replace(
                 new RegExp(`{{${itemKey}}}`, "g"),
-                item[itemKey] ?? ""
+                item[itemKey] ?? "",
               );
             });
 
@@ -61,7 +61,7 @@ const loadTemplate = (templateName, data = {}) => {
       if (value) return content;
 
       return "";
-    }
+    },
   );
 
   /**
@@ -239,7 +239,7 @@ const sendShipmentEmail = async (user, order) => {
     order.trackingId && order.deliveryPartner?.trackingUrlTemplate
       ? order.deliveryPartner.trackingUrlTemplate.replace(
           "{trackingId}",
-          order.trackingId
+          order.trackingId,
         )
       : null;
 
@@ -372,6 +372,36 @@ const sendInvoiceEmail = async (user, order) => {
    ✅ EXPORTS
 ===================================================== */
 
+/**
+ * ✅ Send Refund Initiated Email
+ */
+const sendRefundInitiatedEmail = async (user, order, refundAmountPaise) => {
+  if (!user?.email) return;
+
+  const refundAmountRupees = (refundAmountPaise / 100).toFixed(2);
+
+  return sendTemplateEmail({
+    to: user.email,
+    subject: `✅ Refund of ₹${refundAmountRupees} Initiated — Order #${(order.orderId || "").toUpperCase()}`,
+    template: "refund-initiated",
+    data: {
+      username: user.username || "Customer",
+      orderId: (order.orderId || "").toUpperCase(),
+      refundAmount: refundAmountRupees,
+      refundReason: order.refundReason || "",
+      supportEmail:
+        process.env.SUPPORT_EMAIL ||
+        process.env.EMAIL_USER ||
+        "support@infantscare.com",
+      year: new Date().getFullYear(),
+    },
+  });
+};
+
+/* =====================================================
+   ✅ EXPORTS
+===================================================== */
+
 module.exports = {
   generateOTP,
   sendOTPEmail,
@@ -381,4 +411,5 @@ module.exports = {
   sendShipmentEmail,
   sendOrderCancelledEmail,
   sendInvoiceEmail,
+  sendRefundInitiatedEmail,
 };
