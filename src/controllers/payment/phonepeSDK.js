@@ -576,26 +576,31 @@ const initiateRefund = async (req, res) => {
     }
 
     // ── 4. Amount validation ─────────────────────────────────────────────────
+    // order.totalAmount is stored in RUPEES → convert to paise for PhonePe
     const orderAmountPaise = Math.round(order.totalAmount * 100);
+
+    // refundAmount from dashboard is in RUPEES → convert to paise
     const amountToRefund = refundAmount
-      ? Math.round(Number(refundAmount))
+      ? Math.round(Number(refundAmount) * 100)
       : orderAmountPaise;
 
     console.log("📋 [initiateRefund] Refund amount resolved", {
       orderId,
+      orderTotalRupees: order.totalAmount,
       orderAmountPaise,
-      requestedRefundAmount: refundAmount ?? "(not provided — full refund)",
-      amountToRefund,
+      requestedRefundAmountRupees:
+        refundAmount ?? "(not provided — full refund)",
+      amountToRefundPaise: amountToRefund,
     });
 
     if (amountToRefund < 1 || amountToRefund > orderAmountPaise) {
       console.warn(
-        `⚠️ [initiateRefund] Refund rejected – amount out of range: ${amountToRefund} paise`,
+        `⚠️ [initiateRefund] Refund rejected – amount out of range: ${amountToRefund} paise (max: ${orderAmountPaise} paise)`,
         { orderId, orderAmountPaise },
       );
       return res.status(400).json({
         success: false,
-        message: `Invalid refund amount. Must be between 1 and ${orderAmountPaise} paise`,
+        message: `Invalid refund amount ₹${refundAmount}. Must be between ₹1 and ₹${order.totalAmount}`,
       });
     }
 
