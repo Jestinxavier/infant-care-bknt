@@ -12,6 +12,7 @@ const Cart = require("../../models/Cart");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
+const { randomUUID } = require("crypto");
 
 const client = StandardCheckoutClient.getInstance(
   phonePeConfig.credentials.clientId,
@@ -598,20 +599,22 @@ const initiateRefund = async (req, res) => {
     }
 
     // ── 5. Build SDK request ─────────────────────────────────────────────────
-    const merchantRefundId = `REF-${orderId}-${Date.now()}`;
+    const refundId = randomUUID();
 
     const request = RefundRequest.builder()
       .amount(amountToRefund)
-      .merchantRefundId(merchantRefundId)
+      .merchantRefundId(refundId)
       .originalMerchantOrderId(orderId)
       .build();
 
     console.log("📤 [initiateRefund] Sending refund request to PhonePe SDK", {
       orderId,
-      merchantRefundId,
+      merchantRefundId: refundId,
       amountToRefund,
       originalMerchantOrderId: orderId,
     });
+
+    console.log("------request", request);
 
     // ── 6. Call PhonePe SDK ──────────────────────────────────────────────────
     let response;
@@ -639,8 +642,7 @@ const initiateRefund = async (req, res) => {
 
     console.log("✅ [initiateRefund] PhonePe SDK refund response received", {
       orderId,
-      merchantRefundId,
-      refundId: response.refundId,
+      merchantRefundId: refundId,
       state: response.state,
       amount: response.amount,
     });
@@ -666,19 +668,26 @@ const initiateRefund = async (req, res) => {
     const updateQuery = {
       $set: {
         paymentStatus: "refunded",
-        refundStatus: "initiated",
-        refundId: response.refundId,
+        refundStatus: response.state ?? "PENDING", // Use PhonePe's returned state
+        refundId: refundId, // merchantRefundId — used to poll status via getRefundStatus
         refundedAt: new Date(),
         refundReason: reason || null,
         refundAmountPaise: amountToRefund,
         orderStatus: newOrderStatus,
       },
+      $push: {
+        // Always record the attempt for retry tracking
+        refundAttempts: {
+          merchantRefundId: refundId,
+          state: response.state ?? "PENDING",
+          amountPaise: amountToRefund,
+          initiatedAt: new Date(),
+        },
+      },
     };
 
     if (pushToHistory) {
-      updateQuery.$push = {
-        statusHistory: pushToHistory,
-      };
+      updateQuery.$push.statusHistory = pushToHistory;
     }
 
     const updatedOrder = await Order.findOneAndUpdate(
@@ -726,10 +735,10 @@ const initiateRefund = async (req, res) => {
       success: true,
       message: "Refund initiated successfully",
       refund: {
-        refundId: response.refundId,
+        refundId: refundId,
         state: response.state,
         amount: response.amount,
-        merchantRefundId,
+        merchantRefundId: refundId,
         orderId,
       },
     });
@@ -800,6 +809,61 @@ const getRefundStatus = async (req, res) => {
       amount: response.amount,
       paymentDetailsCount: response.paymentDetails?.length ?? 0,
     });
+
+    // ── 3. Sync DB on every poll ─────────────────────────────────────────────
+    // Docs: keep polling until COMPLETED or FAILED; sync DB with the latest state
+    const state = response.state;
+
+    if (state === "COMPLETED" || state === "FAILED") {
+      const order = await Order.findOne({ refundId });
+      if (order) {
+        const dbUpdate = {
+          $set: { refundStatus: state },
+        };
+
+        if (state === "FAILED") {
+          // Allow re-initiation: reset paymentStatus back to paid so a fresh refund can be triggered
+          dbUpdate.$set.paymentStatus = "paid";
+          console.warn(
+            `⚠️ [getRefundStatus] Refund FAILED for orderId=${order.orderId}. Resetting paymentStatus to 'paid' for retry.`,
+            { refundId },
+          );
+        }
+
+        if (state === "COMPLETED") {
+          dbUpdate.$set.refundedAt = new Date();
+        }
+
+        // Update the resolvedAt on the matching refundAttempts entry
+        await Order.updateOne(
+          { refundId, "refundAttempts.merchantRefundId": refundId },
+          {
+            ...dbUpdate,
+            $set: {
+              ...dbUpdate.$set,
+              "refundAttempts.$.state": state,
+              "refundAttempts.$.resolvedAt": new Date(),
+            },
+          },
+        );
+
+        console.log(
+          `💾 [getRefundStatus] DB updated with terminal refund state`,
+          {
+            orderId: order.orderId,
+            refundId,
+            state,
+          },
+        );
+      }
+    } else {
+      // Non-terminal: just update the refundStatus field so the dashboard can show PENDING/CONFIRMED
+      await Order.updateOne({ refundId }, { $set: { refundStatus: state } });
+      console.log(`🔄 [getRefundStatus] Refund still in progress`, {
+        refundId,
+        state,
+      });
+    }
 
     return res.status(200).json({
       success: true,

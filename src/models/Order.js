@@ -154,9 +154,14 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
     // Refund tracking (populated when a refund is initiated via PhonePe)
+    // States mirror PhonePe's actual refund lifecycle:
+    //   PENDING   → Refund submitted, being processed
+    //   CONFIRMED → In progress, not yet final
+    //   COMPLETED → Successfully refunded to customer
+    //   FAILED    → Refund failed, must be retried with a new merchantRefundId
     refundStatus: {
       type: String,
-      enum: ["initiated", "success", "failed"],
+      enum: ["PENDING", "CONFIRMED", "COMPLETED", "FAILED"],
       default: null,
     },
     refundId: {
@@ -175,6 +180,16 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    // Each failed or successful refund attempt is pushed here (supports retries)
+    refundAttempts: [
+      {
+        merchantRefundId: { type: String },
+        state: { type: String },
+        amountPaise: { type: Number },
+        initiatedAt: { type: Date, default: Date.now },
+        resolvedAt: { type: Date, default: null },
+      },
+    ],
     placedAt: {
       type: Date,
       default: Date.now,
