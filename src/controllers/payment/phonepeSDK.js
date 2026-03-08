@@ -576,21 +576,24 @@ const initiateRefund = async (req, res) => {
     }
 
     // ── 4. Amount validation ─────────────────────────────────────────────────
-    // order.totalAmount is stored in RUPEES → convert to paise for PhonePe
-    const orderAmountPaise = Math.round(order.totalAmount * 100);
+    // CONTRACT: The dashboard sends refundAmount already in PAISE
+    //   (refund-dialog.tsx: amountPaise = Math.round(parsedAmount * 100))
+    // So we must NOT multiply by 100 here — use the value as-is.
+    const orderAmountPaise = Math.round(order.totalAmount * 100); // totalAmount stored in rupees
 
-    // refundAmount from dashboard is in RUPEES → convert to paise
+    // Use incoming paise directly; if not provided, default to full order amount
     const amountToRefund = refundAmount
-      ? Math.round(Number(refundAmount) * 100)
+      ? Math.round(Number(refundAmount)) // already in paise from dashboard
       : orderAmountPaise;
 
     console.log("📋 [initiateRefund] Refund amount resolved", {
       orderId,
       orderTotalRupees: order.totalAmount,
       orderAmountPaise,
-      requestedRefundAmountRupees:
+      requestedRefundAmountPaise:
         refundAmount ?? "(not provided — full refund)",
       amountToRefundPaise: amountToRefund,
+      amountToRefundRupees: (amountToRefund / 100).toFixed(2),
     });
 
     if (amountToRefund < 1 || amountToRefund > orderAmountPaise) {
@@ -600,12 +603,12 @@ const initiateRefund = async (req, res) => {
       );
       return res.status(400).json({
         success: false,
-        message: `Invalid refund amount ₹${refundAmount}. Must be between ₹1 and ₹${order.totalAmount}`,
+        message: `Invalid refund amount ₹${(amountToRefund / 100).toFixed(2)}. Must be between ₹0.01 and ₹${order.totalAmount}`,
       });
     }
 
     // ── 5. Build SDK request ─────────────────────────────────────────────────
-    const refundId = randomUUID();
+    const refundId = randomUUID(); // merchantRefundId for PhonePe
 
     const request = RefundRequest.builder()
       .amount(amountToRefund)
@@ -616,7 +619,8 @@ const initiateRefund = async (req, res) => {
     console.log("📤 [initiateRefund] Sending refund request to PhonePe SDK", {
       orderId,
       merchantRefundId: refundId,
-      amountToRefund,
+      amountToRefundPaise: amountToRefund,
+      amountToRefundRupees: (amountToRefund / 100).toFixed(2),
       originalMerchantOrderId: orderId,
     });
 
