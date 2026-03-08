@@ -5,7 +5,7 @@ const phonePeConfig = {
   credentials: {
     clientId: process.env.PHONEPE_CLIENT_ID,
     clientSecret: process.env.PHONEPE_CLIENT_SECRET,
-    clientVersion: 1,
+    clientVersion: "1",
     username: process.env.PHONEPE_MERCHANT_USERNAME,
     password: process.env.PHONEPE_MERCHANT_PASSWORD,
     redirectSecret: process.env.PHONEPE_REDIRECT_SECRET,
