@@ -403,11 +403,25 @@ class ProductService {
 
     if (category) {
       if (Array.isArray(category)) {
-        matchStage.category = {
-          $in: category.map((id) => new mongoose.Types.ObjectId(id)),
-        };
+        const categoryObjectIds = category.map(
+          (id) => new mongoose.Types.ObjectId(id)
+        );
+        // Match products where the resolved category IDs appear in either
+        // the primary `category` field OR in the `subCategories` array.
+        // This ensures products assigned as parent=Rompers + subCategory=HalfRomper
+        // are returned when browsing /category/rompers/half-romper.
+        if (!matchStage.$or) matchStage.$or = [];
+        matchStage.$or.push(
+          { category: { $in: categoryObjectIds } },
+          { subCategories: { $in: categoryObjectIds } }
+        );
       } else if (mongoose.Types.ObjectId.isValid(category)) {
-        matchStage.category = new mongoose.Types.ObjectId(category);
+        const categoryObjectId = new mongoose.Types.ObjectId(category);
+        if (!matchStage.$or) matchStage.$or = [];
+        matchStage.$or.push(
+          { category: categoryObjectId },
+          { subCategories: categoryObjectId }
+        );
       }
     }
 

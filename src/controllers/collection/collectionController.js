@@ -5,6 +5,19 @@ const { generateSlug } = require("../../utils/slugGenerator");
 const normalizeSlug = (value) => generateSlug(String(value || ""));
 const HEX_BADGE_COLOR_REGEX = /^#[0-9A-F]{6}$/;
 
+const buildCollectionPath = (slug) =>
+  slug ? `/collection/${slug}` : "/collection";
+
+const serializeCollection = (item) => ({
+  _id: item._id.toString(),
+  name: item.name,
+  slug: item.slug,
+  path: buildCollectionPath(item.slug),
+  badgeLabel: item.badgeLabel || null,
+  badgeColor: item.badgeColor || null,
+  badgeLabelColor: item.badgeLabelColor || null,
+});
+
 const normalizeHexColor = (value, fieldLabel) => {
   if (value === undefined) return { hasValue: false, value: undefined };
   if (value === null) return { hasValue: true, value: null };
@@ -37,14 +50,7 @@ const listCollections = async (req, res) => {
     const items = await Collection.find(filter).sort({ name: 1 }).lean();
     return res.status(200).json({
       success: true,
-      items: items.map((item) => ({
-        _id: item._id.toString(),
-        name: item.name,
-        slug: item.slug,
-        badgeLabel: item.badgeLabel || null,
-        badgeColor: item.badgeColor || null,
-        badgeLabelColor: item.badgeLabelColor || null,
-      })),
+      items: items.map(serializeCollection),
     });
   } catch (error) {
     return res.status(500).json({
@@ -112,14 +118,7 @@ const createCollection = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      item: {
-        _id: created._id.toString(),
-        name: created.name,
-        slug: created.slug,
-        badgeLabel: created.badgeLabel || null,
-        badgeColor: created.badgeColor || null,
-        badgeLabelColor: created.badgeLabelColor || null,
-      },
+      item: serializeCollection(created),
     });
   } catch (error) {
     return res.status(500).json({
@@ -222,14 +221,7 @@ const updateCollection = async (req, res) => {
     await existing.save();
     return res.status(200).json({
       success: true,
-      item: {
-        _id: existing._id.toString(),
-        name: existing.name,
-        slug: existing.slug,
-        badgeLabel: existing.badgeLabel || null,
-        badgeColor: existing.badgeColor || null,
-        badgeLabelColor: existing.badgeLabelColor || null,
-      },
+      item: serializeCollection(existing),
     });
   } catch (error) {
     return res.status(500).json({

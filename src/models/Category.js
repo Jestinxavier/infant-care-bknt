@@ -57,11 +57,30 @@ const categorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Generate slug from code before saving (code and slug should match)
-categorySchema.pre("save", function (next) {
-  // Generate slug from code (code is already validated as lowercase-hyphenated)
-  if ((this.isModified("code") || this.isNew) && this.code && !this.slug) {
-    this.slug = `/category/${this.code}`;
+// Generate slug from code before saving
+// Child categories get slug: /category/{parentCode}/{childCode}
+// Root categories get slug: /category/{code}
+categorySchema.pre("save", async function (next) {
+  const needsSlug =
+    this.isNew ||
+    this.isModified("code") ||
+    this.isModified("parentCategory") ||
+    !this.slug;
+
+  if (needsSlug && this.code) {
+    if (this.parentCategory) {
+      // Fetch parent to build nested slug
+      const parent = await this.constructor.findById(this.parentCategory);
+      if (parent && parent.slug) {
+        // Extract parent path after /category/ (e.g. "mittens-bootties")
+        const parentPath = parent.slug.replace("/category/", "");
+        this.slug = `/category/${parentPath}/${this.code}`;
+      } else {
+        this.slug = `/category/${this.code}`;
+      }
+    } else {
+      this.slug = `/category/${this.code}`;
+    }
   }
   next();
 });

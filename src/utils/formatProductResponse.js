@@ -163,6 +163,16 @@ const formatProductResponse = (product) => {
         }
       : {}),
     category: categoryValue,
+    subCategories: (productObj.subCategories || []).map((subCat) => {
+      if (typeof subCat === 'object' && subCat._id) {
+        return {
+          _id: subCat._id.toString(),
+          name: subCat.name,
+          slug: subCat.slug,
+        };
+      }
+      return subCat;
+    }),
     images: ensureImageUrls(productObj.images || []),
     rating: {
       value: productObj.averageRating || 0,
