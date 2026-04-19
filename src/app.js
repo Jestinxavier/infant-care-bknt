@@ -209,8 +209,11 @@ app.use((req, res) => {
 // Global error handler — keep stack traces out of production responses
 app.use((err, req, res, _next) => {
   const status = err.status || err.statusCode || 500;
+  console.log("-----------GLOBAL ERROR-------------", err, err.message);
   const message =
-    process.env.NODE_ENV === "production" ? "Internal Server Error" : err.message;
+    process.env.NODE_ENV === "production"
+      ? "Internal Server Error"
+      : err.message;
   res.status(status).json({ success: false, message });
 });
 
