@@ -1095,8 +1095,11 @@ const removeItem = async (req, res) => {
  */
 const clearCart = async (req, res) => {
   try {
-    const cart = req.cart;
-    if (cart && cart.status !== "active") {
+    let cart = req.cart;
+    if (cart && cart.status === "checkout") {
+      cart = await performRecoverCart(req, res, cart);
+      req.cart = cart;
+    } else if (cart && cart.status !== "active") {
       return res.status(409).json({
         success: false,
         message: "Cart modification not allowed during checkout",
@@ -1695,8 +1698,11 @@ const mergeCart = async (req, res) => {
  */
 const applyCoupon = async (req, res) => {
   try {
-    const cart = req.cart;
-    if (cart && cart.status !== "active") {
+    let cart = req.cart;
+    if (cart && cart.status === "checkout") {
+      cart = await performRecoverCart(req, res, cart);
+      req.cart = cart;
+    } else if (cart && cart.status !== "active") {
       return res.status(409).json({
         success: false,
         message: "Cart modification not allowed during checkout",
@@ -1988,8 +1994,11 @@ const applyCoupon = async (req, res) => {
  */
 const removeCoupon = async (req, res) => {
   try {
-    const cart = req.cart;
-    if (cart && cart.status !== "active") {
+    let cart = req.cart;
+    if (cart && cart.status === "checkout") {
+      cart = await performRecoverCart(req, res, cart);
+      req.cart = cart;
+    } else if (cart && cart.status !== "active") {
       return res.status(409).json({
         success: false,
         message: "Cart modification not allowed during checkout",
@@ -2133,6 +2142,9 @@ const getAvailableCoupons = async (req, res) => {
 
       return {
         code: coupon.code,
+        type: coupon.type,
+        value: coupon.value,
+        maxDiscount: coupon.maxDiscount || null,
         description,
         minCartValue: coupon.minCartValue,
         expiresAt: coupon.endDate,

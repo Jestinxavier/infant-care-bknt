@@ -34,18 +34,41 @@ const getRecommendations = async (req, res) => {
           title: 1,
           url_key: 1,
           image: { $arrayElemAt: ["$images", 0] },
-          price: { $ifNull: ["$firstVariant.price", 0] },
+          price: {
+            $ifNull: ["$firstVariant.price", { $ifNull: ["$price", 0] }],
+          },
+          offerPrice: {
+            $ifNull: [
+              "$firstVariant.offerPrice",
+              { $ifNull: ["$offerPrice", null] },
+            ],
+          },
           discountPrice: {
-            $cond: [
-              {
-                $and: [
-                  { $gt: [{ $ifNull: ["$firstVariant.offerPrice", 0] }, 0] },
-                  { $lt: ["$firstVariant.offerPrice", "$firstVariant.price"] },
+            $let: {
+              vars: {
+                vPrice: {
+                  $ifNull: ["$firstVariant.price", { $ifNull: ["$price", 0] }],
+                },
+                vOffer: {
+                  $ifNull: [
+                    "$firstVariant.offerPrice",
+                    { $ifNull: ["$offerPrice", 0] },
+                  ],
+                },
+              },
+              in: {
+                $cond: [
+                  {
+                    $and: [
+                      { $gt: ["$$vOffer", 0] },
+                      { $lt: ["$$vOffer", "$$vPrice"] },
+                    ],
+                  },
+                  "$$vOffer",
+                  null,
                 ],
               },
-              "$firstVariant.offerPrice",
-              null,
-            ],
+            },
           },
         },
       },
