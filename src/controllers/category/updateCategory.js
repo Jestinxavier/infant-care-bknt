@@ -1,5 +1,6 @@
 const Category = require("../../models/Category");
 const { cloudinary } = require("../../config/cloudinary");
+const { cacheDel } = require("../../utils/redisCache");
 
 const updateCategory = async (req, res) => {
   try {
@@ -168,6 +169,8 @@ const updateCategory = async (req, res) => {
         console.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
       }
     }
+
+    await cacheDel("categories");
 
     res.status(200).json({
       success: true,

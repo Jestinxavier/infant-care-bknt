@@ -1,6 +1,7 @@
 const productService = require("./product.service");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+const { cacheGet, cacheSet } = require("../../utils/redisCache");
 
 /**
  * Product Controller (Storefront)
@@ -58,16 +59,24 @@ class ProductController {
    */
   getProductByUrlKey = asyncHandler(async (req, res) => {
     const { urlKey } = req.params;
+
+    const cacheKey = `product:${urlKey}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
     const product = await productService.getProductByUrlKey(urlKey, {
       isAdmin: false,
     });
     const normalized = this.normalizeCollections(product);
 
-    res
-      .status(200)
-      .json(
-        ApiResponse.success("Product fetched successfully", normalized).toJSON(),
-      );
+    const response = ApiResponse.success(
+      "Product fetched successfully",
+      normalized,
+    ).toJSON();
+
+    await cacheSet(cacheKey, response);
+
+    res.status(200).json(response);
   });
 
   /**

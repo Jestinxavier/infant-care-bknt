@@ -1,4 +1,7 @@
 const Footer = require("../../models/Footer");
+const { cacheGet, cacheSet } = require("../../utils/redisCache");
+
+const CACHE_KEY = "footer";
 
 /**
  * Get footer data from MongoDB
@@ -8,6 +11,9 @@ const Footer = require("../../models/Footer");
  */
 const getFooter = async (req, res) => {
   try {
+    const cached = await cacheGet(CACHE_KEY);
+    if (cached) return res.status(200).json(cached);
+
     // Fetch footer document from MongoDB
     const footerDoc = await Footer.findOne({});
 
@@ -33,11 +39,15 @@ const getFooter = async (req, res) => {
       content = rest;
     }
 
-    res.status(200).json({
+    const response = {
       success: true,
       message: "Footer data fetched successfully",
       data: content,
-    });
+    };
+
+    await cacheSet(CACHE_KEY, response);
+
+    res.status(200).json(response);
   } catch (err) {
     console.error("❌ Error fetching footer data:", err);
     res.status(500).json({

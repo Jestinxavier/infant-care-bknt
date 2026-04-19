@@ -1,5 +1,6 @@
 const Category = require("../../models/Category");
 const Product = require("../../models/Product");
+const { cacheDel } = require("../../utils/redisCache");
 
 /**
  * Bulk delete categories
@@ -83,6 +84,8 @@ const bulkDeleteCategories = async (req, res) => {
     // Determine overall success status
     const overallSuccess = results.failureCount === 0;
     const partialSuccess = results.successCount > 0 && results.failureCount > 0;
+
+    if (results.successCount > 0) await cacheDel("categories");
 
     res.status(200).json({
       success: overallSuccess,

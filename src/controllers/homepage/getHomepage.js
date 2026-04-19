@@ -1,4 +1,7 @@
 const Homepage = require("../../models/Homepage");
+const { cacheGet, cacheSet } = require("../../utils/redisCache");
+
+const CACHE_KEY = "homepage";
 
 /**
  * Get homepage data from MongoDB
@@ -8,6 +11,11 @@ const Homepage = require("../../models/Homepage");
  */
 const getHomepage = async (req, res) => {
   try {
+    const cached = await cacheGet(CACHE_KEY);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
     // Fetch only enabled widgets from homepage collection, sorted by order
     // This ensures disabled widgets are not shown on the frontend
     const homepageData = await Homepage.find({ enabled: true }).sort({
@@ -22,12 +30,16 @@ const getHomepage = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    const response = {
       success: true,
       message: "Homepage data fetched successfully",
       data: homepageData,
       count: homepageData.length,
-    });
+    };
+
+    await cacheSet(CACHE_KEY, response);
+
+    res.status(200).json(response);
   } catch (err) {
     console.error("❌ Error fetching homepage data:", err);
     res.status(500).json({

@@ -2,6 +2,40 @@ const express = require("express");
 const router = express.Router();
 const verifyToken = require("../../src/middlewares/authMiddleware");
 const requireAdmin = require("../../src/middlewares/adminMiddleware");
+const { cacheDel, cacheDelPattern } = require("../../src/utils/redisCache");
+
+/**
+ * Maps a dashboard revalidation request to the Redis keys that should be evicted.
+ * Keeps Next.js cache tags and Redis keys in sync from a single call.
+ */
+async function flushRedisForRevalidation({ tag, type, resource }) {
+  if (!tag && !type) {
+    // Nuclear option — clear everything we cache
+    await cacheDelPattern("cms:*");
+    await cacheDel("homepage", "footer", "categories");
+    return;
+  }
+
+  if (tag === "group:products") return cacheDelPattern("product:*");
+  if (tag === "group:categories") return cacheDel("categories");
+  if (tag === "group:cms") {
+    await cacheDelPattern("cms:*");
+    await cacheDel("homepage");
+    return;
+  }
+  if (tag === "group:policies") return cacheDelPattern("cms:policy*");
+  if (tag === "layout:header") return; // not cached in Redis yet
+  if (tag === "layout:footer") return cacheDel("footer");
+
+  if (type === "product") return cacheDel(`product:${resource}`);
+  if (type === "cms") {
+    await cacheDelPattern(`cms:${resource}*`);
+    // homepage widgets live under a separate key
+    if (resource === "home") await cacheDel("homepage");
+    return;
+  }
+  if (type === "policy") return cacheDel(`cms:policies:${resource}`);
+}
 
 /**
  * Secure Revalidation Proxy Endpoint
@@ -29,6 +63,9 @@ router.post("/revalidate", verifyToken, requireAdmin, async (req, res) => {
   }
 
   try {
+    // Flush Redis first so the next backend fetch goes to MongoDB
+    await flushRedisForRevalidation({ tag, type, resource });
+
     let url;
 
     // Build appropriate revalidation URL based on parameters

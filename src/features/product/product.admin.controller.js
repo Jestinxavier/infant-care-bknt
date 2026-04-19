@@ -3,6 +3,7 @@ const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
 const { validateSku } = require("../../utils/skuGenerator");
 const { validateUrlKey } = require("../../utils/slugGenerator");
+const { cacheDel } = require("../../utils/redisCache");
 
 /**
  * Product Admin Controller
@@ -64,6 +65,8 @@ class ProductAdminController {
     const { id } = req.params;
     const product = await productService.updateProduct(id, req.body);
 
+    if (product?.url_key) await cacheDel(`product:${product.url_key}`);
+
     res
       .status(200)
       .json(
@@ -76,7 +79,11 @@ class ProductAdminController {
    */
   deleteProduct = asyncHandler(async (req, res) => {
     const { id } = req.params;
+    // Fetch urlKey before deletion so we can evict the cache
+    const existing = await productService.getProductById(id, { isAdmin: true });
     await productService.deleteProduct(id);
+
+    if (existing?.url_key) await cacheDel(`product:${existing.url_key}`);
 
     res
       .status(200)
@@ -90,6 +97,8 @@ class ProductAdminController {
     const { id } = req.params;
     const { status } = req.body;
     const product = await productService.updateProductStatus(id, status);
+
+    if (product?.url_key) await cacheDel(`product:${product.url_key}`);
 
     res
       .status(200)

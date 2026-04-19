@@ -1,5 +1,6 @@
 const Category = require("../../models/Category");
 const Product = require("../../models/Product");
+const { cacheDel } = require("../../utils/redisCache");
 
 const deleteCategory = async (req, res) => {
   try {
@@ -49,6 +50,7 @@ const deleteCategory = async (req, res) => {
     }
 
     await Category.findByIdAndDelete(categoryId);
+    await cacheDel("categories");
 
     res.status(200).json({
       success: true,

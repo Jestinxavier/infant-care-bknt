@@ -1,9 +1,18 @@
 const Category = require("../../models/Category");
 const { toCloudinaryUrl } = require("../../utils/cloudinaryUrlUtils");
+const { cacheGet, cacheSet } = require("../../utils/redisCache");
 
 const getAllCategories = async (req, res) => {
   try {
     const { includeInactive } = req.query;
+
+    // Only cache the default active-only listing
+    const cacheKey = includeInactive === "true" ? null : "categories";
+
+    if (cacheKey) {
+      const cached = await cacheGet(cacheKey);
+      if (cached) return res.status(200).json(cached);
+    }
 
     const filter = {};
     if (includeInactive !== "true") {
@@ -22,11 +31,15 @@ const getAllCategories = async (req, res) => {
       return doc;
     });
 
-    res.status(200).json({
+    const response = {
       success: true,
       totalCategories: categoriesWithUrls.length,
       categories: categoriesWithUrls,
-    });
+    };
+
+    if (cacheKey) await cacheSet(cacheKey, response);
+
+    res.status(200).json(response);
   } catch (error) {
     console.error("❌ Error fetching categories:", error);
     res.status(500).json({

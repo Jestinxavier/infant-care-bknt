@@ -1,6 +1,7 @@
 const cmsService = require("./cms.service");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+const { cacheGet, cacheSet } = require("../../utils/redisCache");
 
 /**
  * CMS Public Controller
@@ -17,6 +18,10 @@ class CmsController {
 
       console.log(`📥 [CMS Public] GET /cms/${page} - getContentByPage called`);
       console.log("📥 [CMS Public] Request params:", { page, slug });
+
+      const cacheKey = slug ? `cms:${page}:${slug}` : `cms:${page}`;
+      const cached = await cacheGet(cacheKey);
+      if (cached) return res.status(200).json(cached);
 
       const content = await cmsService.getContentByPage(page, slug);
 
@@ -35,14 +40,14 @@ class CmsController {
         hasContent: !!content?.content,
       });
 
-      res
-        .status(200)
-        .json(
-          ApiResponse.success(
-            "CMS content fetched successfully",
-            content
-          ).toJSON()
-        );
+      const response = ApiResponse.success(
+        "CMS content fetched successfully",
+        content
+      ).toJSON();
+
+      await cacheSet(cacheKey, response);
+
+      res.status(200).json(response);
     } catch (error) {
       console.error(
         `❌ [CMS Public] Error fetching content for page "${req.params.page}":`,

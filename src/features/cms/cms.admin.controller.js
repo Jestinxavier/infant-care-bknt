@@ -1,6 +1,7 @@
 const cmsService = require("./cms.service");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+const { cacheDelPattern, cacheDel } = require("../../utils/redisCache");
 
 /**
  * CMS Admin Controller
@@ -142,6 +143,9 @@ class CmsAdminController {
 
     const updated = await cmsService.updateContent(page, content);
 
+    await cacheDelPattern(`cms:${page}*`);
+    if (page === "home") await cacheDel("homepage");
+
     console.log(`📤 [CMS] Update successful for page "${page}":`, {
       page: updated.page,
       title: updated.title,
@@ -196,6 +200,9 @@ class CmsAdminController {
 
     const updated = await cmsService.updateContent(page, contentData);
 
+    await cacheDelPattern(`cms:${page}*`);
+    if (page === "home") await cacheDel("homepage");
+
     console.log(`📤 [CMS] Update successful for page "${page}":`, {
       page: updated.page,
       title: updated.title,
@@ -244,6 +251,9 @@ class CmsAdminController {
       blockData
     );
 
+    await cacheDelPattern(`cms:${page}*`);
+    if (page === "home") await cacheDel("homepage");
+
     console.log(
       `📤 [CMS] Single block update successful for block '${blockType}' in page '${page}'`
     );
@@ -264,6 +274,7 @@ class CmsAdminController {
   deleteContent = asyncHandler(async (req, res) => {
     const { page } = req.params;
     await cmsService.deleteContent(page);
+    await cacheDelPattern(`cms:${page}*`);
 
     res
       .status(200)
