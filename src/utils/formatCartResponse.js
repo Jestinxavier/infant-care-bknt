@@ -91,6 +91,12 @@ const formatCartResponse = (
       null;
     const pricing = itemPrices ? itemPrices.get(itemId) : null;
 
+    // Per-item coupon discount (sum across all applied coupons)
+    const itemCouponDiscount = (cart.coupons || []).reduce((sum, c) => {
+      const ld = (c.lineDiscounts || []).find((l) => l.itemId === itemId);
+      return sum + (ld?.amount ?? 0);
+    }, 0);
+
     const isUnavailable = !!(product && product.status !== "published");
 
     const itemObj = {
@@ -110,6 +116,7 @@ const formatCartResponse = (
       basePrice: pricing?.basePrice ?? 0,
       originalPrice: pricing?.originalPrice ?? pricing?.basePrice ?? 0,
       lineTotal: pricing?.lineTotal ?? 0,
+      couponDiscount: itemCouponDiscount > 0 ? itemCouponDiscount : undefined,
       // Pricing metadata for tier messaging
       pricingMeta: pricing
         ? {
@@ -231,7 +238,7 @@ const formatCartResponse = (
     total: cart.total || 0,
     itemCount: cart.items.reduce((sum, item) => sum + item.quantity, 0),
     updatedAt: cart.updatedAt,
-    coupon: cart.coupon || undefined,
+    coupons: cart.coupons || [],
     priceSummary: generatePriceSummary(cart, formattedItems),
   };
 };
@@ -289,16 +296,18 @@ const generatePriceSummary = (cart, formattedItems) => {
     });
   }
 
-  // 2. Coupon Discount
-  if (cart.coupon && cart.coupon.discountAmount > 0) {
-    lines.push({
-      key: "coupon_discount",
-      label: `Coupon Discount (${cart.coupon.code})`,
-      amount: -cart.coupon.discountAmount,
-      type: "discount",
-      order: 2,
-    });
-  }
+  // 2. Coupon Discounts (one line per applied coupon)
+  (cart.coupons || []).forEach((c) => {
+    if (c.discountAmount > 0) {
+      lines.push({
+        key: `coupon_${c.code}`,
+        label: `Coupon (${c.code})`,
+        amount: -c.discountAmount,
+        type: "discount",
+        order: 2,
+      });
+    }
+  });
 
   // 3. Shipping
   lines.push({
@@ -310,8 +319,8 @@ const generatePriceSummary = (cart, formattedItems) => {
     order: 3,
   });
 
-  // Compute payable from breakdown so coupon is always deducted (defense in depth)
-  const couponDiscount = cart.coupon?.discountAmount || 0;
+  // Compute payable from breakdown so coupons are always deducted (defense in depth)
+  const couponDiscount = (cart.coupons || []).reduce((sum, c) => sum + (c.discountAmount || 0), 0);
   let payableAmount =
     totalOriginalPrice - offerDiscount - totalTierSavings - couponDiscount;
   payableAmount += cart.shippingEstimate || 0;
@@ -324,12 +333,8 @@ const generatePriceSummary = (cart, formattedItems) => {
       label: "Total Payable",
       amount: payableAmount,
     },
-    appliedCoupon: cart.coupon
-      ? {
-          code: cart.coupon.code,
-          discountAmount: cart.coupon.discountAmount,
-          description: cart.coupon.description,
-        }
+    appliedCoupon: cart.coupons?.length
+      ? { code: cart.coupons[0].code, discountAmount: cart.coupons[0].discountAmount }
       : null,
   };
 };

@@ -30,4 +30,8 @@ const paymentSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+paymentSchema.index({ orderId: 1 });
+paymentSchema.index({ userId: 1 });
+paymentSchema.index({ phonepeTransactionId: 1 }, { sparse: true });
+
 module.exports = mongoose.model("Payment", paymentSchema);

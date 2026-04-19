@@ -555,6 +555,10 @@ const getVariantById = async (req, res) => {
   }
 };
 
+let _searchIndexCache = null;
+let _searchIndexCacheAt = 0;
+const SEARCH_INDEX_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 const SEARCH_INDEX_TERM_SYNONYMS = {
   dress: ["frock", "gown", "one-piece", "onepiece"],
   frock: ["dress", "gown"],
@@ -633,6 +637,10 @@ const collectSearchKeywords = (product = {}) => {
 const getSearchIndex = async (req, res) => {
   console.log("🔍 Search Index API called");
   try {
+    if (_searchIndexCache && Date.now() - _searchIndexCacheAt < SEARCH_INDEX_TTL_MS) {
+      return res.status(200).json(_searchIndexCache);
+    }
+
     // Fetch all published products with minimal fields
     const products = await Product.find({ status: { $ne: "rejected" } })
       .select(
@@ -658,8 +666,9 @@ const getSearchIndex = async (req, res) => {
         minPrice = product.price;
       }
 
-      // Image
-      const image = (product.images && product.images[0]) || "";
+      // Image — guard against non-string values in the images array
+      const rawImage = product.images?.[0];
+      const image = typeof rawImage === "string" ? rawImage : "";
 
       return {
         id: product._id,
@@ -677,10 +686,10 @@ const getSearchIndex = async (req, res) => {
       };
     });
 
-    res.status(200).json({
-      success: true,
-      products: searchIndex,
-    });
+    const payload = { success: true, products: searchIndex };
+    _searchIndexCache = payload;
+    _searchIndexCacheAt = Date.now();
+    res.status(200).json(payload);
   } catch (error) {
     console.error("❌ Error fetching search index:", error);
     res.status(500).json({

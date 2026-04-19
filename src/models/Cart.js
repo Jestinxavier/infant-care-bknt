@@ -99,12 +99,22 @@ const cartSchema = new mongoose.Schema(
       },
       index: { expireAfterSeconds: 0 }, // TTL index for auto-deletion
     },
-    // Coupon Applied
-    coupon: {
-      code: { type: String },
-      couponId: { type: mongoose.Schema.Types.ObjectId, ref: "Coupon" },
-      discountAmount: { type: Number, default: 0 },
-    },
+    // Coupons Applied (supports stacking up to 2)
+    coupons: [
+      {
+        code: { type: String },
+        couponId: { type: mongoose.Schema.Types.ObjectId, ref: "Coupon" },
+        discountAmount: { type: Number, default: 0 },
+        minCartValue: { type: Number, default: 0 },
+        // Per-line-item discount breakdown (Shopify-style)
+        lineDiscounts: [
+          {
+            itemId: { type: String },
+            amount: { type: Number, default: 0 },
+          },
+        ],
+      },
+    ],
     // Checkout State Machine
     status: {
       type: String,
@@ -170,11 +180,15 @@ cartSchema.pre("save", function (next) {
   // Totals are managed by controller via calculateTotals()
   // which fetches products and computes pricing dynamically
 
-  // Apply Coupon Discount clamping (if any) — coupon cannot exceed discountedSubtotal
-  if (this.coupon && this.coupon.discountAmount > 0) {
-    const maxCoupon = this.discountedSubtotal ?? this.subtotal;
-    if (this.coupon.discountAmount > maxCoupon) {
-      this.coupon.discountAmount = maxCoupon;
+  // Clamp each coupon's discount so total coupon deduction never exceeds discountedSubtotal
+  if (this.coupons?.length > 0) {
+    const maxTotal = this.discountedSubtotal ?? this.subtotal ?? 0;
+    let remaining = maxTotal;
+    for (const c of this.coupons) {
+      if (c.discountAmount > remaining) {
+        c.discountAmount = Math.max(0, remaining);
+      }
+      remaining = Math.max(0, remaining - c.discountAmount);
     }
   }
 

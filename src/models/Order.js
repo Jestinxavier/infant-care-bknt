@@ -102,6 +102,14 @@ const orderSchema = new mongoose.Schema(
       couponId: mongoose.Schema.Types.ObjectId,
       discountAmount: Number,
     },
+    // All applied coupons (stacking support); coupon above kept for backward compat
+    coupons: [
+      {
+        code: String,
+        couponId: mongoose.Schema.Types.ObjectId,
+        discountAmount: Number,
+      },
+    ],
     // addressId removed as per request (full address stored in shippingAddress)
     shippingAddress: {
       name: String,
@@ -228,5 +236,10 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+orderSchema.index({ userId: 1, placedAt: -1 });
+orderSchema.index({ orderStatus: 1, placedAt: -1 });
+orderSchema.index({ paymentStatus: 1 });
+orderSchema.index({ phonepeTransactionId: 1 }, { sparse: true });
 
 module.exports = mongoose.model("Order", orderSchema);

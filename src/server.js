@@ -9,15 +9,20 @@ dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const PORT = process.env.PORT;
 
-// Debugging line
-console.log("Environment:", process.env.NODE_ENV);
-console.log("MONGODB_URI exists:", !!process.env.MONGODB_URI);
+const REQUIRED_ENV_VARS = [
+  "MONGODB_URI",
+  "JWT_SECRET",
+  "JWT_REFRESH_SECRET",
+  "CLOUDINARY_CLOUD_NAME",
+  "CLOUDINARY_API_KEY",
+  "EMAIL_USER",
+  "EMAIL_PASSWORD",
+  "FRONTEND_URL",
+];
 
-if (!process.env.MONGODB_URI) {
-  console.error(
-    "❌ MONGODB_URI is missing. Check your .env file or Vercel environment variables!"
-  );
-  // Don't exit in serverless - just log the error
+const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
+if (missingVars.length) {
+  console.error(`❌ Missing required environment variables: ${missingVars.join(", ")}`);
   if (process.env.NODE_ENV !== "production") {
     process.exit(1);
   }
@@ -82,80 +87,40 @@ const startServer = async () => {
     await connectDB();
     console.log("✅ Database connection established");
 
-    // Start media cleanup cron job (only in non-serverless environments)
-    // Note: Cron jobs don't work well in serverless environments like Vercel
-    // For serverless, use Vercel Cron Jobs or external scheduler
-    if (!process.env.VERCEL) {
-      try {
-        const {
-          startMediaCleanupCron,
-        } = require("./services/mediaCleanupService");
-        startMediaCleanupCron();
-      } catch (cronError) {
-        console.warn(
-          "⚠️ Failed to start media cleanup cron:",
-          cronError.message
-        );
-        console.warn("💡 Install node-cron: npm install node-cron");
-      }
-
-      // Start CSV temp image cleanup cron job
-      try {
-        const {
-          startCsvImageCleanupCron,
-        } = require("./services/csvImageCleanupService");
-        startCsvImageCleanupCron();
-      } catch (cronError) {
-        console.warn(
-          "⚠️ Failed to start CSV image cleanup cron:",
-          cronError.message
-        );
-      }
-
-      // Start expired assets cleanup cron job (temp images after 7 days)
-      try {
-        const {
-          startCleanupCron,
-          runCleanupOnStartup,
-        } = require("./jobs/cleanupExpiredAssets");
-        startCleanupCron();
-        runCleanupOnStartup(); // Run once 30s after startup so temp images are cleaned even before 2 AM
-      } catch (cronError) {
-        console.warn(
-          "⚠️ Failed to start expired assets cleanup cron:",
-          cronError.message
-        );
-      }
-    } else {
-      console.log("ℹ️ Skipping cron job setup (serverless environment)");
-      console.log("💡 Use Vercel Cron Jobs or external scheduler for cleanup");
+    try {
+      const { startMediaCleanupCron } = require("./services/mediaCleanupService");
+      startMediaCleanupCron();
+    } catch (cronError) {
+      console.warn("⚠️ Failed to start media cleanup cron:", cronError.message);
     }
 
-    // For serverless (Vercel), just export the app
-    if (process.env.VERCEL) {
-      console.log("🔧 Running in Vercel serverless mode");
-    } else {
-      // For traditional deployment, start the server
-      const http = require("http");
-      const server = http.createServer(app);
-
-      // Initialize Socket.io
-      const socketService = require("./services/socketService");
-      socketService.init(server);
-
-      server.listen(PORT, () => {
-        console.log(
-          `\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`
-        );
-        console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs/`);
-        console.log(
-          `🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`
-        );
-        console.log(
-          "\n✨ Server is ready to accept requests! (Search API Enabled)\n"
-        );
-      });
+    try {
+      const { startCsvImageCleanupCron } = require("./services/csvImageCleanupService");
+      startCsvImageCleanupCron();
+    } catch (cronError) {
+      console.warn("⚠️ Failed to start CSV image cleanup cron:", cronError.message);
     }
+
+    try {
+      const { startCleanupCron, runCleanupOnStartup } = require("./jobs/cleanupExpiredAssets");
+      startCleanupCron();
+      runCleanupOnStartup();
+    } catch (cronError) {
+      console.warn("⚠️ Failed to start expired assets cleanup cron:", cronError.message);
+    }
+
+    const http = require("http");
+    const server = http.createServer(app);
+
+    const socketService = require("./services/socketService");
+    socketService.init(server);
+
+    server.listen(PORT, () => {
+      console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+      console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs/`);
+      console.log(`🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`);
+      console.log("\n✨ Server is ready to accept requests!\n");
+    });
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
     if (process.env.NODE_ENV !== "production") {

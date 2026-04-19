@@ -2,6 +2,7 @@ const {
   FILTER_ATTRIBUTE_KEYS,
   FILTER_ATTRIBUTE_DEFINITIONS,
   normalizeFilterTokenByKey,
+  expandCanonicalToAliases,
   allowsMultipleValues,
 } = require("./filterAttributeRules");
 
@@ -124,11 +125,17 @@ const buildFilterAttributesQuery = (filters = {}) => {
   FILTER_ATTRIBUTE_KEYS.forEach((key) => {
     if (!Object.prototype.hasOwnProperty.call(filters, key)) return;
 
-    const values = normalizeFilterArray(filters[key], key);
-    if (values.length === 0) return;
+    const canonicalValues = normalizeFilterArray(filters[key], key);
+    if (canonicalValues.length === 0) return;
+
+    // Expand each canonical to all its known aliases so that products stored
+    // with any variant of the value (e.g. "0-3-month" vs "0-3-months") all match.
+    const expandedValues = [
+      ...new Set(canonicalValues.flatMap((v) => expandCanonicalToAliases(key, v))),
+    ];
 
     query[`filterAttributes.${key}`] =
-      values.length === 1 ? values[0] : { $in: values };
+      expandedValues.length === 1 ? expandedValues[0] : { $in: expandedValues };
   });
 
   return query;

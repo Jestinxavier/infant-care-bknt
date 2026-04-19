@@ -224,7 +224,7 @@ const getOrderById = async (req, res) => {
 
     // Check if orderId is a valid ObjectId (MongoDB ID)
     let query = { orderId: orderId };
-    const sanitizedId = orderId.replace(/^#/, "");
+    const sanitizedId = escapeRegex(orderId.replace(/^#/, ""));
 
     if (mongoose.Types.ObjectId.isValid(orderId)) {
       // It could be either, so we search both
@@ -288,7 +288,7 @@ const updateOrderStatus = async (req, res) => {
     // Check if orderId is a valid ObjectId (MongoDB ID)
     let query = { orderId: orderId };
 
-    const sanitizedId = orderId.replace(/^#/, "");
+    const sanitizedId = escapeRegex(orderId.replace(/^#/, ""));
 
     // Sanitize and allow case-insensitive search for custom IDs
     if (mongoose.Types.ObjectId.isValid(orderId)) {
@@ -324,6 +324,7 @@ const updateOrderStatus = async (req, res) => {
         "processing",
         "shipped",
         "delivered",
+        "returned",
         "cancelled",
       ];
       if (!validStatuses.includes(status)) {
@@ -414,7 +415,7 @@ const updateOrderStatus = async (req, res) => {
         else {
           const foundPartner = await mongoose
             .model("DeliveryPartner")
-            .findOne({ name: { $regex: new RegExp(`^${partnerName}$`, "i") } });
+            .findOne({ name: { $regex: new RegExp(`^${escapeRegex(partnerName)}$`, "i") } });
 
           if (foundPartner) {
             updateFields.deliveryPartner = foundPartner._id;
@@ -477,7 +478,7 @@ const updateOrderStatus = async (req, res) => {
         // Otherwise, treat it as a partner name and look it up
         else {
           const foundPartner = await mongoose.model("DeliveryPartner").findOne({
-            name: { $regex: new RegExp(`^${partnerValue}$`, "i") },
+            name: { $regex: new RegExp(`^${escapeRegex(partnerValue)}$`, "i") },
           });
 
           if (foundPartner) {
@@ -541,9 +542,15 @@ const updateOrderStatus = async (req, res) => {
       }
     }
 
-    // 3. Perform Update using the resolved _id
-    const order = await Order.findByIdAndUpdate(
-      currentOrder._id,
+    // 3. Perform Update — include the orderStatus we read as a match condition so that
+    //    a concurrent status change causes a 409 rather than silently overwriting it.
+    const updateMatchCondition = { _id: currentOrder._id };
+    if (status && status !== currentOrder.orderStatus) {
+      updateMatchCondition.orderStatus = currentOrder.orderStatus;
+    }
+
+    const order = await Order.findOneAndUpdate(
+      updateMatchCondition,
       { $set: updateFields },
       { new: true }
     )
@@ -552,9 +559,9 @@ const updateOrderStatus = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({
+      return res.status(409).json({
         success: false,
-        message: "Order not found",
+        message: "Order was modified by another request. Please refresh and try again.",
       });
     }
 

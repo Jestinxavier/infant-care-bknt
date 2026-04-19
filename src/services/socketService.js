@@ -5,8 +5,14 @@ let io;
 const init = (server) => {
   io = new Server(server, {
     cors: {
-      origin: "*", // Adjust this in production for better security
+      origin:
+        process.env.NODE_ENV === "production"
+          ? [process.env.FRONTEND_URL, process.env.DASHBOARD_URL].filter(
+              Boolean
+            )
+          : /^http:\/\/localhost:\d+$/,
       methods: ["GET", "POST"],
+      credentials: true,
     },
   });
 

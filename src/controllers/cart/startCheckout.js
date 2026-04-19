@@ -90,6 +90,15 @@ const startCheckout = async (req, res) => {
       });
     }
 
+    // 3b. Reject checkout for empty cart
+    if (!cart.items || cart.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "EMPTY_CART",
+        message: "Cannot start checkout with an empty cart",
+      });
+    }
+
     // 4. Idempotency Check: If cart is already in valid checkout, return existing session
     if (cart.status === "checkout" && cart.checkoutExpiry > new Date()) {
       console.log(

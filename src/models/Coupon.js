@@ -61,6 +61,30 @@ const couponSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // When false, coupon is excluded from the public available-coupons list
+    // but can still be redeemed by entering the code manually
+    isPublic: {
+      type: Boolean,
+      default: true,
+    },
+    // Product scope: 'all' = entire cart, 'specific_products' = only matching items
+    applicableTo: {
+      type: String,
+      enum: ["all", "category", "specific_products"],
+      default: "all",
+    },
+    applicableCategories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+      },
+    ],
+    applicableProductIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+      },
+    ],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -73,7 +97,6 @@ const couponSchema = new mongoose.Schema(
 
 // Compound index for efficient active coupon queries
 couponSchema.index({ isActive: 1, endDate: 1 });
-couponSchema.index({ code: 1 }, { unique: true });
 
 // Virtual for dynamic status
 couponSchema.virtual("status").get(function () {

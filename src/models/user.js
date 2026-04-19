@@ -129,4 +129,6 @@ userSchema.methods.comparePassword = async function (password) {
   }
 };
 
+userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+
 module.exports = mongoose.model("User", userSchema);

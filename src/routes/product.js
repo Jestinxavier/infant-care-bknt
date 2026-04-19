@@ -18,6 +18,7 @@ const {
   getSearchIndex,
   checkStock,
   getPriceAndStock,
+  getRecommendations,
 } = require("../controllers/product");
 const productService = require("../features/product/product.service");
 const verifyToken = require("../middlewares/authMiddleware");
@@ -550,6 +551,8 @@ router.post("/url/:url_key", getProductByUrlKey);
  *       200:
  *         description: Data retrieved successfully
  */
+router.get("/recommendations", getRecommendations);
+
 router.get("/:param", (req, res, next) => {
   const { param } = req.params;
 

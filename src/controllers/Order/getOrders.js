@@ -15,8 +15,8 @@ const getOrders = async (req, res) => {
       });
     }
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
     const rawStatus = req.query.status;
     const status = rawStatus
       ? String(Array.isArray(rawStatus) ? rawStatus[0] : rawStatus)

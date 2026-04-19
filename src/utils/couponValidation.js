@@ -98,7 +98,7 @@ const validateCoupon = async (couponCode, cartSubtotal, userId) => {
   if (coupon.perUserLimit && userId) {
     const userCouponUsage = await Order.countDocuments({
       userId,
-      "coupon.couponId": coupon._id,
+      $or: [{ "coupon.couponId": coupon._id }, { "coupons.couponId": coupon._id }],
       ...PAID_ORDER_FILTER,
     });
     if (userCouponUsage >= coupon.perUserLimit) {
@@ -186,7 +186,7 @@ const consumeCoupon = async (
   if (couponDoc.perUserLimit && userId) {
     const userCouponUsage = await Order.countDocuments({
       userId,
-      "coupon.couponId": couponDoc._id,
+      $or: [{ "coupon.couponId": couponDoc._id }, { "coupons.couponId": couponDoc._id }],
       ...PAID_ORDER_FILTER,
     });
     if (userCouponUsage >= couponDoc.perUserLimit) {

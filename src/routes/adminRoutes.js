@@ -48,6 +48,7 @@ const {
   listCoupons,
   updateCoupon,
   deleteCoupon,
+  searchProductsForCoupon,
 } = require("../controllers/admin/couponController");
 
 // ==================== PRODUCTS ====================
@@ -239,7 +240,8 @@ router.get("/products/search", verifyToken, requireAdmin, async (req, res) => {
       });
     }
 
-    const searchRegex = new RegExp(q.trim(), "i");
+    const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapeRegex(q.trim()), "i");
 
     // Support product_type=SIMPLE,CONFIGURABLE (comma-separated) or single value
     const productTypes = String(product_type)
@@ -1189,6 +1191,7 @@ router.post("/coupons", verifyToken, requireAdmin, createCoupon);
  *     security:
  *       - bearerAuth: []
  */
+router.get("/coupons/product-search", verifyToken, requireAdmin, searchProductsForCoupon);
 router.patch("/coupons/:id", verifyToken, requireAdmin, updateCoupon);
 router.delete("/coupons/:id", verifyToken, requireAdmin, deleteCoupon);
 

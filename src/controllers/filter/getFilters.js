@@ -5,6 +5,7 @@ const {
   FILTER_ATTRIBUTE_KEYS,
   buildFilterAttributesQuery,
 } = require("../../utils/filterAttributes");
+const { normalizeFilterTokenByKey } = require("../../utils/filterAttributeRules");
 
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MIN_FUZZY_QUERY_LENGTH = 3;
@@ -364,7 +365,9 @@ const getFilters = async (req, res) => {
           : [];
         values.forEach((value) => {
           if (!value) return;
-          filterSets[key].add(value);
+          const normalized = normalizeFilterTokenByKey(key, value);
+          if (!normalized) return;
+          filterSets[key].add(normalized);
 
           if (key === "color") {
             const colorHexFromUiMeta = getHexFromUiMeta(
@@ -377,7 +380,7 @@ const getFilters = async (req, res) => {
             );
             const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
             if (colorHex) {
-              filterColorHexMap.set(normalizeValue(value), colorHex);
+              filterColorHexMap.set(normalized, colorHex);
             }
           }
         });

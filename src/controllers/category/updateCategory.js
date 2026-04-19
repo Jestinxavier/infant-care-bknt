@@ -11,6 +11,7 @@ const updateCategory = async (req, res) => {
       isActive,
       parentCategory,
       removeImage,
+      image,
     } = req.body;
     const imageFile = req.file; // Uploaded image file
 
@@ -73,22 +74,15 @@ const updateCategory = async (req, res) => {
         const publicId = category.image.split("/").pop().split(".")[0];
         try {
           const { deleteAssets } = require("../../utils/mediaFinalizer");
-          // Reconstruct public_id more reliably if possible, but folder structure varies
-          // Assuming "categories/publicId" or similar.
-          // Better: exact generic extraction from URL but for now assuming direct ID match or legacy logic
-          // The publicId extraction here is legacy (filename only).
-          // If stored as full public_id, good. If URL, it's risky.
-          // Let's assume the legacy ID extraction works for legacy images,
-          // but valid public_ids are usually what we need.
-          // My new mediaFinalizer extracts public_id from object correctly.
-          // But here we are dealing with a string URL storage.
-
-          await deleteAssets([`categories/${publicId}`]); // Try standard path
+          await deleteAssets([`categories/${publicId}`]);
         } catch (err) {
           console.log("⚠️ Could not delete old category image:", err.message);
         }
       }
       category.image = imageFile.path; // Cloudinary URL
+    } else if (image && !removeImage) {
+      // URL string from Asset API upload (no multer file)
+      category.image = image;
     } else if (removeImage === "true" || removeImage === true) {
       // Remove image from Cloudinary if it exists
       if (category.image) {

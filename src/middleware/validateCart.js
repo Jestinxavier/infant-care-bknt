@@ -106,7 +106,7 @@ const validateCart = async (req, res, next) => {
 
     // Check expiry
     if (cart.expiresAt && new Date(cart.expiresAt) < new Date()) {
-      // Cart expired - respond with expired flag
+      cart.deleteOne().catch(() => {});
       return res.status(200).json({
         success: false,
         expired: true,

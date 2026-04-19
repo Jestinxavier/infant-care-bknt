@@ -1,12 +1,8 @@
 const Coupon = require("../../models/Coupon");
+const Product = require("../../models/Product");
 const Order = require("../../models/Order");
 
 /**
- * Create a new coupon
- * POST /api/v1/admin/coupons
- */
-/**
- * Create a new coupon
  * POST /api/v1/admin/coupons
  */
 const createCoupon = async (req, res) => {
@@ -22,72 +18,51 @@ const createCoupon = async (req, res) => {
       usageLimit,
       perUserLimit,
       isNewUserOnly,
+      applicableTo,
+      applicableProductIds,
+      applicableCategories,
+      isPublic,
     } = req.body;
 
-    // 1. Basic Validation
     if (!code || !type || value === undefined || !startDate || !endDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields",
-      });
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    // 2. Date Validation
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid date format" });
+      return res.status(400).json({ success: false, message: "Invalid date format" });
     }
     if (start >= end) {
-      return res
-        .status(400)
-        .json({ success: false, message: "End date must be after start date" });
+      return res.status(400).json({ success: false, message: "End date must be after start date" });
     }
     if (end < new Date()) {
-      return res
-        .status(400)
-        .json({ success: false, message: "End date cannot be in the past" });
+      return res.status(400).json({ success: false, message: "End date cannot be in the past" });
     }
-
-    // 3. Logic Validation
     if (value <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Discount value must be greater than 0",
-      });
+      return res.status(400).json({ success: false, message: "Discount value must be greater than 0" });
     }
     if (type === "percentage" && value > 100) {
-      return res.status(400).json({
-        success: false,
-        message: "Percentage discount cannot exceed 100%",
-      });
-    }
-    if (type === "percentage" && (!maxDiscount || maxDiscount <= 0)) {
-      // Enterprise Rule: Percentage coupons often need a cap, but we can allow uncapped if intended.
-      // Warn or allow? Standard is usually to allow unless business rules strictly forbid.
-      // User requirement said: "maxDiscount present only when type === percentage"
+      return res.status(400).json({ success: false, message: "Percentage discount cannot exceed 100%" });
     }
     if (type === "flat" && maxDiscount) {
-      return res.status(400).json({
-        success: false,
-        message: "Max discount is not applicable for flat discounts",
-      });
+      return res.status(400).json({ success: false, message: "Max discount is not applicable for flat discounts" });
     }
 
-    // 4. Uniqueness Check
+    const scope = ["specific_products", "category"].includes(applicableTo) ? applicableTo : "all";
+    if (scope === "specific_products" && (!applicableProductIds || applicableProductIds.length === 0)) {
+      return res.status(400).json({ success: false, message: "Select at least one product for a product-scoped coupon" });
+    }
+    if (scope === "category" && (!applicableCategories || applicableCategories.length === 0)) {
+      return res.status(400).json({ success: false, message: "Select at least one category for a category-scoped coupon" });
+    }
+
     const existing = await Coupon.findOne({ code: code.toUpperCase() });
     if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: "Coupon code already exists",
-        errorCode: "DUPLICATE_CODE",
-      });
+      return res.status(400).json({ success: false, message: "Coupon code already exists", errorCode: "DUPLICATE_CODE" });
     }
 
-    // If first-order-only coupon, enforce perUserLimit = 1
     const effectivePerUserLimit = isNewUserOnly ? 1 : perUserLimit || 1;
 
     const coupon = await Coupon.create({
@@ -101,51 +76,40 @@ const createCoupon = async (req, res) => {
       usageLimit: usageLimit || null,
       perUserLimit: effectivePerUserLimit,
       isNewUserOnly: !!isNewUserOnly,
+      applicableTo: scope,
+      applicableCategories: scope === "category" ? applicableCategories : [],
+      applicableProductIds: scope === "specific_products" ? applicableProductIds : [],
+      isPublic: isPublic !== false,
       createdBy: req.user._id,
     });
 
-    res.status(201).json({
-      success: true,
-      coupon,
-    });
+    await coupon.populate("applicableProductIds", "title images sku");
+    const populated = await coupon.populate("applicableCategories", "name code");
+
+    res.status(201).json({ success: true, coupon: populated });
   } catch (error) {
     console.error("❌ Error creating coupon:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
- * List all coupons
  * GET /api/v1/admin/coupons
  */
 const listCoupons = async (req, res) => {
   try {
-    const coupons = await Coupon.find().sort({ createdAt: -1 });
-    res.status(200).json({
-      success: true,
-      coupons,
-    });
+    const coupons = await Coupon.find()
+      .sort({ createdAt: -1 })
+      .populate("applicableProductIds", "title images sku")
+      .populate("applicableCategories", "name code");
+    res.status(200).json({ success: true, coupons });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
- * Update coupon
  * PATCH /api/v1/admin/coupons/:id
- */
-/**
- * Update coupon
- * PATCH /api/v1/admin/coupons/:id
- * Rules:
- * - If usageCount > 0, critical fields (code, type, value, startDate) cannot be changed.
- * - isActive, endDate (extend only), usageLimit (increase only) can be changed.
  */
 const updateCoupon = async (req, res) => {
   try {
@@ -154,97 +118,108 @@ const updateCoupon = async (req, res) => {
 
     const coupon = await Coupon.findById(id);
     if (!coupon) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Coupon not found" });
+      return res.status(404).json({ success: false, message: "Coupon not found" });
     }
 
-    // Check if coupon has been used
     if (coupon.usageCount > 0) {
       const immutableFields = ["code", "type", "value", "startDate"];
-      const attemptedChanges = Object.keys(updates).filter((field) =>
-        immutableFields.includes(field)
-      );
-
-      // Check if values actually changed (sometimes frontend sends same data)
-      const meaningfulChanges = attemptedChanges.filter((field) => {
+      const meaningfulChanges = immutableFields.filter((field) => {
+        if (!(field in updates)) return false;
         if (field === "startDate")
-          return (
-            new Date(updates[field]).getTime() !==
-            new Date(coupon[field]).getTime()
-          );
+          return new Date(updates[field]).getTime() !== new Date(coupon[field]).getTime();
         return updates[field] !== coupon[field];
       });
 
       if (meaningfulChanges.length > 0) {
         return res.status(400).json({
           success: false,
-          message: `Cannot edit ${meaningfulChanges.join(
-            ", "
-          )} because this coupon has already been used.`,
+          message: `Cannot edit ${meaningfulChanges.join(", ")} because this coupon has already been used.`,
           errorCode: "IMMUTABLE_FIELD",
         });
       }
     }
 
-    // Ensure code remains uppercase if updated (and allowed)
-    if (updates.code) {
-      updates.code = updates.code.toUpperCase();
+    if (updates.code) updates.code = updates.code.toUpperCase();
+    if (updates.isNewUserOnly === true) updates.perUserLimit = 1;
+
+    // Validate and normalize scope
+    if (updates.applicableTo === "specific_products" && (!updates.applicableProductIds || updates.applicableProductIds.length === 0)) {
+      return res.status(400).json({ success: false, message: "Select at least one product for a product-scoped coupon" });
+    }
+    if (updates.applicableTo === "category" && (!updates.applicableCategories || updates.applicableCategories.length === 0)) {
+      return res.status(400).json({ success: false, message: "Select at least one category for a category-scoped coupon" });
+    }
+    if (updates.applicableTo === "all") {
+      updates.applicableProductIds = [];
+      updates.applicableCategories = [];
+    }
+    if (updates.applicableTo === "specific_products") {
+      updates.applicableCategories = [];
+    }
+    if (updates.applicableTo === "category") {
+      updates.applicableProductIds = [];
     }
 
-    // If setting isNewUserOnly to true, enforce perUserLimit = 1
-    if (updates.isNewUserOnly === true) {
-      updates.perUserLimit = 1;
-    }
-
-    // Validate Dates if changing
     if (updates.startDate || updates.endDate) {
-      const start = updates.startDate
-        ? new Date(updates.startDate)
-        : coupon.startDate;
+      const start = updates.startDate ? new Date(updates.startDate) : coupon.startDate;
       const end = updates.endDate ? new Date(updates.endDate) : coupon.endDate;
-
       if (start >= end) {
-        return res.status(400).json({
-          success: false,
-          message: "End date must be after start date",
-        });
+        return res.status(400).json({ success: false, message: "End date must be after start date" });
       }
     }
 
-    const updatedCoupon = await Coupon.findByIdAndUpdate(id, updates, {
-      new: true,
-    });
+    const updatedCoupon = await Coupon.findByIdAndUpdate(id, updates, { new: true })
+      .populate("applicableProductIds", "title images sku")
+      .populate("applicableCategories", "name code");
 
-    res.status(200).json({
-      success: true,
-      coupon: updatedCoupon,
-    });
+    res.status(200).json({ success: true, coupon: updatedCoupon });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
- * Delete coupon
  * DELETE /api/v1/admin/coupons/:id
  */
 const deleteCoupon = async (req, res) => {
   try {
     const { id } = req.params;
     await Coupon.findByIdAndDelete(id);
+    res.status(200).json({ success: true, message: "Coupon deleted" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * GET /api/v1/admin/coupons/product-search?q=...
+ * Lightweight product search for the coupon form product picker
+ */
+const searchProductsForCoupon = async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+    const categoryId = (req.query.category || "").trim();
+
+    const query = { status: "published" };
+    if (q) query.title = { $regex: q, $options: "i" };
+    if (categoryId) query.category = categoryId;
+
+    const products = await Product.find(query)
+      .select("_id title images sku")
+      .limit(50)
+      .lean();
+
     res.status(200).json({
       success: true,
-      message: "Coupon deleted",
+      products: products.map((p) => ({
+        _id: p._id,
+        title: p.title,
+        image: p.images?.[0] || null,
+        sku: p.sku || null,
+      })),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -253,4 +228,5 @@ module.exports = {
   listCoupons,
   updateCoupon,
   deleteCoupon,
+  searchProductsForCoupon,
 };

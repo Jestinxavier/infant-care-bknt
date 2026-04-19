@@ -45,7 +45,6 @@ const checkDatabaseHealth = async (req, res) => {
       nodeVersion: process.version,
       platform: process.platform,
       environment: process.env.NODE_ENV || 'not set',
-      vercelEnvironment: !!process.env.VERCEL,
       uriConfigured: !!process.env.MONGODB_URI,
       uriPreview: process.env.MONGODB_URI 
         ? process.env.MONGODB_URI.substring(0, 60) + '...'
@@ -89,7 +88,7 @@ const checkDatabaseHealth = async (req, res) => {
           'IP not whitelisted in MongoDB Atlas'
         ],
         checkList: [
-          'Verify MONGODB_URI is set in Vercel dashboard',
+          'Verify MONGODB_URI is set in your server environment variables',
           'Check URI includes database name: /onlineshopping',
           'Whitelist 0.0.0.0/0 in MongoDB Atlas Network Access',
           'Wait 2-3 minutes after IP whitelist changes',
@@ -115,7 +114,6 @@ const checkDatabaseHealth = async (req, res) => {
       },
       diagnostics: {
         uriConfigured: !!process.env.MONGODB_URI,
-        vercelEnvironment: !!process.env.VERCEL,
         nodeVersion: process.version
       }
     });
@@ -255,7 +253,6 @@ const checkEnvironmentVariables = async (req, res) => {
       JWT_SECRET_EXISTS: !!process.env.JWT_SECRET,
       CLOUDINARY_EXISTS: !!process.env.CLOUDINARY_CLOUD_NAME,
       EMAIL_USER_EXISTS: !!process.env.EMAIL_USER,
-      VERCEL: process.env.VERCEL || 'NOT_ON_VERCEL',
       ALL_ENV_KEYS: Object.keys(process.env).filter(key => 
         !key.startsWith('npm_') && 
         !key.startsWith('_') &&
@@ -298,8 +295,7 @@ const getIPInfo = async (req, res) => {
       'x-forwarded-for': req.headers['x-forwarded-for'],
       'x-real-ip': req.headers['x-real-ip'],
       'cf-connecting-ip': req.headers['cf-connecting-ip'], // Cloudflare
-      'x-vercel-forwarded-for': req.headers['x-vercel-forwarded-for'], // Vercel
-      
+
       // From Express
       'req.ip': req.ip,
       'req.ips': req.ips,
@@ -316,7 +312,6 @@ const getIPInfo = async (req, res) => {
     const publicIP = 
       req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
       req.headers['x-real-ip'] ||
-      req.headers['x-vercel-forwarded-for'] ||
       req.ip ||
       req.socket?.remoteAddress ||
       'Unknown';
@@ -413,11 +408,6 @@ const getConnectionLogs = async (req, res) => {
           heapUsed: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`
         }
       },
-      vercel: {
-        isVercel: !!process.env.VERCEL,
-        region: process.env.VERCEL_REGION || 'not on vercel',
-        env: process.env.VERCEL_ENV || 'not on vercel'
-      },
       environment: {
         nodeEnv: process.env.NODE_ENV || 'not set',
         port: process.env.PORT || 'not set'
@@ -449,12 +439,12 @@ const getConnectionLogs = async (req, res) => {
       recommendation: mongoose.connection.readyState !== 1 ? {
         message: 'Database is not connected',
         steps: [
-          '1. Verify MONGODB_URI is set in Vercel Environment Variables',
+          '1. Verify MONGODB_URI is set in your server environment variables',
           '2. Check URI format: mongodb+srv://user:pass@host/onlineshopping?options',
           '3. Ensure database name "/onlineshopping" is present in URI',
-          '4. Whitelist 0.0.0.0/0 in MongoDB Atlas Network Access',
+          '4. Whitelist your server IP in MongoDB Atlas Network Access',
           '5. Wait 2-3 minutes after making changes',
-          '6. Redeploy on Vercel without cache'
+          '6. Restart the server after updating environment variables'
         ]
       } : {
         message: 'Database is connected successfully',

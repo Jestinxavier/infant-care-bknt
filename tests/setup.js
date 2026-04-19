@@ -1,8 +1,8 @@
 const { MongoMemoryServer } = require("mongodb-memory-server");
 const mongoose = require("mongoose");
 
-// Increase default timeout for hooks
-jest.setTimeout(30000);
+// Increase default timeout — MongoMemoryServer may need to download binary on first run
+jest.setTimeout(120000);
 
 // Mock nanoid as it is ESM-only and causes issues with Jest in CJS projects.
 // Use a counter to generate unique IDs — this prevents E11000 duplicate key errors

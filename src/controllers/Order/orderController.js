@@ -83,7 +83,7 @@ const createOrder = async (req, res) => {
       `🛒 Looking for checkout cart for user: ${userId}`,
       cartId ? `cartId: ${cartId}` : "no cartId in body",
       `Found: ${cart ? cart.cartId : "null"}`,
-      `Coupon: ${cart ? JSON.stringify(cart.coupon) : "N/A"}`
+      `Coupons: ${cart ? JSON.stringify(cart.coupons) : "N/A"}`
     );
 
     if (!cart) {
@@ -251,7 +251,14 @@ const createOrder = async (req, res) => {
         };
       }
 
+      const MAX_ORDER_QTY = 99;
       const itemQuantity = Number(item.quantity);
+      if (!Number.isInteger(itemQuantity) || itemQuantity < 1 || itemQuantity > MAX_ORDER_QTY) {
+        throw {
+          code: "INVALID_QUANTITY",
+          message: `Item quantity must be between 1 and ${MAX_ORDER_QTY}`,
+        };
+      }
 
       // Use regularPrice for subtotal (original price before discounts)
       subtotal += regularPrice * itemQuantity;
@@ -537,24 +544,27 @@ const createOrder = async (req, res) => {
     const shippingAmount =
       totalAfterDiscount >= freeThreshold ? 0 : shippingCost;
 
-    // Step 5: Atomic coupon consumption
+    // Step 5: Atomic coupon consumption (supports stacked coupons)
     let couponDiscount = 0;
     let appliedCoupon = null;
+    const appliedCoupons = [];
 
-    // Debug: Log cart coupon data
-    console.log(`🎟️ Cart coupon checking:`, JSON.stringify(cart.coupon));
+    const cartCoupons = cart.coupons?.length > 0 ? cart.coupons : [];
+    console.log(`🎟️ Cart coupons:`, JSON.stringify(cartCoupons));
 
-    if (cart.coupon && cart.coupon.code) {
-      console.log(
-        `🎟️ Attempting to consume coupon ${cart.coupon.code} with value ${totalAfterDiscount} (userId: ${userId})`
-      );
+    for (const cartCoupon of cartCoupons) {
+      const couponMin = cartCoupon.minCartValue ?? 0;
+      if (couponMin > 0 && totalAfterDiscount < couponMin) {
+        throw {
+          code: "COUPON_MIN_NOT_MET",
+          couponFailed: true,
+          message: `Coupon ${cartCoupon.code} requires a minimum cart value of ₹${couponMin}`,
+        };
+      }
 
-      const consumption = await consumeCoupon(
-        cart.coupon.code,
-        totalAfterDiscount,
-        userId,
-        session
-      );
+      console.log(`🎟️ Consuming coupon ${cartCoupon.code} (value=${totalAfterDiscount}, userId=${userId})`);
+
+      const consumption = await consumeCoupon(cartCoupon.code, totalAfterDiscount, userId, session);
 
       console.log(`🎟️ Consumption result:`, JSON.stringify(consumption));
 
@@ -566,17 +576,19 @@ const createOrder = async (req, res) => {
         };
       }
 
-      couponDiscount = consumption.discount;
-      appliedCoupon = {
+      couponDiscount += consumption.discount;
+      appliedCoupons.push({
         code: consumption.coupon.code,
         couponId: consumption.coupon._id,
-        discountAmount: couponDiscount,
-        applied: true,
-      };
+        discountAmount: consumption.discount,
+      });
 
-      console.log(
-        `✅ Coupon ${cart.coupon.code} consumed atomically. Discount: ₹${couponDiscount}`
-      );
+      console.log(`✅ Coupon ${cartCoupon.code} consumed. Discount: ₹${consumption.discount}`);
+    }
+
+    // Primary coupon for backward compat (first one, or highest discount)
+    if (appliedCoupons.length > 0) {
+      appliedCoupon = { ...appliedCoupons[0], applied: true };
     }
 
     const totalAmount = totalAfterDiscount + shippingAmount - couponDiscount;
@@ -595,11 +607,9 @@ const createOrder = async (req, res) => {
       finalAddressId = savedAddress._id;
       shippingAddressData = savedAddress.toObject();
     } else if (addressId) {
-      const existingAddress = await Address.findById(addressId).session(
-        session
-      );
+      const existingAddress = await Address.findOne({ _id: addressId, userId }).session(session);
       if (!existingAddress) {
-        throw { code: "ADDRESS_NOT_FOUND", message: "Address not found" };
+        throw { code: "ADDRESS_NOT_FOUND", message: "Address not found or does not belong to this account" };
       }
       finalAddressId = existingAddress._id;
       shippingAddressData = existingAddress.toObject();
@@ -628,7 +638,7 @@ const createOrder = async (req, res) => {
       shippingCost: shippingAmount,
       discount: discountAmount + couponDiscount,
       coupon: appliedCoupon,
-      totalAmount,
+      coupons: appliedCoupons,
       totalAmount,
       // addressId removed
       shippingAddress: shippingAddressData,
@@ -811,6 +821,14 @@ const createOrder = async (req, res) => {
         productSku: error.productSku,
         variantId: error.variantId,
         variantSku: error.variantSku,
+      });
+    }
+
+    if (error.code === "INVALID_QUANTITY") {
+      return res.status(400).json({
+        success: false,
+        errorCode: "INVALID_QUANTITY",
+        message: error.message,
       });
     }
 

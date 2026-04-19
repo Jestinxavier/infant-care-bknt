@@ -11,6 +11,7 @@ const {
 } = require("./getProducts");
 const checkStock = require("./checkStock");
 const { getPriceAndStock } = require("./getPriceAndStock");
+const getRecommendations = require("./getRecommendations");
 
 module.exports = {
   createProduct,
@@ -24,4 +25,5 @@ module.exports = {
   getSearchIndex,
   checkStock,
   getPriceAndStock,
+  getRecommendations,
 };

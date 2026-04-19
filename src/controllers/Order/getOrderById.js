@@ -54,6 +54,33 @@ const getOrderById = async (req, res) => {
       });
     }
 
+    // Batch fetch all reviews for this order — avoids N+1 (one query per item)
+    const allReviews = await Review.find({
+      userId,
+      orderId: order._id,
+    }).lean();
+
+    const reviewMap = new Map(
+      allReviews.map((r) => [
+        `${r.productId?.toString()}_${r.variantId ?? ""}`,
+        r,
+      ])
+    );
+
+    // Batch fetch all gift products referenced by this order — avoids N+1
+    const giftSkus = (order.items ?? [])
+      .filter((item) => item.selectedGiftSku && !item.selectedGift && !item.isGift)
+      .map((item) => item.selectedGiftSku);
+
+    const giftProductDocs =
+      giftSkus.length > 0
+        ? await Product.find({ sku: { $in: giftSkus } })
+            .select("title name images sku")
+            .lean()
+        : [];
+
+    const giftProductMap = new Map(giftProductDocs.map((p) => [p.sku, p]));
+
     // Format order for frontend
     const formattedOrder = {
       _id: order._id,
@@ -86,24 +113,15 @@ const getOrderById = async (req, res) => {
             discountAmount: order.coupon.discountAmount,
           }
         : null,
-      items: await Promise.all(
-        order?.items?.map(async (item) => {
-          // Check if this item was already reviewed in this order
-          const existingReview = await Review.findOne({
-            userId,
-            orderId: order._id,
-            productId: item.productId?._id ?? item.productId,
-            variantId: item.variantId,
-          });
+      items: (order?.items ?? []).map((item) => {
+          const productIdStr = (item.productId?._id ?? item.productId)?.toString() ?? "";
+          const variantIdStr = (item.variantId?._id ?? item.variantId) ?? "";
+          const existingReview = reviewMap.get(`${productIdStr}_${variantIdStr}`) ?? null;
 
           // Resolve selectedGift for bundle items (legacy: item has selectedGiftSku but no selectedGift)
           let selectedGift = item?.selectedGift || null;
           if (item?.selectedGiftSku && !selectedGift && !item?.isGift) {
-            const giftProduct = await Product.findOne({
-              sku: item.selectedGiftSku,
-            })
-              .select("title name images")
-              .lean();
+            const giftProduct = giftProductMap.get(item.selectedGiftSku);
             if (giftProduct) {
               selectedGift = {
                 sku: item.selectedGiftSku,
@@ -147,8 +165,7 @@ const getOrderById = async (req, res) => {
                 }
               : null,
           };
-        })
-      ),
+        }),
       itemCount: order.items.reduce((sum, item) => sum + item?.quantity, 0),
       address: order.shippingAddress || order.addressId,
       createdAt: order.createdAt,

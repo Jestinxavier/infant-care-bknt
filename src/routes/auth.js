@@ -1,4 +1,5 @@
 const express = require("express");
+const rateLimit = require("express-rate-limit");
 const {
   requestOTP,
   verifyOTP,
@@ -26,6 +27,22 @@ const verifyToken = require("../middlewares/authMiddleware");
 const { avatarParser } = require("../config/avatarUpload");
 
 const router = express.Router();
+
+const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests, please try again later." },
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many login attempts, please try again later." },
+});
 
 /**
  * @swagger
@@ -115,7 +132,7 @@ router.post("/check-user", checkUserExists);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/request-login-otp", requestLoginOTP);
+router.post("/request-login-otp", otpLimiter, requestLoginOTP);
 
 /**
  * @swagger
@@ -169,7 +186,7 @@ router.post("/request-login-otp", requestLoginOTP);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/verify-login-otp", verifyLoginOTP);
+router.post("/verify-login-otp", loginLimiter, verifyLoginOTP);
 
 /**
  * @swagger
@@ -214,7 +231,7 @@ router.post("/verify-login-otp", verifyLoginOTP);
  *       400:
  *         description: Email already registered or failed to send OTP
  */
-router.post("/request-otp", requestOTP);
+router.post("/request-otp", otpLimiter, requestOTP);
 
 /**
  * @swagger
@@ -343,7 +360,7 @@ router.post("/verify-otp", verifyOTP);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/login", loginValidation, validate, login);
+router.post("/login", loginLimiter, loginValidation, validate, login);
 
 /**
  * @swagger
@@ -637,7 +654,7 @@ router.put(
  *       500:
  *         description: Internal Server Error
  */
-router.post("/request-password-reset", requestPasswordReset);
+router.post("/request-password-reset", otpLimiter, requestPasswordReset);
 
 /**
  * @swagger
@@ -670,7 +687,7 @@ router.post("/request-password-reset", requestPasswordReset);
  *       400:
  *         description: Invalid token or validation error
  */
-router.post("/reset-password", resetPassword);
+router.post("/reset-password", loginLimiter, resetPassword);
 
 /**
  * @swagger
@@ -717,7 +734,7 @@ router.post("/reset-password", resetPassword);
  *       500:
  *         description: Internal Server Error
  */
-router.post("/request-password-reset-otp", requestPasswordResetOTP);
+router.post("/request-password-reset-otp", otpLimiter, requestPasswordResetOTP);
 
 /**
  * @swagger
@@ -772,7 +789,7 @@ router.post("/request-password-reset-otp", requestPasswordResetOTP);
  *       500:
  *         description: Internal Server Error
  */
-router.post("/verify-password-reset-otp", verifyPasswordResetOTP);
+router.post("/verify-password-reset-otp", loginLimiter, verifyPasswordResetOTP);
 
 /**
  * @swagger

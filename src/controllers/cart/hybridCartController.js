@@ -132,14 +132,29 @@ const assignCartTotals = (cart, totals, couponDiscount = 0) => {
   cart.total = Math.max(0, totals.total - couponDiscount);
 };
 
+/** Sum of all applied coupon discounts on the cart */
+const totalCouponDiscount = (cart) =>
+  (cart.coupons || []).reduce((sum, c) => sum + (c.discountAmount ?? 0), 0);
+
+/**
+ * Clear coupons that are no longer eligible (e.g. cart dropped below minCartValue).
+ * Must be called before assignCartTotals so the zeroed discount is reflected in total.
+ */
+const clearCouponsIfIneligible = (cart, discountedSubtotal) => {
+  if (!cart.coupons?.length) return;
+  cart.coupons = cart.coupons.filter((c) => {
+    const minRequired = c.minCartValue ?? 0;
+    return minRequired === 0 || discountedSubtotal >= minRequired;
+  });
+};
+
 /**
  * Recompute and assign cart totals (all pricing stages)
  * Returns itemPrices map for use in formatCartResponse
  */
 const recomputeCartTotals = async (cart) => {
   const result = await calculateTotals(cart.items);
-  const couponDiscount = cart.coupon?.discountAmount ?? 0;
-  assignCartTotals(cart, result, couponDiscount);
+  assignCartTotals(cart, result, totalCouponDiscount(cart));
   return result.itemPrices;
 };
 
@@ -532,7 +547,7 @@ const getCart = async (req, res) => {
 
     // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
     const totals = await calculateTotals(cart.items);
-    assignCartTotals(cart, totals, cart.coupon?.discountAmount ?? 0);
+    assignCartTotals(cart, totals, totalCouponDiscount(cart));
     const itemPrices = totals.itemPrices;
 
     await cart.save();
@@ -863,6 +878,31 @@ const updateItem = async (req, res) => {
             message: "Item not found in cart",
           });
         }
+        // Stock validation before updating quantity
+        const product = await Product.findById(item.productId)
+          .select("stockObj stock variants product_type bundle_config");
+        if (product) {
+          let available;
+          if (product.product_type === PRODUCT_TYPES.BUNDLE) {
+            const bundleAvail = await bundleService.getBundleAvailability(product.bundle_config);
+            available = bundleAvail.availableQty;
+          } else if (item.variantId) {
+            const variant = product.variants?.find(
+              (v) => v.id === item.variantId || v._id?.toString() === item.variantId
+            );
+            available = variant?.stockObj?.available ?? variant?.stock ?? 0;
+          } else {
+            available = product.stockObj?.available ?? product.stock ?? 0;
+          }
+          if (quantity > available) {
+            return res.status(400).json({
+              success: false,
+              errorCode: "INSUFFICIENT_STOCK",
+              message: `Only ${available} unit(s) available`,
+              available,
+            });
+          }
+        }
         item.quantity = quantity;
       }
     }
@@ -874,9 +914,10 @@ const updateItem = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
+    // Recalculate totals; clear coupon if subtotal dropped below its minimum
     const totals = await calculateTotals(cart.items);
-    assignCartTotals(cart, totals, cart.coupon?.discountAmount ?? 0);
+    clearCouponsIfIneligible(cart, totals.discountedSubtotal);
+    assignCartTotals(cart, totals, totalCouponDiscount(cart));
     const itemPrices = totals.itemPrices;
     await cart.save();
 
@@ -1018,9 +1059,10 @@ const removeItem = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Recalculate totals dynamically
+    // Recalculate totals; clear coupon if subtotal dropped below its minimum
     const totals = await calculateTotals(cart.items);
-    assignCartTotals(cart, totals, cart.coupon?.discountAmount ?? 0);
+    clearCouponsIfIneligible(cart, totals.discountedSubtotal);
+    assignCartTotals(cart, totals, totalCouponDiscount(cart));
     const itemPrices = totals.itemPrices;
     await cart.save();
 
@@ -1509,7 +1551,7 @@ const mergeCart = async (req, res) => {
 
       // Recalculate totals dynamically
       const totals = await calculateTotals(userCart.items);
-      assignCartTotals(userCart, totals, userCart.coupon?.discountAmount ?? 0);
+      assignCartTotals(userCart, totals, totalCouponDiscount(userCart));
       const itemPrices = totals.itemPrices;
       await userCart.save();
 
@@ -1709,19 +1751,9 @@ const applyCoupon = async (req, res) => {
       });
     }
 
-    // Check for first order only
-    if (coupon.isNewUserOnly) {
-      // Must be logged in
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          message: "Please login to use this new user coupon",
-        });
-      }
-
-      // Check if user has any previous PAID orders (not pending/failed/cancelled)
-      // "First order" means no completed/paid orders exist
+    // Check for first order only — guests skip this; re-validated at order placement after login
+    if (coupon.isNewUserOnly && req.user?.id) {
+      const userId = req.user.id;
       const previousPaidOrders = await Order.countDocuments({
         userId,
         paymentStatus: "paid",
@@ -1745,20 +1777,12 @@ const applyCoupon = async (req, res) => {
       }
     }
 
-    // Check per-user usage limit
-    if (coupon.perUserLimit) {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          message: "Please login to use this coupon",
-        });
-      }
-
-      // Count how many paid orders this user has placed with this coupon
+    // Check per-user usage limit — guests skip this; re-validated at order placement after login
+    if (coupon.perUserLimit && req.user?.id) {
+      const userId = req.user.id;
       const userCouponUsage = await Order.countDocuments({
         userId,
-        "coupon.couponId": coupon._id,
+        $or: [{ "coupon.couponId": coupon._id }, { "coupons.couponId": coupon._id }],
         paymentStatus: "paid",
         orderStatus: {
           $in: [
@@ -1787,45 +1811,150 @@ const applyCoupon = async (req, res) => {
     // Calculate cart value for minimum requirement using dynamic pricing
     // ═══════════════════════════════════════════════════════════════════
 
-    // Populate product data for pricing
+    // Populate product data for pricing (include category for category-scoped coupons)
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status category",
     });
 
     // Compute totals dynamically (explicit pricing stages)
     const totals = await calculateTotals(cart.items);
     const itemPrices = totals.itemPrices;
 
-    // Coupon eligibility: minimum cart value is checked against discountedSubtotal (after product discounts)
-    if (totals.discountedSubtotal < coupon.minCartValue) {
+    // ─── Stacking: max 2 coupons, no duplicates ──────────────────────────
+    if (!cart.coupons) cart.coupons = [];
+    if (cart.coupons.length >= 2) {
       return res.status(400).json({
         success: false,
-        message: `Minimum cart value of ₹${coupon.minCartValue} required`,
+        message: "You can apply a maximum of 2 coupons per order",
+        errorCode: "MAX_COUPONS_REACHED",
+      });
+    }
+    if (cart.coupons.some((c) => c.code === coupon.code)) {
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has already been applied",
+        errorCode: "DUPLICATE_COUPON",
       });
     }
 
-    // Calculate discount from discountedSubtotal (amount after product discounts, before this coupon)
+    // ─── Scope eligibility: build eligible item set ───────────────────────
+    let eligibleSubtotal = totals.discountedSubtotal;
+    // Track which item IDs are in scope (null = all items)
+    let eligibleItemIds = null;
+
+    if (coupon.applicableTo === "specific_products" && coupon.applicableProductIds?.length > 0) {
+      const eligibleIds = new Set(coupon.applicableProductIds.map((id) => id.toString()));
+      let qualifyingSubtotal = 0;
+      const matchedItemIds = new Set();
+
+      for (const item of cart.items) {
+        const productId = (item.productId?._id || item.productId)?.toString();
+        if (eligibleIds.has(productId)) {
+          const itemId = (item._id && item._id.toString()) || productId;
+          const pricing = itemId && itemPrices.get(itemId);
+          qualifyingSubtotal += pricing ? pricing.lineTotal : 0;
+          if (itemId) matchedItemIds.add(itemId);
+        }
+      }
+
+      if (qualifyingSubtotal === 0) {
+        const Prod = require("../../models/Product");
+        const eligibleProducts = await Prod.find(
+          { _id: { $in: coupon.applicableProductIds } },
+          "title",
+        ).lean();
+        const names = eligibleProducts.map((p) => p.title).join(", ");
+        return res.status(400).json({
+          success: false,
+          message: `This coupon is valid only for: ${names}`,
+          errorCode: "PRODUCT_NOT_IN_CART",
+        });
+      }
+
+      eligibleSubtotal = qualifyingSubtotal;
+      eligibleItemIds = matchedItemIds;
+    } else if (coupon.applicableTo === "category" && coupon.applicableCategories?.length > 0) {
+      const eligibleCatIds = new Set(coupon.applicableCategories.map((id) => id.toString()));
+      let qualifyingSubtotal = 0;
+      const matchedItemIds = new Set();
+
+      for (const item of cart.items) {
+        const product = item.productId;
+        const catId = (product?.category?._id || product?.category)?.toString();
+        if (catId && eligibleCatIds.has(catId)) {
+          const itemId = (item._id && item._id.toString()) || (product?._id ? product._id.toString() : null);
+          const pricing = itemId && itemPrices.get(itemId);
+          qualifyingSubtotal += pricing ? pricing.lineTotal : 0;
+          if (itemId) matchedItemIds.add(itemId);
+        }
+      }
+
+      if (qualifyingSubtotal === 0) {
+        const Category = require("../../models/Category");
+        const cats = await Category.find({ _id: { $in: coupon.applicableCategories } }, "name").lean();
+        const names = cats.map((c) => c.name).join(", ");
+        return res.status(400).json({
+          success: false,
+          message: `This coupon is valid only for products in: ${names}`,
+          errorCode: "CATEGORY_NOT_IN_CART",
+        });
+      }
+
+      eligibleSubtotal = qualifyingSubtotal;
+      eligibleItemIds = matchedItemIds;
+    }
+
+    // Minimum cart value checked against eligible subtotal (Shopify behaviour)
+    if (eligibleSubtotal < coupon.minCartValue) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum order value of ₹${coupon.minCartValue} required`,
+      });
+    }
+
+    // Calculate discount — flat is capped at eligibleSubtotal (Shopify behaviour)
     let discountAmount = 0;
     if (coupon.type === "flat") {
-      discountAmount = coupon.value;
+      discountAmount = Math.min(coupon.value, eligibleSubtotal);
     } else if (coupon.type === "percentage") {
-      discountAmount = (totals.discountedSubtotal * coupon.value) / 100;
+      discountAmount = (eligibleSubtotal * coupon.value) / 100;
       if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
         discountAmount = coupon.maxDiscount;
       }
     }
+    discountAmount = Math.round(discountAmount * 100) / 100;
 
-    // Apply coupon to cart
-    cart.coupon = {
+    // ─── Per-line-item discount distribution (Shopify-style) ─────────────
+    const lineDiscounts = [];
+    if (eligibleSubtotal > 0) {
+      for (const item of cart.items) {
+        const itemId =
+          (item._id && item._id.toString()) ||
+          ((item.productId?._id || item.productId)?.toString()) ||
+          null;
+        if (!itemId) continue;
+        if (eligibleItemIds !== null && !eligibleItemIds.has(itemId)) continue;
+        const pricing = itemPrices.get(itemId);
+        const itemLineTotal = pricing ? pricing.lineTotal : 0;
+        if (itemLineTotal === 0) continue;
+        const itemDiscount = Math.round((itemLineTotal / eligibleSubtotal) * discountAmount * 100) / 100;
+        lineDiscounts.push({ itemId, amount: itemDiscount });
+      }
+    }
+
+    // Push coupon into coupons array
+    cart.coupons.push({
       code: coupon.code,
       couponId: coupon._id,
-      discountAmount: discountAmount,
-    };
+      discountAmount,
+      minCartValue: coupon.minCartValue ?? 0,
+      lineDiscounts,
+    });
 
-    // Assign all pricing stages; total = discountedSubtotal + shipping - couponDiscount
-    assignCartTotals(cart, totals, discountAmount);
+    // Assign totals with combined coupon discount
+    assignCartTotals(cart, totals, totalCouponDiscount(cart));
 
     await cart.save();
 
@@ -1874,7 +2003,14 @@ const removeCoupon = async (req, res) => {
       });
     }
 
-    cart.coupon = undefined;
+    const { code } = req.body;
+    if (code) {
+      // Remove specific coupon by code
+      cart.coupons = (cart.coupons || []).filter((c) => c.code !== code.toUpperCase());
+    } else {
+      // Remove all coupons (backward compat)
+      cart.coupons = [];
+    }
 
     // Populate for formatCartResponse
     await cart.populate({
@@ -1883,9 +2019,9 @@ const removeCoupon = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Recalculate totals (without coupon)
+    // Recalculate totals with remaining coupons
     const totals = await calculateTotals(cart.items);
-    assignCartTotals(cart, totals, 0); // coupon removed
+    assignCartTotals(cart, totals, totalCouponDiscount(cart));
 
     await cart.save();
 
@@ -1945,6 +2081,7 @@ const getAvailableCoupons = async (req, res) => {
 
     const coupons = await Coupon.find({
       isActive: true,
+      isPublic: { $ne: false }, // hide secret coupons from the list
       startDate: { $lte: now },
       endDate: { $gte: now },
       $or: [
@@ -1953,8 +2090,10 @@ const getAvailableCoupons = async (req, res) => {
       ],
     })
       .select(
-        "code type value minCartValue maxDiscount endDate isNewUserOnly perUserLimit",
+        "code type value minCartValue maxDiscount endDate isNewUserOnly perUserLimit applicableTo applicableProductIds applicableCategories",
       )
+      .populate("applicableProductIds", "title images")
+      .populate("applicableCategories", "name code")
       .sort({ endDate: 1 });
 
     // Filter out first-order-only coupons for users who already have paid orders
@@ -1974,12 +2113,35 @@ const getAvailableCoupons = async (req, res) => {
         description += " (First order only)";
       }
 
+      const applicableProducts =
+        coupon.applicableTo === "specific_products"
+          ? (coupon.applicableProductIds || []).map((p) => ({
+              _id: p._id,
+              title: p.title,
+              image: p.images?.[0] || null,
+            }))
+          : [];
+
+      const applicableCategories =
+        coupon.applicableTo === "category"
+          ? (coupon.applicableCategories || []).map((c) => ({
+              _id: c._id,
+              name: c.name,
+              code: c.code,
+            }))
+          : [];
+
       return {
         code: coupon.code,
         description,
         minCartValue: coupon.minCartValue,
         expiresAt: coupon.endDate,
         isNewUserOnly: coupon.isNewUserOnly || false,
+        perUserLimit: coupon.perUserLimit || 0,
+        requiresLogin: !!(coupon.isNewUserOnly || coupon.perUserLimit),
+        applicableTo: coupon.applicableTo || "all",
+        applicableProducts,
+        applicableCategories,
       };
     });
 

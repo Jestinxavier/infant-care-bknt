@@ -67,7 +67,6 @@ const variantSchema = new mongoose.Schema(
     length: { type: Number },
     height: { type: Number },
     width: { type: Number },
-    width: { type: Number },
     _optionsHash: { type: String }, // ✅ NEW: Hash of options for duplicate detection
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" }, // ✅ NEW: Reference to parent product
   },
@@ -466,6 +465,8 @@ productSchema.pre("findByIdAndUpdate", syncFilterAttributesOnQueryUpdate);
 // Actually, user might mean "Product Uniqueness" if modeled differently, but here it is embedded.
 // I will implement the PRE-SAVE VALIDATION for this.
 
+productSchema.index({ category: 1, status: 1 });
+productSchema.index({ status: 1, createdAt: -1 });
 productSchema.index({ "variants._optionsHash": 1 });
 productSchema.index({ "filterAttributes.color": 1 });
 productSchema.index({ "filterAttributes.size": 1 });
@@ -476,13 +477,5 @@ productSchema.index({ "filterAttributes.sleeve": 1 });
 productSchema.index({ "filterAttributes.occasion": 1 });
 productSchema.index({ "filterAttributes.pattern": 1 });
 productSchema.index({ "filterAttributes.pack": 1 });
-
-// Force clear any cached model to ensure schema updates are applied
-if (mongoose.connection.models.Product) {
-  delete mongoose.connection.models.Product;
-}
-if (mongoose.models.Product) {
-  delete mongoose.models.Product;
-}
 
 module.exports = mongoose.model("Product", productSchema);

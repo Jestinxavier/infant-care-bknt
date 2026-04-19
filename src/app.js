@@ -1,15 +1,16 @@
 const express = require("express");
 const path = require("path");
 const cors = require("cors");
+const helmet = require("helmet");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
 require("dotenv").config();
 const app = express();
-// ✅ CORS setup - Allow localhost from any port + production origins
 
-console.log(process.env.FRONTEND_URL, " 😂");
-console.log(process.env.DASHBOARD_URL, " 😂 ");
+app.use(helmet());
+
+// CORS setup
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.DASHBOARD_URL,
@@ -20,8 +21,7 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin(origin, callback) {
-    // In development or if it's a known localhost/whitelisted origin, allow it
-    if (!origin || process.env.NODE_ENV === "development") {
+    if (!origin) {
       return callback(null, true);
     }
 
@@ -32,7 +32,10 @@ const corsOptions = {
       normalizedOrigin === "http://localhost" ||
       normalizedOrigin === "http://127.0.0.1";
 
-    if (isLocalhost || allowedOrigins.includes(normalizedOrigin)) {
+    if (
+      (process.env.NODE_ENV !== "production" && isLocalhost) ||
+      allowedOrigins.includes(normalizedOrigin)
+    ) {
       return callback(null, true);
     }
 
@@ -76,8 +79,8 @@ app.post(
 );
 
 // Middleware
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ limit: "10mb", extended: true }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
 // Routes
 const authRoutes = require("./routes/auth");
@@ -197,5 +200,18 @@ const {
 app.get("/order-confirmation", checkOrderStatus);
 // Manual payment status check endpoint (for debugging)
 app.get("/api/payments/check/:orderId", manualCheckPaymentStatus);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: "Route not found" });
+});
+
+// Global error handler — keep stack traces out of production responses
+app.use((err, req, res, _next) => {
+  const status = err.status || err.statusCode || 500;
+  const message =
+    process.env.NODE_ENV === "production" ? "Internal Server Error" : err.message;
+  res.status(status).json({ success: false, message });
+});
 
 module.exports = app;

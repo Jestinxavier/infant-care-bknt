@@ -75,9 +75,11 @@ const getAllProducts = async (req, res) => {
       ];
     }
 
-    // Build sort
+    // Build sort — whitelist to prevent NoSQL injection via arbitrary key names
+    const ALLOWED_SORT_FIELDS = ["createdAt", "updatedAt", "title", "price", "stock"];
+    const safeSort = ALLOWED_SORT_FIELDS.includes(sortBy) ? sortBy : "createdAt";
     const sort = {};
-    sort[sortBy] = parseInt(sortOrder, 10);
+    sort[safeSort] = parseInt(sortOrder, 10);
 
     // Get total count
     const total = await Product.countDocuments(filter);
