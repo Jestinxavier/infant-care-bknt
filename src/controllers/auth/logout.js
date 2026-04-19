@@ -7,7 +7,13 @@ const logout = async (req, res) => {
   const clearOpts = getAuthCookieClearOptions();
   res.clearCookie("refresh_token", clearOpts);
   res.clearCookie("dashboard_refresh_token", clearOpts);
-  res.clearCookie("cart_id", clearOpts);
+  // cart_id is set with sameSite: "lax" (not "none"), so clear with matching options
+  res.clearCookie("cart_id", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  });
 
   try {
     const { token } = req.body;

@@ -336,6 +336,10 @@ const generatePriceSummary = (cart, formattedItems) => {
     appliedCoupon: cart.coupons?.length
       ? { code: cart.coupons[0].code, discountAmount: cart.coupons[0].discountAmount }
       : null,
+    appliedCoupons: (cart.coupons || []).map((c) => ({
+      code: c.code,
+      discountAmount: c.discountAmount,
+    })),
   };
 };
 

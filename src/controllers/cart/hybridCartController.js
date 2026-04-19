@@ -1477,15 +1477,26 @@ const mergeCart = async (req, res) => {
     }
     if (!guestCart) guestCart = req.cart; // fallback: middleware cookie/header cart
 
-    // Step 2: Find user's ACTIVE cart only (do not merge into checkout/abandoned/ordered)
+    // Step 2: Find user's ACTIVE cart. If only a checkout cart exists (abandoned
+    // checkout), recover it into a new active cart before merging.
     const userCartQuery = {
       userId,
       status: "active",
       ...(guestCart ? { cartId: { $ne: guestCart.cartId } } : {}),
     };
-    const userCart = await Cart.findOne(userCartQuery).sort({
-      updatedAt: -1,
-    });
+    let userCart = await Cart.findOne(userCartQuery).sort({ updatedAt: -1 });
+
+    if (!userCart) {
+      const checkoutCart = await Cart.findOne({
+        userId,
+        status: "checkout",
+        ...(guestCart ? { cartId: { $ne: guestCart.cartId } } : {}),
+      }).sort({ updatedAt: -1 });
+
+      if (checkoutCart?.items?.length) {
+        userCart = await performRecoverCart(req, res, checkoutCart);
+      }
+    }
 
     // Helper to set cart cookie
     const setCartCookie = (cartId) => {
