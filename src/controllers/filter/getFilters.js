@@ -387,28 +387,30 @@ const getFilters = async (req, res) => {
       });
 
       if (!product.variants || product.variants.length === 0) {
-        const parentPrice = product.pricing?.price || product.price || 0;
-        const parentDiscountPrice =
-          product.pricing?.discountPrice || product.discountPrice;
-        const effectivePrice =
-          parentDiscountPrice && parentDiscountPrice > 0
-            ? parentDiscountPrice
-            : parentPrice;
-        if (effectivePrice && effectivePrice > 0) {
+        const parentPrice = product.price || 0;
+        const parentOfferPrice = product.offerPrice;
+        const now = new Date();
+        const offerValid =
+          parentOfferPrice > 0 &&
+          (!product.offerStartAt || new Date(product.offerStartAt) <= now) &&
+          (!product.offerEndAt || new Date(product.offerEndAt) >= now);
+        const effectivePrice = offerValid ? parentOfferPrice : parentPrice;
+        if (effectivePrice > 0) {
           prices.push(effectivePrice);
         }
         continue;
       }
 
       for (const variant of product.variants) {
-        const variantPrice = variant.pricing?.price || variant.price || 0;
-        const variantDiscountPrice =
-          variant.pricing?.discountPrice || variant.discountPrice;
-        const effectivePrice =
-          variantDiscountPrice && variantDiscountPrice > 0
-            ? variantDiscountPrice
-            : variantPrice;
-        if (effectivePrice && effectivePrice > 0) {
+        const variantPrice = variant.price || 0;
+        const variantOfferPrice = variant.offerPrice;
+        const now = new Date();
+        const offerValid =
+          variantOfferPrice > 0 &&
+          (!variant.offerStartAt || new Date(variant.offerStartAt) <= now) &&
+          (!variant.offerEndAt || new Date(variant.offerEndAt) >= now);
+        const effectivePrice = offerValid ? variantOfferPrice : variantPrice;
+        if (effectivePrice > 0) {
           prices.push(effectivePrice);
         }
       }

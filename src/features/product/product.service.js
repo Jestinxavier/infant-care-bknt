@@ -554,7 +554,6 @@ class ProductService {
             $cond: {
               if: { $ifNull: ["$variants", false] },
               then: {
-                // Variant Logic: Check Offer Validity
                 $let: {
                   vars: {
                     vPrice: { $ifNull: ["$variants.price", 0] },
@@ -588,7 +587,6 @@ class ProductService {
                 },
               },
               else: {
-                // Parent Logic: Check Offer Validity
                 $let: {
                   vars: {
                     pPrice: { $ifNull: ["$price", 0] },
