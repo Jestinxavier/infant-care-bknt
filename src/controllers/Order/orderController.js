@@ -541,8 +541,6 @@ const createOrder = async (req, res) => {
     });
 
     const discountAmount = subtotal - totalAfterDiscount;
-    const shippingAmount =
-      totalAfterDiscount >= freeThreshold ? 0 : shippingCost;
 
     // Step 5: Atomic coupon consumption (supports stacked coupons)
     let couponDiscount = 0;
@@ -591,7 +589,11 @@ const createOrder = async (req, res) => {
       appliedCoupon = { ...appliedCoupons[0], applied: true };
     }
 
-    const totalAmount = totalAfterDiscount + shippingAmount - couponDiscount;
+    // Shipping is decided after all discounts (product + coupon) so the threshold
+    // is checked against what the customer actually pays, not the pre-coupon amount.
+    const payableBeforeShipping = totalAfterDiscount - couponDiscount;
+    const shippingAmount = payableBeforeShipping >= freeThreshold ? 0 : shippingCost;
+    const totalAmount = payableBeforeShipping + shippingAmount;
 
     console.log(
       `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`

@@ -102,6 +102,7 @@ const calculateTotals = async (items) => {
   const productDiscountTotal =
     Math.round((baseSubtotal - discountedSubtotal) * 100) / 100;
   const settings = await getCartSettings();
+  // Initial shipping estimate (before coupon — will be recalculated once coupon is known)
   const shippingEstimate = calculateShipping(discountedSubtotal, settings);
   const total = discountedSubtotal + shippingEstimate;
 
@@ -113,6 +114,7 @@ const calculateTotals = async (items) => {
     shippingEstimate: Math.round(shippingEstimate * 100) / 100,
     total: Math.round(total * 100) / 100,
     itemPrices, // Map of item pricing for formatCartResponse
+    settings, // Returned so callers can recalculate shipping after coupon is known
   };
 };
 
@@ -137,24 +139,109 @@ const totalCouponDiscount = (cart) =>
   (cart.coupons || []).reduce((sum, c) => sum + (c.discountAmount ?? 0), 0);
 
 /**
- * Clear coupons that are no longer eligible (e.g. cart dropped below minCartValue).
- * Must be called before assignCartTotals so the zeroed discount is reflected in total.
+ * Recalculate each applied coupon's discountAmount based on the current cart subtotal.
+ * Fetches coupon type/value from DB. Removes coupons that are no longer eligible.
+ * Mutates cart.coupons in-place.
  */
-const clearCouponsIfIneligible = (cart, discountedSubtotal) => {
+const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) => {
   if (!cart.coupons?.length) return;
-  cart.coupons = cart.coupons.filter((c) => {
-    const minRequired = c.minCartValue ?? 0;
-    return minRequired === 0 || discountedSubtotal >= minRequired;
-  });
+
+  const updatedCoupons = [];
+
+  for (const cartCoupon of cart.coupons) {
+    // Drop coupon if cart dropped below its minimum
+    const minRequired = cartCoupon.minCartValue ?? 0;
+    if (minRequired > 0 && discountedSubtotal < minRequired) continue;
+
+    // Fetch coupon to get type/value for recalculation
+    const couponDoc = await Coupon.findById(cartCoupon.couponId)
+      .select("type value maxDiscount applicableTo applicableProductIds isActive")
+      .lean();
+    if (!couponDoc || !couponDoc.isActive) continue;
+
+    // Determine eligible subtotal (product-scoped coupons)
+    let eligibleSubtotal = discountedSubtotal;
+    let eligibleItemIds = null;
+
+    if (couponDoc.applicableTo === "specific_products" && couponDoc.applicableProductIds?.length > 0) {
+      const eligibleIds = new Set(couponDoc.applicableProductIds.map((id) => id.toString()));
+      let qualifyingSubtotal = 0;
+      const matchedItemIds = new Set();
+
+      for (const item of cart.items) {
+        const productId = (item.productId?._id || item.productId)?.toString();
+        if (eligibleIds.has(productId)) {
+          const itemId = (item._id && item._id.toString()) || productId;
+          const pricing = itemId && itemPrices.get(itemId);
+          qualifyingSubtotal += pricing ? pricing.lineTotal : 0;
+          if (itemId) matchedItemIds.add(itemId);
+        }
+      }
+
+      if (qualifyingSubtotal === 0) continue;
+      eligibleSubtotal = qualifyingSubtotal;
+      eligibleItemIds = matchedItemIds;
+    }
+
+    // Recalculate discount amount
+    let discountAmount = 0;
+    if (couponDoc.type === "flat") {
+      discountAmount = Math.min(couponDoc.value, eligibleSubtotal);
+    } else if (couponDoc.type === "percentage") {
+      discountAmount = (eligibleSubtotal * couponDoc.value) / 100;
+      if (couponDoc.maxDiscount && discountAmount > couponDoc.maxDiscount) {
+        discountAmount = couponDoc.maxDiscount;
+      }
+    }
+    discountAmount = Math.round(discountAmount * 100) / 100;
+
+    // Recalculate per-line discounts
+    const lineDiscounts = [];
+    if (eligibleSubtotal > 0) {
+      for (const item of cart.items) {
+        const itemId =
+          (item._id && item._id.toString()) ||
+          ((item.productId?._id || item.productId)?.toString()) ||
+          null;
+        if (!itemId) continue;
+        if (eligibleItemIds !== null && !eligibleItemIds.has(itemId)) continue;
+        const pricing = itemPrices.get(itemId);
+        const itemLineTotal = pricing ? pricing.lineTotal : 0;
+        if (itemLineTotal === 0) continue;
+        const itemDiscount =
+          Math.round((itemLineTotal / eligibleSubtotal) * discountAmount * 100) / 100;
+        lineDiscounts.push({ itemId, amount: itemDiscount });
+      }
+    }
+
+    updatedCoupons.push({
+      code: cartCoupon.code,
+      couponId: cartCoupon.couponId,
+      discountAmount,
+      minCartValue: cartCoupon.minCartValue,
+      lineDiscounts,
+    });
+  }
+
+  cart.coupons = updatedCoupons;
 };
 
 /**
- * Recompute and assign cart totals (all pricing stages)
- * Returns itemPrices map for use in formatCartResponse
+ * Recompute and assign cart totals (all pricing stages).
+ * Also recalculates coupon discounts based on current subtotal and adjusts
+ * shipping after all discounts so the free-shipping threshold is checked against
+ * what the customer actually pays.
+ * Returns itemPrices map for use in formatCartResponse.
  */
 const recomputeCartTotals = async (cart) => {
   const result = await calculateTotals(cart.items);
-  assignCartTotals(cart, result, totalCouponDiscount(cart));
+  await recalculateCouponDiscounts(cart, result.discountedSubtotal, result.itemPrices);
+  const couponDiscount = totalCouponDiscount(cart);
+  const payableBeforeShipping = result.discountedSubtotal - couponDiscount;
+  const adjustedShipping = calculateShipping(payableBeforeShipping, result.settings);
+  result.shippingEstimate = Math.round(adjustedShipping * 100) / 100;
+  result.total = Math.round((result.discountedSubtotal + adjustedShipping) * 100) / 100;
+  assignCartTotals(cart, result, couponDiscount);
   return result.itemPrices;
 };
 
@@ -166,7 +253,9 @@ const recomputeCartTotals = async (cart) => {
 const getProductDataForCart = async (productId, variantId = null) => {
   const product = await Product.findById(productId);
   if (!product) {
-    throw new Error("Product not found");
+    const err = new Error("Product not found");
+    err.statusCode = 404;
+    throw err;
   }
 
   // Handle BUNDLE products - compute stock from children
@@ -210,7 +299,10 @@ const getProductDataForCart = async (productId, variantId = null) => {
   // Find variant in product.variants array
   const variant = product.variants?.find((v) => v.id === variantId);
   if (!variant) {
-    throw new Error("Variant not found");
+    const err = new Error(`Variant '${variantId}' not found in product`);
+    err.statusCode = 400;
+    err.errorCode = "VARIANT_NOT_FOUND";
+    throw err;
   }
 
   return {
@@ -545,10 +637,8 @@ const getCart = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Recalculate totals dynamically (returns itemPrices for formatCartResponse)
-    const totals = await calculateTotals(cart.items);
-    assignCartTotals(cart, totals, totalCouponDiscount(cart));
-    const itemPrices = totals.itemPrices;
+    // Recalculate totals (coupons + shipping) based on current cart state
+    const itemPrices = await recomputeCartTotals(cart);
 
     await cart.save();
 
@@ -800,6 +890,13 @@ const addItem = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error adding item:", error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        errorCode: error.errorCode || "REQUEST_ERROR",
+        message: error.message,
+      });
+    }
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -914,11 +1011,8 @@ const updateItem = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Recalculate totals; clear coupon if subtotal dropped below its minimum
-    const totals = await calculateTotals(cart.items);
-    clearCouponsIfIneligible(cart, totals.discountedSubtotal);
-    assignCartTotals(cart, totals, totalCouponDiscount(cart));
-    const itemPrices = totals.itemPrices;
+    // Recalculate totals (coupons recalculated + shipping adjusted after discounts)
+    const itemPrices = await recomputeCartTotals(cart);
     await cart.save();
 
     const bundleStocks = await computeBundleStocks(req, cart);
@@ -1059,11 +1153,8 @@ const removeItem = async (req, res) => {
         "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
-    // Recalculate totals; clear coupon if subtotal dropped below its minimum
-    const totals = await calculateTotals(cart.items);
-    clearCouponsIfIneligible(cart, totals.discountedSubtotal);
-    assignCartTotals(cart, totals, totalCouponDiscount(cart));
-    const itemPrices = totals.itemPrices;
+    // Recalculate totals (coupons recalculated + shipping adjusted after discounts)
+    const itemPrices = await recomputeCartTotals(cart);
     await cart.save();
 
     const bundleStocks = await computeBundleStocks(req, cart);
@@ -1970,8 +2061,15 @@ const applyCoupon = async (req, res) => {
       lineDiscounts,
     });
 
+    // Recalculate shipping after coupon so threshold is checked against actual payable amount
+    const couponDiscountTotal = totalCouponDiscount(cart);
+    const payableBeforeShipping = totals.discountedSubtotal - couponDiscountTotal;
+    const adjustedShipping = calculateShipping(payableBeforeShipping, totals.settings);
+    totals.shippingEstimate = Math.round(adjustedShipping * 100) / 100;
+    totals.total = Math.round((totals.discountedSubtotal + adjustedShipping) * 100) / 100;
+
     // Assign totals with combined coupon discount
-    assignCartTotals(cart, totals, totalCouponDiscount(cart));
+    assignCartTotals(cart, totals, couponDiscountTotal);
 
     await cart.save();
 
@@ -2041,7 +2139,12 @@ const removeCoupon = async (req, res) => {
 
     // Recalculate totals with remaining coupons
     const totals = await calculateTotals(cart.items);
-    assignCartTotals(cart, totals, totalCouponDiscount(cart));
+    const remainingCouponDiscount = totalCouponDiscount(cart);
+    const payableBeforeShipping = totals.discountedSubtotal - remainingCouponDiscount;
+    const adjustedShipping = calculateShipping(payableBeforeShipping, totals.settings);
+    totals.shippingEstimate = Math.round(adjustedShipping * 100) / 100;
+    totals.total = Math.round((totals.discountedSubtotal + adjustedShipping) * 100) / 100;
+    assignCartTotals(cart, totals, remainingCouponDiscount);
 
     await cart.save();
 
