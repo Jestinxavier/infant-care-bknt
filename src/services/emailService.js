@@ -1,6 +1,7 @@
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
+const SiteSetting = require("../models/SiteSetting");
 
 /* =====================================================
    ✅ Template Engine (Variables + Conditionals + Loops)
@@ -293,6 +294,9 @@ const sendOrderCancelledEmail = async (user, order) => {
  * ✅ Send Invoice Email
  */
 const sendInvoiceEmail = async (user, order) => {
+  const fromAddressSetting = await SiteSetting.findOne({ key: "order.from_address" }).lean();
+  const fromAddress = fromAddressSetting?.value ?? null;
+
   const orderDate = new Date(order.createdAt).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "long",
@@ -318,14 +322,43 @@ const sendInvoiceEmail = async (user, order) => {
     phone: ship.phone || "—",
   };
 
-  const items = order.items.map((item) => ({
-    productName:
-      item.name || item.productId?.name || item.productName || "Product",
-    quantity: item.quantity,
-    price: item.price,
-    priceFormatted: formatMoney(item.price),
-    itemTotal: (item.price * item.quantity).toFixed(2),
-  }));
+  const items = order.items.map((item) => {
+    const offerPrice = Number(item.price) || 0;
+    const mrp = Number(item.regularPrice) > 0 ? Number(item.regularPrice) : offerPrice;
+    const hasSaving = mrp > offerPrice;
+    return {
+      productName: item.name || item.productId?.name || item.productName || "Product",
+      quantity: item.quantity,
+      price: offerPrice,
+      mrpFormatted: hasSaving ? formatMoney(mrp) : "",
+      priceFormatted: formatMoney(offerPrice),
+      itemTotal: (offerPrice * item.quantity).toFixed(2),
+    };
+  });
+
+  // Build discount lines: product discount + each coupon separately
+  const discountLines = [];
+  const productDiscount = Number(order.priceObj?.productDiscount) || 0;
+  if (productDiscount > 0) {
+    discountLines.push({ label: "Product Discount", amount: `-${formatMoney(productDiscount)}` });
+  }
+  const rawCoupons = Array.isArray(order.coupons) && order.coupons.length
+    ? order.coupons
+    : order.coupon?.discountAmount
+      ? [order.coupon]
+      : [];
+  for (const c of rawCoupons) {
+    if ((c.discountAmount || 0) > 0) {
+      discountLines.push({
+        label: c.code ? `Coupon (${c.code})` : "Coupon Discount",
+        amount: `-${formatMoney(c.discountAmount)}`,
+      });
+    }
+  }
+  // Fallback: no breakdown available but a flat discount exists
+  if (!discountLines.length && (order.discount || 0) > 0) {
+    discountLines.push({ label: "Discount", amount: `-${formatMoney(order.discount)}` });
+  }
 
   return sendTemplateEmail({
     to: user.email,
@@ -342,19 +375,14 @@ const sendInvoiceEmail = async (user, order) => {
       estimatedDelivery:
         order.estimatedDelivery || "We'll notify you when shipped",
 
-      subtotal: (order.subtotal || 0).toFixed(2),
-      shippingCost: (order.shippingCost || 0).toFixed(2),
       subtotalFormatted: formatMoney(order.subtotal || 0),
       shippingFormatted: formatMoney(order.shippingCost || 0),
       totalFormatted: formatMoney(order.totalAmount || order.total || 0),
-      discountFormatted: `-${formatMoney(order.discount || 0)}`,
 
-      hasDiscount: (order.discount || 0) > 0,
-      discount: (order.discount || 0).toFixed(2),
-
-      total: (order.totalAmount || order.total || 0).toFixed(2),
+      discountLines,
 
       shippingAddress: addressBlock,
+      fromAddress,
 
       supportEmail:
         process.env.SUPPORT_EMAIL ||
