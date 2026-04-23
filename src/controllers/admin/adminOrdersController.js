@@ -583,11 +583,22 @@ const updateOrderStatus = async (req, res) => {
       emailService.sendShipmentEmail(order.userId, order);
     }
 
-    // Send order cancelled email if status changed to cancelled
+    // Skip cancellation email for:
+    // 1. Explicit flag from the frontend (skipCancelEmail: true)
+    // 2. Auto-detected: order was never confirmed or paid — no point emailing the customer
+    //    (paymentStatus: pending|failed + orderStatus: pending)
+    const skipCancelEmail =
+      req.body.skipCancelEmail === true ||
+      (
+        ["pending", "failed"].includes(currentOrder.paymentStatus) &&
+        currentOrder.orderStatus === "pending"
+      );
+
     if (
       status === "cancelled" &&
       currentOrder.orderStatus !== "cancelled" &&
-      order.userId?.email
+      order.userId?.email &&
+      !skipCancelEmail
     ) {
       emailService
         .sendOrderCancelledEmail(order.userId, order)
