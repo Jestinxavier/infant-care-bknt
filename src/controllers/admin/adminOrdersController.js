@@ -679,9 +679,96 @@ const sendOrderInvoice = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Manually mark a PhonePe pending order as paid
+ * Sets paymentStatus = "paid", orderStatus = "confirmed", stores phonepeTransactionId, sends invoice.
+ */
+const markOrderAsPaid = async (req, res) => {
+  try {
+    const { orderId, phonepeTransactionId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Order ID is required" });
+    }
+    if (!phonepeTransactionId || !String(phonepeTransactionId).trim()) {
+      return res.status(400).json({ success: false, message: "PhonePe Transaction ID is required" });
+    }
+
+    // Resolve order
+    const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
+    let query = mongoose.Types.ObjectId.isValid(orderId)
+      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
+
+    const order = await Order.findOne(query)
+      .populate("userId", "username email phone")
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Guard: only allow for PhonePe + pending payment
+    if (order.paymentMethod !== PAYMENT_METHODS.PHONEPE) {
+      return res.status(400).json({
+        success: false,
+        message: `This order uses ${order.paymentMethod}. Manual paid marking is only for PhonePe orders.`,
+      });
+    }
+    if (order.paymentStatus === "paid") {
+      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+    }
+
+    // Build status history entry
+    const history = order.statusHistory || [];
+    history.push({
+      status: "confirmed",
+      timestamp: new Date(),
+      note: `Manually marked as paid by admin. PhonePe Transaction ID: ${phonepeTransactionId.trim()}`,
+      updatedBy: req.user?._id,
+    });
+
+    const updated = await Order.findByIdAndUpdate(
+      order._id,
+      {
+        $set: {
+          paymentStatus: "paid",
+          orderStatus: "confirmed",
+          phonepeTransactionId: phonepeTransactionId.trim(),
+          statusHistory: history,
+        },
+      },
+      { new: true }
+    )
+      .populate("userId", "username email phone")
+      .lean();
+
+    if (!updated) {
+      return res.status(500).json({ success: false, message: "Failed to update order" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Order marked as paid and confirmed. Invoice email will be sent.",
+      order: { ...updated, _id: updated._id?.toString() },
+    });
+
+    // Send invoice email asynchronously (don't block the response)
+    if (updated.userId?.email) {
+      emailService
+        .sendInvoiceEmail(updated.userId, updated)
+        .catch((err) => console.error("❌ Invoice email failed after mark-paid:", err.message));
+    }
+  } catch (err) {
+    console.error("❌ Admin Error marking order as paid:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
+  markOrderAsPaid,
 };

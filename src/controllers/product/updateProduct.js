@@ -218,9 +218,27 @@ const updateProduct = async (req, res) => {
     // Update direct pricing fields (for simple/bundle products)
     if (price !== undefined) product.price = price;
     if (stock !== undefined) product.stock = stock;
-    if (offerPrice !== undefined) product.offerPrice = offerPrice;
-    if (offerStartAt !== undefined) product.offerStartAt = offerStartAt;
-    if (offerEndAt !== undefined) product.offerEndAt = offerEndAt;
+
+    // offerPrice: frontend sends "0" to signal "clear the offer price"
+    if (offerPrice !== undefined) {
+      const numericOfferPrice = Number(offerPrice);
+      if (!isNaN(numericOfferPrice) && numericOfferPrice > 0) {
+        product.offerPrice = numericOfferPrice;
+      } else {
+        // 0 or invalid → clear offer price and its associated dates
+        product.offerPrice = undefined;
+        product.offerStartAt = undefined;
+        product.offerEndAt = undefined;
+      }
+    }
+
+    // Only update offer dates if offerPrice was NOT just cleared above
+    if (offerStartAt !== undefined && product.offerPrice) {
+      product.offerStartAt = offerStartAt && offerStartAt !== "" ? new Date(offerStartAt) : undefined;
+    }
+    if (offerEndAt !== undefined && product.offerPrice) {
+      product.offerEndAt = offerEndAt && offerEndAt !== "" ? new Date(offerEndAt) : undefined;
+    }
     const sanitizedFilterAttributes =
       filterAttributes !== undefined
         ? sanitizeIncomingFilterAttributes(filterAttributes)
@@ -879,8 +897,18 @@ const updateProduct = async (req, res) => {
       product: {
         _id: product._id.toString(),
         title: product.title,
+        name: product.name,
         url_key: product.url_key,
+        status: product.status,
+        price: product.price,
+        offerPrice: product.offerPrice,
+        offerStartAt: product.offerStartAt,
+        offerEndAt: product.offerEndAt,
+        stock: product.stock,
+        stockObj: product.stockObj,
+        sku: product.sku,
         variants: product.variants,
+        product_type: product.product_type,
       },
     });
   } catch (err) {

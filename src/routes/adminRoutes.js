@@ -9,6 +9,7 @@ const {
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
+  markOrderAsPaid,
   getAllCategories,
   getCategoryById,
   getAllCustomers,
@@ -1030,6 +1031,46 @@ router.get(
 // Wildcard route — must come AFTER all specific /orders/* routes
 router.get("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
 router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/mark-paid:
+ *   patch:
+ *     summary: "[Admin] Manually mark a PhonePe pending order as paid"
+ *     description: Sets paymentStatus to paid, orderStatus to confirmed, stores the PhonePe transaction ID, and sends invoice email to the customer.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *               - phonepeTransactionId
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 description: Order ID
+ *               phonepeTransactionId:
+ *                 type: string
+ *                 description: PhonePe transaction ID provided by the customer
+ *     responses:
+ *       200:
+ *         description: Order marked as paid and confirmed
+ *       400:
+ *         description: Validation error or order already paid
+ *       404:
+ *         description: Order not found
+ */
+router.patch(
+  "/orders/mark-paid",
+  verifyToken,
+  requireAdmin,
+  markOrderAsPaid,
+);
 
 /**
  * @swagger
