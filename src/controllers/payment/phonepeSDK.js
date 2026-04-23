@@ -14,6 +14,7 @@ const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
 const { randomUUID } = require("crypto");
 const emailService = require("../../services/emailService");
+const { logPhonePeError, logPhonePeInfo } = require("../../utils/logger");
 
 const client = StandardCheckoutClient.getInstance(
   phonePeConfig.credentials.clientId,
@@ -79,14 +80,17 @@ const initiatePayment = async ({ orderId, amount }) => {
           },
         );
       }
-      console.error("PhonePe SDK error", {
+      const errorData = {
         code: err.code,
         httpStatusCode: err.httpStatusCode,
         message: err.message,
         data: err.data,
-      });
+      };
+      console.error("PhonePe SDK error", errorData);
+      logPhonePeError("PhonePe SDK initiation failed", errorData);
       throw new Error("PHONEPE_INITIATION_FAILED");
     }
+    logPhonePeError("Unexpected error during initiatePayment", err);
     throw err;
   }
 };
@@ -141,17 +145,20 @@ const checkOrderStatus = async (req, res) => {
       response = await client.getOrderStatus(orderId);
     } catch (err) {
       if (err instanceof PhonePeException) {
-        console.error("PhonePe getOrderStatus error", {
+        const errorData = {
           orderId,
           code: err.code,
           httpStatusCode: err.httpStatusCode,
           message: err.message,
           data: err.data,
-        });
+        };
+        console.error("PhonePe getOrderStatus error", errorData);
+        logPhonePeError("PhonePe getOrderStatus failed", errorData);
         return res.redirect(
           `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${orderId}`,
         );
       }
+      logPhonePeError("Unexpected error in checkOrderStatus", { orderId, error: err.message });
       throw err;
     }
 
@@ -314,17 +321,20 @@ const phonepeWebhook = async (req, res) => {
       );
     } catch (err) {
       if (err instanceof PhonePeException) {
+        const errorData = {
+          code: err.code,
+          httpStatusCode: err.httpStatusCode,
+          message: err.message,
+          data: err.data,
+        };
         console.error(
           "❌ PhonePe webhook: Invalid callback (validateCallback failed)",
-          {
-            code: err.code,
-            httpStatusCode: err.httpStatusCode,
-            message: err.message,
-            data: err.data,
-          },
+          errorData,
         );
+        logPhonePeError("Webhook validation failed", errorData);
         return res.status(400).send("INVALID CALLBACK");
       }
+      logPhonePeError("Unexpected error in webhook validation", err);
       throw err;
     }
 
@@ -397,16 +407,18 @@ const phonepeWebhook = async (req, res) => {
         { new: true },
       );
 
-      console.log(
-        `✅ PhonePe payment successful for order ${merchantOrderId}`,
-        {
+      const successLog = {
           transactionId,
           orderId: updatedOrder._id,
           paymentStatus: updatedOrder.paymentStatus,
           orderStatus: updatedOrder.orderStatus,
           payload: JSON.stringify(payload).substring(0, 200), // Log first 200 chars
-        },
+      };
+      console.log(
+        `✅ PhonePe payment successful for order ${merchantOrderId}`,
+        successLog,
       );
+      logPhonePeInfo(`Payment successful for order ${merchantOrderId}`, successLog);
 
       await Cart.findOneAndUpdate(
         { orderId: updatedOrder._id },
@@ -445,10 +457,12 @@ const phonepeWebhook = async (req, res) => {
         },
       );
 
-      console.log(`❌ PhonePe payment failed for order ${merchantOrderId}`, {
+      const failLog = {
         orderId: order._id,
         payload: JSON.stringify(payload),
-      });
+      };
+      console.log(`❌ PhonePe payment failed for order ${merchantOrderId}`, failLog);
+      logPhonePeError(`Payment failed for order ${merchantOrderId}`, failLog);
 
       await Cart.findOneAndUpdate(
         { orderId: order._id },
@@ -464,6 +478,7 @@ const phonepeWebhook = async (req, res) => {
     return res.status(200).send("OK");
   } catch (err) {
     console.error("PhonePe webhook error:", err.message, err.stack);
+    logPhonePeError("Webhook processing crashed", { message: err.message, stack: err.stack, body: req.rawBody });
     try {
       const body = JSON.parse(req.rawBody);
       const merchantOrderId =
@@ -632,7 +647,7 @@ const initiateRefund = async (req, res) => {
       response = await client.refund(request);
     } catch (sdkErr) {
       if (sdkErr instanceof PhonePeException) {
-        console.error("❌ [initiateRefund] PhonePe SDK refund call failed", {
+        const errorData = {
           orderId,
           refundId,
           amountToRefund,
@@ -640,7 +655,9 @@ const initiateRefund = async (req, res) => {
           httpStatusCode: sdkErr.httpStatusCode,
           message: sdkErr.message,
           data: sdkErr.data,
-        });
+        };
+        console.error("❌ [initiateRefund] PhonePe SDK refund call failed", errorData);
+        logPhonePeError("PhonePe SDK refund call failed", errorData);
         return res.status(502).json({
           success: false,
           message: sdkErr.message || "Refund initiation failed via PhonePe",
@@ -779,11 +796,13 @@ const initiateRefund = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ [initiateRefund] Unexpected error", {
+    const errorData = {
       orderId,
       message: err.message,
       stack: err.stack,
-    });
+    };
+    console.error("❌ [initiateRefund] Unexpected error", errorData);
+    logPhonePeError("Unexpected error in initiateRefund", errorData);
     return res.status(500).json({
       success: false,
       message: err.message || "Internal server error",
