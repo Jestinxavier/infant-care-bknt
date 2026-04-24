@@ -561,10 +561,7 @@ const createProduct = async (req, res) => {
           attributesMap,
         );
 
-        // Support both direct fields and nested pricing/stock
         const price = v.pricing?.price || v.price || 0;
-        const discountPrice =
-          v.pricing?.discountPrice || v.discountPrice || null;
         const stock =
           v.stockObj?.available !== undefined
             ? v.stockObj.available
@@ -573,6 +570,43 @@ const createProduct = async (req, res) => {
           v.stockObj?.isInStock !== undefined
             ? v.stockObj.isInStock
             : stock > 0;
+
+        const offerPriceRaw =
+          v.offerPrice != null
+            ? v.offerPrice
+            : v.pricing && v.pricing.discountPrice != null
+            ? v.pricing.discountPrice
+            : v.discountPrice;
+        const offerPrice =
+          offerPriceRaw != null && offerPriceRaw !== ""
+            ? Number(offerPriceRaw)
+            : undefined;
+            
+        const offerStartAtRaw =
+          v.offerStartAt != null && v.offerStartAt !== ""
+            ? v.offerStartAt
+            : v.pricing && v.pricing.offerStartAt != null
+            ? v.pricing.offerStartAt
+            : null;
+        const offerStartAtDate = offerStartAtRaw
+          ? new Date(offerStartAtRaw)
+          : null;
+        const offerStartAt =
+          offerStartAtDate && !isNaN(offerStartAtDate.getTime())
+            ? offerStartAtDate
+            : undefined;
+            
+        const offerEndAtRaw =
+          v.offerEndAt != null && v.offerEndAt !== ""
+            ? v.offerEndAt
+            : v.pricing && v.pricing.offerEndAt != null
+            ? v.pricing.offerEndAt
+            : null;
+        const offerEndAtDate = offerEndAtRaw ? new Date(offerEndAtRaw) : null;
+        const offerEndAt =
+          offerEndAtDate && !isNaN(offerEndAtDate.getTime())
+            ? offerEndAtDate
+            : undefined;
 
         // ✅ Generate options hash for duplicate detection
         const optionsHash = createOptionsHash(attributesMap);
@@ -611,14 +645,15 @@ const createProduct = async (req, res) => {
           name: variantName,
           sku: variantSku,
           url_key: variantUrlKey,
-          // Keep direct fields for backward compatibility
           price: price,
-          discountPrice: discountPrice,
+          offerPrice: offerPrice != null && offerPrice > 0 ? offerPrice : undefined,
+          offerStartAt: offerStartAt || undefined,
+          offerEndAt: offerEndAt || undefined,
           stock: stock,
           // New nested format
           pricing: {
             price: price,
-            ...(discountPrice ? { discountPrice: discountPrice } : {}),
+            ...(offerPrice != null && offerPrice > 0 ? { discountPrice: offerPrice } : {}),
           },
           stockObj: {
             available: stock,
