@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const logger = require("../../utils/logger");
 
 /**
  * Update a specific block/section within a CMS page
@@ -128,14 +129,14 @@ const updateCmsBlock = async (req, res) => {
           "cms",
           existingDoc._id
         );
-        console.log(`✅ [CMS] Finalized images for block ${blockType}:`, {
+        logger.info(`✅ [CMS] Finalized images for block ${blockType}:`, {
           total: imagePublicIds.length,
           succeeded: finalizeResult.success.length,
           failed: finalizeResult.failed.length,
         });
       }
     } catch (finalizeError) {
-      console.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
+      logger.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
     }
 
     res.status(200).json({
@@ -149,7 +150,7 @@ const updateCmsBlock = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error updating CMS block:", err);
+    logger.error("❌ Error updating CMS block:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

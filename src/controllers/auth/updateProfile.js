@@ -1,4 +1,5 @@
 const User = require("../../models/user");
+const logger = require("../../utils/logger");
 
 const updateProfile = async (req, res) => {
   try {
@@ -71,7 +72,7 @@ const updateProfile = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Update profile error:", error);
+    logger.error("Update profile error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to update profile",

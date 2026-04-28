@@ -76,6 +76,8 @@ function calculateShippingCost(subtotal, freeShippingThreshold = 500) {
  */
 function canTransitionStatus(currentStatus, newStatus) {
   const validTransitions = {
+    pending: ["confirmed", "processing", "cancelled"],
+    confirmed: ["processing", "cancelled"],
     processing: ["shipped", "cancelled"],
     shipped: ["delivered", "cancelled"],
     delivered: ["returned"],
@@ -83,7 +85,10 @@ function canTransitionStatus(currentStatus, newStatus) {
     returned: [],
   };
 
-  return validTransitions[currentStatus]?.includes(newStatus) || false;
+  const allowed = validTransitions[currentStatus];
+  // Unknown current status (schema mismatch) — allow admin to correct it
+  if (allowed === undefined) return true;
+  return allowed.includes(newStatus);
 }
 
 module.exports = {

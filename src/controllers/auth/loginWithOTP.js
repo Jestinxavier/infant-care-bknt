@@ -1,6 +1,7 @@
 const User = require("../../models/user");
 const PendingUser = require("../../models/PendingUser");
 const Token = require("../../models/token");
+const logger = require("../../utils/logger");
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -62,10 +63,10 @@ const requestLoginOTP = async (req, res) => {
     // Send OTP email
     try {
       await sendOTPEmail({ email: user.email, username: user.username }, otp);
-      console.log("✅ Login OTP sent to:", user.email);
+      logger.info("✅ Login OTP sent to:", user.email);
     } catch (emailError) {
       await PendingUser.deleteOne({ _id: pendingOTP._id });
-      console.error("❌ Failed to send login OTP:", emailError);
+      logger.error("❌ Failed to send login OTP:", emailError);
       return res.status(500).json({
         success: false,
         message: "Failed to send OTP email. Please try again.",
@@ -79,7 +80,7 @@ const requestLoginOTP = async (req, res) => {
       expiresIn: TOKEN_EXPIRY.OTP,
     });
   } catch (err) {
-    console.error("❌ Error requesting login OTP:", err);
+    logger.error("❌ Error requesting login OTP:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -184,7 +185,7 @@ const verifyLoginOTP = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error verifying login OTP:", err);
+    logger.error("❌ Error verifying login OTP:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

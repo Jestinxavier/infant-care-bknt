@@ -3,6 +3,8 @@ const Collection = require("../../models/Collection");
 const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { parseCollectionsInput } = require("../../utils/collectionUtils");
+const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
 
 /**
  * Get all products - returns variants as separate items if inStock, otherwise parent product
@@ -177,7 +179,7 @@ const getAllProducts = async (req, res) => {
       pagination: result.pagination,
     });
   } catch (err) {
-    console.error("❌ Error fetching products:", err);
+    logger.error("❌ Error fetching products:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -235,16 +237,11 @@ const getProductByUrlKey = async (req, res) => {
     // This helps with products that don't have url_key yet
     if (!product) {
       // Try to find by matching slugified title or name
+      const safeSlug = escapeRegex(url_key.replace(/-/g, " "));
       product = await Product.findOne({
         $or: [
-          {
-            title: {
-              $regex: new RegExp(`^${url_key.replace(/-/g, " ")}`, "i"),
-            },
-          },
-          {
-            name: { $regex: new RegExp(`^${url_key.replace(/-/g, " ")}`, "i") },
-          },
+          { title: { $regex: new RegExp(`^${safeSlug}`, "i") } },
+          { name: { $regex: new RegExp(`^${safeSlug}`, "i") } },
         ],
       })
         .populate("category", "name slug")
@@ -437,7 +434,7 @@ const getProductByUrlKey = async (req, res) => {
       ...formattedProduct,
     });
   } catch (err) {
-    console.error("❌ Error fetching product:", err);
+    logger.error("❌ Error fetching product:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -513,7 +510,7 @@ const getProductById = async (req, res) => {
       totalVariants: variants.length,
     });
   } catch (err) {
-    console.error("❌ Error fetching product:", err);
+    logger.error("❌ Error fetching product:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -546,7 +543,7 @@ const getVariantById = async (req, res) => {
       variant,
     });
   } catch (err) {
-    console.error("❌ Error fetching variant:", err);
+    logger.error("❌ Error fetching variant:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -635,7 +632,7 @@ const collectSearchKeywords = (product = {}) => {
 };
 
 const getSearchIndex = async (req, res) => {
-  console.log("🔍 Search Index API called");
+  logger.info("🔍 Search Index API called");
   try {
     if (_searchIndexCache && Date.now() - _searchIndexCacheAt < SEARCH_INDEX_TTL_MS) {
       return res.status(200).json(_searchIndexCache);
@@ -644,12 +641,12 @@ const getSearchIndex = async (req, res) => {
     // Fetch all published products with minimal fields
     const products = await Product.find({ status: { $ne: "rejected" } })
       .select(
-        "title name url_key images pricing price category status variants collections badgeCollection filterAttributes"
+        "title name url_key images pricing price category status sku variants collections badgeCollection filterAttributes"
       )
       .populate("category", "name slug")
       .lean();
 
-    console.log(`✅ Found ${products.length} products for index`);
+    logger.info(`✅ Found ${products.length} products for index`);
 
     const searchIndex = products.map((product) => {
       // Get effective price
@@ -670,6 +667,10 @@ const getSearchIndex = async (req, res) => {
       const rawImage = product.images?.[0];
       const image = typeof rawImage === "string" ? rawImage : "";
 
+      const variantSkus = Array.isArray(product.variants)
+        ? product.variants.map((v) => v.sku).filter(Boolean)
+        : [];
+
       return {
         id: product._id,
         title: product.title || product.name,
@@ -678,6 +679,8 @@ const getSearchIndex = async (req, res) => {
         image: image,
         category: product.category?.name || "Uncategorized",
         status: product.status,
+        sku: product.sku || null,
+        skus: product.sku ? [product.sku, ...variantSkus] : variantSkus,
         collections: Array.isArray(product.collections)
           ? product.collections.filter(Boolean)
           : [],
@@ -691,7 +694,7 @@ const getSearchIndex = async (req, res) => {
     _searchIndexCacheAt = Date.now();
     res.status(200).json(payload);
   } catch (error) {
-    console.error("❌ Error fetching search index:", error);
+    logger.error("❌ Error fetching search index:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

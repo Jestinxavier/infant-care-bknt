@@ -254,6 +254,18 @@ const productSchema = new mongoose.Schema(
     // Product-level images (same type as variant.images - array of URL strings)
     images: [{ type: String }],
 
+    // Product videos (Cloudinary upload or YouTube embed)
+    videos: [
+      {
+        type: { type: String, enum: ["cloudinary", "youtube"], required: true },
+        url: { type: String, required: true },
+        publicId: { type: String }, // Cloudinary only
+        thumbnail: { type: String }, // auto-derived at save
+        title: { type: String },
+        _id: false,
+      },
+    ],
+
     // Variant structure
     variantOptions: [variantOptionSchema],
     variants: [variantSchema],
@@ -465,9 +477,14 @@ productSchema.pre("findByIdAndUpdate", syncFilterAttributesOnQueryUpdate);
 // Actually, user might mean "Product Uniqueness" if modeled differently, but here it is embedded.
 // I will implement the PRE-SAVE VALIDATION for this.
 
-productSchema.index({ category: 1, status: 1 });
+// Compound indexes — PLP category + status + sort patterns
+productSchema.index({ category: 1, status: 1, createdAt: -1 });
+productSchema.index({ category: 1, status: 1, averageRating: -1 });
+productSchema.index({ category: 1, status: 1, price: 1 });
 productSchema.index({ status: 1, createdAt: -1 });
-productSchema.index({ "variants._optionsHash": 1 });
+productSchema.index({ status: 1, averageRating: -1 });
+
+// Filter attribute multikey indexes (used by PLP filter queries)
 productSchema.index({ "filterAttributes.color": 1 });
 productSchema.index({ "filterAttributes.size": 1 });
 productSchema.index({ "filterAttributes.material": 1 });
@@ -477,5 +494,23 @@ productSchema.index({ "filterAttributes.sleeve": 1 });
 productSchema.index({ "filterAttributes.occasion": 1 });
 productSchema.index({ "filterAttributes.pattern": 1 });
 productSchema.index({ "filterAttributes.pack": 1 });
+
+// Variant hash — prevents duplicate variants within the same product
+productSchema.index({ "variants._optionsHash": 1 });
+
+// Full-text search index — used by product.service search instead of regex
+productSchema.index(
+  {
+    title: "text",
+    description: "text",
+    categoryName: "text",
+    "variants.name": "text",
+    collections: "text",
+  },
+  {
+    weights: { title: 10, "variants.name": 5, categoryName: 3, description: 1 },
+    name: "product_text_search",
+  }
+);
 
 module.exports = mongoose.model("Product", productSchema);

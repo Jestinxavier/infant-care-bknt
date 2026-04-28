@@ -1,4 +1,5 @@
 const Order = require("../../models/Order");
+const logger = require("../../utils/logger");
 
 /**
  * Get all orders for the authenticated user (list view – minimal fields only).
@@ -93,7 +94,7 @@ const getOrders = async (req, res) => {
       limit,
     });
   } catch (err) {
-    console.error("❌ Error fetching orders:", err);
+    logger.error("❌ Error fetching orders:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

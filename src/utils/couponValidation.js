@@ -113,6 +113,11 @@ const validateCoupon = async (couponCode, cartSubtotal, userId) => {
     }
   }
 
+  // free_gift coupons have no monetary discount — handled separately in cart controller
+  if (coupon.type === "free_gift") {
+    return { valid: true, coupon, discount: 0 };
+  }
+
   // Calculate discount
   let discount = 0;
   if (coupon.type === "flat") {
@@ -270,6 +275,11 @@ const consumeCoupon = async (
       error: "COUPON_INVALID",
       message: "Coupon is not valid",
     };
+  }
+
+  // free_gift coupons have no monetary discount — gift value is via zero-price order item
+  if (result.type === "free_gift") {
+    return { success: true, coupon: result, discount: 0 };
   }
 
   // Calculate discount

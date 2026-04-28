@@ -1,5 +1,6 @@
 const Category = require("../../models/Category");
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 const { cacheDel } = require("../../utils/redisCache");
 
 /**
@@ -75,7 +76,7 @@ const bulkDeleteCategories = async (req, res) => {
         results.successCount++;
         results.deletedIds.push(id);
       } catch (err) {
-        console.error(`Error deleting category ${id}:`, err);
+        logger.error(`Error deleting category ${id}:`, err);
         results.failureCount++;
         results.failed.push({ id, reason: err.message });
       }
@@ -96,7 +97,7 @@ const bulkDeleteCategories = async (req, res) => {
       results,
     });
   } catch (error) {
-    console.error("❌ Error in bulk delete categories:", error);
+    logger.error("❌ Error in bulk delete categories:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

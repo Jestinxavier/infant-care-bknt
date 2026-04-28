@@ -1,5 +1,7 @@
 const Category = require("../../models/Category");
 const { toCloudinaryUrl } = require("../../utils/cloudinaryUrlUtils");
+const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
 
 /**
  * Admin: Get all categories (including inactive)
@@ -23,7 +25,7 @@ const getAllCategories = async (req, res) => {
       filter.isActive = true;
     }
     if (search) {
-      filter.name = { $regex: search, $options: "i" };
+      filter.name = { $regex: escapeRegex(search), $options: "i" };
     }
 
     const total = await Category.countDocuments(filter);
@@ -56,7 +58,7 @@ const getAllCategories = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Admin Error fetching categories:", error);
+    logger.error("❌ Admin Error fetching categories:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -109,7 +111,7 @@ const getCategoryById = async (req, res) => {
       category: categoryObj,
     });
   } catch (error) {
-    console.error("❌ Admin Error fetching category:", error);
+    logger.error("❌ Admin Error fetching category:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

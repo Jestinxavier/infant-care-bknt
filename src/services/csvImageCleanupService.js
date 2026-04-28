@@ -7,13 +7,14 @@
 const cron = require("node-cron");
 const { cloudinary } = require("../config/cloudinary");
 const CsvTempImage = require("../models/CsvTempImage");
+const logger = require("../utils/logger");
 
 /**
  * Cleanup stale CSV temp images older than 7 days
  */
 async function cleanupStaleCsvTempImages() {
   try {
-    console.log(
+    logger.info(
       "🧹 [CSV Cleanup] Starting cleanup of stale CSV temp images..."
     );
 
@@ -23,12 +24,12 @@ async function cleanupStaleCsvTempImages() {
       uploadedAt: { $lt: sevenDaysAgo },
     });
 
-    console.log(
+    logger.info(
       `📊 [CSV Cleanup] Found ${staleImages.length} stale CSV temp images`
     );
 
     if (staleImages.length === 0) {
-      console.log("✅ [CSV Cleanup] No stale images to clean up");
+      logger.info("✅ [CSV Cleanup] No stale images to clean up");
       return { deleted: 0, failed: 0 };
     }
 
@@ -49,12 +50,12 @@ async function cleanupStaleCsvTempImages() {
           // Remove from database
           await CsvTempImage.findByIdAndDelete(image._id);
           results.deleted.push(image.temp_key);
-          console.log(`✅ [CSV Cleanup] Deleted: ${image.temp_key}`);
+          logger.info(`✅ [CSV Cleanup] Deleted: ${image.temp_key}`);
         } else {
           throw new Error(`Cloudinary delete failed: ${result.result}`);
         }
       } catch (error) {
-        console.error(
+        logger.error(
           `❌ [CSV Cleanup] Failed to delete ${image.temp_key}:`,
           error.message
         );
@@ -65,7 +66,7 @@ async function cleanupStaleCsvTempImages() {
       }
     }
 
-    console.log("✅ [CSV Cleanup] Cleanup completed:", {
+    logger.info("✅ [CSV Cleanup] Cleanup completed:", {
       deleted: results.deleted.length,
       failed: results.failed.length,
     });
@@ -75,7 +76,7 @@ async function cleanupStaleCsvTempImages() {
       failed: results.failed.length,
     };
   } catch (error) {
-    console.error("❌ [CSV Cleanup] Cleanup error:", error);
+    logger.error("❌ [CSV Cleanup] Cleanup error:", error);
     return { deleted: 0, failed: 0, error: error.message };
   }
 }
@@ -88,23 +89,23 @@ function startCsvImageCleanupCron() {
   // Schedule: 15 2 * * * = Every day at 2:15 AM
   const cronExpression = process.env.CSV_IMAGE_CLEANUP_CRON || "15 2 * * *";
 
-  console.log(
+  logger.info(
     `⏰ [CSV Cleanup] Scheduling cron job with expression: ${cronExpression}`
   );
 
   cron.schedule(cronExpression, async () => {
-    console.log("⏰ [CSV Cleanup] Cron job triggered");
+    logger.info("⏰ [CSV Cleanup] Cron job triggered");
     await cleanupStaleCsvTempImages();
   });
 
-  console.log("✅ [CSV Cleanup] Cron job started");
+  logger.info("✅ [CSV Cleanup] Cron job started");
 
   // Run immediately on startup if in development (for testing)
   if (
     process.env.NODE_ENV === "development" &&
     process.env.RUN_CSV_CLEANUP_ON_START === "true"
   ) {
-    console.log(
+    logger.info(
       "🧪 [CSV Cleanup] Running cleanup on startup (development mode)"
     );
     cleanupStaleCsvTempImages();

@@ -10,6 +10,7 @@ const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
 const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
+const logger = require("../../utils/logger");
 const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
 
 const generateOrderId = () =>
@@ -23,24 +24,47 @@ const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
 
   try {
-    const { userId, items, addressId, newAddress, paymentMethod, cartId } =
+    const { userId: rawUserId, guestInfo, items, addressId, newAddress, paymentMethod, cartId } =
       req.body;
 
+    // Resolve userId — authenticated users send it in body; guests don't
+    const userId = req.user?.id || rawUserId || null;
+    const isGuest = !userId;
+
     // === VALIDATION ===
-    if (!userId || !items || items.length === 0) {
+    if (!items || items.length === 0) {
       return res.status(400).json({
         success: false,
         errorCode: "INVALID_REQUEST",
-        message: "User ID and order items are required",
+        message: "Order items are required",
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
         errorCode: "INVALID_USER_ID",
         message: "Invalid User ID format",
       });
+    }
+
+    // Guest orders require guestInfo
+    if (isGuest) {
+      if (!guestInfo?.name || !guestInfo?.email || !guestInfo?.phone) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "GUEST_INFO_REQUIRED",
+          message: "Name, email, and phone are required for guest checkout",
+        });
+      }
+      // Basic email validation
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestInfo.email)) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_EMAIL",
+          message: "Please provide a valid email address",
+        });
+      }
     }
 
     // === IDEMPOTENCY CHECK (Key-Based) ===
@@ -58,7 +82,7 @@ const createOrder = async (req, res) => {
     const existingOrder = await Order.findOne({ idempotencyKey });
 
     if (existingOrder) {
-      console.log(
+      logger.info(
         `♻️ Idempotent order creation: Returning existing order ${existingOrder.orderId}`
       );
       return res.status(200).json({
@@ -73,15 +97,26 @@ const createOrder = async (req, res) => {
     session.startTransaction();
 
     // Step 1: Load and validate cart (must be in checkout status)
-    // Prefer cartId from request so we use the cart the user just started checkout with,
-    // not an old expired checkout cart when the user has multiple checkout carts.
-    const cartQuery = { userId, status: "checkout" };
-    if (cartId) cartQuery.cartId = cartId;
+    // Guests: look up by cartId only (no userId). Auth users: prefer cartId if provided.
+    let cartQuery;
+    if (isGuest) {
+      if (!cartId) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "CART_ID_REQUIRED",
+          message: "Cart ID is required for guest checkout",
+        });
+      }
+      cartQuery = { cartId, status: "checkout" };
+    } else {
+      cartQuery = { userId, status: "checkout" };
+      if (cartId) cartQuery.cartId = cartId;
+    }
     const cart = await Cart.findOne(cartQuery).session(session);
 
-    console.log(
-      `🛒 Looking for checkout cart for user: ${userId}`,
-      cartId ? `cartId: ${cartId}` : "no cartId in body",
+    logger.info(
+      `🛒 Looking for checkout cart`,
+      isGuest ? `[guest] cartId: ${cartId}` : `userId: ${userId}`,
       `Found: ${cart ? cart.cartId : "null"}`,
       `Coupons: ${cart ? JSON.stringify(cart.coupons) : "N/A"}`
     );
@@ -238,6 +273,7 @@ const createOrder = async (req, res) => {
       const variantAttributes = cartItem ? cartItem.attributesSnapshot : null;
       const selectedGiftSku =
         item.selectedGiftSku ?? (cartItem ? cartItem.selectedGiftSku : null);
+      const isFreeGiftCouponItem = cartItem?.isFreeGiftCoupon === true;
 
       // Validate stock BEFORE atomic update
       if (stock < item.quantity) {
@@ -260,18 +296,21 @@ const createOrder = async (req, res) => {
         };
       }
 
-      // Use regularPrice for subtotal (original price before discounts)
-      subtotal += regularPrice * itemQuantity;
-      // Use unitPrice (after quantity tiers) for final pricing
-      totalAfterDiscount += unitPrice * itemQuantity;
+      // Free gift coupon items are zero-priced and don't contribute to subtotal
+      const effectiveUnitPrice = isFreeGiftCouponItem ? 0 : unitPrice;
+      if (!isFreeGiftCouponItem) {
+        subtotal += regularPrice * itemQuantity;
+        totalAfterDiscount += unitPrice * itemQuantity;
+      }
       totalQuantity += itemQuantity;
 
       orderItems.push({
         productId: product._id,
         variantId: item.variantId || null,
         quantity: itemQuantity,
-        price: unitPrice, // Resolved price after quantity tiers
-        regularPrice: regularPrice, // Original price for display
+        price: effectiveUnitPrice,
+        regularPrice: isFreeGiftCouponItem ? regularPrice : regularPrice,
+        isGift: isFreeGiftCouponItem,
         selectedGiftSku: selectedGiftSku, // Persist gift choice on main item
 
         // Product Snapshot
@@ -548,7 +587,7 @@ const createOrder = async (req, res) => {
     const appliedCoupons = [];
 
     const cartCoupons = cart.coupons?.length > 0 ? cart.coupons : [];
-    console.log(`🎟️ Cart coupons:`, JSON.stringify(cartCoupons));
+    logger.info(`🎟️ Cart coupons:`, JSON.stringify(cartCoupons));
 
     for (const cartCoupon of cartCoupons) {
       const couponMin = cartCoupon.minCartValue ?? 0;
@@ -560,11 +599,11 @@ const createOrder = async (req, res) => {
         };
       }
 
-      console.log(`🎟️ Consuming coupon ${cartCoupon.code} (value=${totalAfterDiscount}, userId=${userId})`);
+      logger.info(`🎟️ Consuming coupon ${cartCoupon.code} (value=${totalAfterDiscount}, userId=${userId || "guest"})`);
 
-      const consumption = await consumeCoupon(cartCoupon.code, totalAfterDiscount, userId, session);
+      const consumption = await consumeCoupon(cartCoupon.code, totalAfterDiscount, userId || null, session);
 
-      console.log(`🎟️ Consumption result:`, JSON.stringify(consumption));
+      logger.info(`🎟️ Consumption result:`, JSON.stringify(consumption));
 
       if (!consumption.success) {
         throw {
@@ -581,7 +620,7 @@ const createOrder = async (req, res) => {
         discountAmount: consumption.discount,
       });
 
-      console.log(`✅ Coupon ${cartCoupon.code} consumed. Discount: ₹${consumption.discount}`);
+      logger.info(`✅ Coupon ${cartCoupon.code} consumed. Discount: ₹${consumption.discount}`);
     }
 
     // Primary coupon for backward compat (first one, or highest discount)
@@ -595,7 +634,7 @@ const createOrder = async (req, res) => {
     const shippingAmount = payableBeforeShipping >= freeThreshold ? 0 : shippingCost;
     const totalAmount = payableBeforeShipping + shippingAmount;
 
-    console.log(
+    logger.info(
       `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`
     );
 
@@ -603,7 +642,14 @@ const createOrder = async (req, res) => {
     let finalAddressId = addressId;
     let shippingAddressData = null;
 
-    if (!addressId && newAddress) {
+    if (isGuest) {
+      // Guests always use newAddress (no saved addresses)
+      if (!newAddress) {
+        throw { code: "ADDRESS_REQUIRED", message: "Shipping address is required for guest checkout" };
+      }
+      shippingAddressData = newAddress;
+      finalAddressId = null;
+    } else if (!addressId && newAddress) {
       const address = new Address({ userId, ...newAddress });
       const savedAddress = await address.save({ session });
       finalAddressId = savedAddress._id;
@@ -620,7 +666,8 @@ const createOrder = async (req, res) => {
     }
 
     // Step 7: Create order with pricing snapshot
-    if (!finalAddressId || !shippingAddressData) {
+    // Guests have finalAddressId = null (intentional), so only check shippingAddressData
+    if (!shippingAddressData || (!isGuest && !finalAddressId)) {
       return res
         .status(400)
         .json({ message: "Address ID or new address is required" });
@@ -630,7 +677,13 @@ const createOrder = async (req, res) => {
     const orderId = generateOrderId();
 
     const order = new Order({
-      userId: new mongoose.Types.ObjectId(userId),
+      userId: userId ? new mongoose.Types.ObjectId(userId) : null,
+      isGuestOrder: isGuest,
+      guestInfo: isGuest ? {
+        name: guestInfo.name,
+        email: guestInfo.email.toLowerCase().trim(),
+        phone: guestInfo.phone,
+      } : undefined,
       orderId,
       idempotencyKey, // Store idempotency key with order
       cartId: cart.cartId, // Store cartId for webhook reference
@@ -686,7 +739,7 @@ const createOrder = async (req, res) => {
     // === COMMIT TRANSACTION ===
     await session.commitTransaction();
 
-    console.log(
+    logger.info(
       `✅ Order ${order.orderId} created successfully in transaction`
     );
 
@@ -708,12 +761,12 @@ const createOrder = async (req, res) => {
           throw new Error("Redirect URL missing from SDK response");
         }
       } catch (error) {
-        console.error("❌ Error initiating PhonePe payment:", error);
+        logger.error("❌ Error initiating PhonePe payment:", error);
 
         // === CLEANUP LONE ORDER (Case 3: Payment Init Failed) ===
         // Since transaction is already committed, we must manually undo changes.
         try {
-          console.log(`⚠️ Cleaning up failed order ${order.orderId}...`);
+          logger.info(`⚠️ Cleaning up failed order ${order.orderId}...`);
 
           // 1. Cancel the order
           await Order.findByIdAndUpdate(order._id, {
@@ -770,9 +823,9 @@ const createOrder = async (req, res) => {
           });
           */
 
-          console.log(`✅ Cleanup successful for order ${order.orderId}`);
+          logger.info(`✅ Cleanup successful for order ${order.orderId}`);
         } catch (cleanupError) {
-          console.error(
+          logger.error(
             "🔥 CRITICAL: Failed to cleanup order after payment error:",
             cleanupError
           );
@@ -796,21 +849,31 @@ const createOrder = async (req, res) => {
       customerName:
         shippingAddressData?.fullName ||
         shippingAddressData?.name ||
+        guestInfo?.name ||
         "Customer",
       itemsCount: totalQuantity,
       createdAt: order.createdAt,
     });
+
+    // Send confirmation email to guest after commit
+    if (isGuest) {
+      const { sendGuestOrderConfirmationEmail } = require("../../services/emailService");
+      sendGuestOrderConfirmationEmail(guestInfo, order).catch((err) =>
+        logger.error("❌ Failed to send guest order confirmation email:", err)
+      );
+    }
 
     return res.status(201).json({
       success: true,
       message: "Order placed successfully",
       paymentMode: "cod",
       orderId: order.orderId,
+      isGuestOrder: isGuest,
       requiresPayment: false,
     });
   } catch (error) {
     await session.abortTransaction();
-    console.error("❌ Order creation failed:", error);
+    logger.error("❌ Order creation failed:", error);
 
     // Structured error responses
     if (error.code === "OUT_OF_STOCK") {

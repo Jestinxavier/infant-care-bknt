@@ -1,5 +1,6 @@
 const User = require("../../models/user");
 const crypto = require("crypto");
+const logger = require("../../utils/logger");
 
 /**
  * Reset password using token
@@ -46,7 +47,7 @@ const resetPassword = async (req, res) => {
       message: "Password reset successfully. You can now login with your new password.",
     });
   } catch (err) {
-    console.error("❌ Error resetting password:", err);
+    logger.error("❌ Error resetting password:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

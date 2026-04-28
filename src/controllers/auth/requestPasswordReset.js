@@ -1,6 +1,7 @@
 const User = require("../../models/user");
 const { sendPasswordResetEmail } = require("../../services/emailService");
 const crypto = require("crypto");
+const logger = require("../../utils/logger");
 
 /**
  * Request password reset
@@ -38,9 +39,9 @@ const requestPasswordReset = async (req, res) => {
     // Send reset email
     try {
       await sendPasswordResetEmail(user, resetToken);
-      console.log("✅ Password reset email sent to:", user.email);
+      logger.info("✅ Password reset email sent to:", user.email);
     } catch (emailError) {
-      console.error("❌ Error sending password reset email:", emailError);
+      logger.error("❌ Error sending password reset email:", emailError);
       // Clear the token if email fails
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
@@ -56,7 +57,7 @@ const requestPasswordReset = async (req, res) => {
       message: "If an account exists with this email, a password reset link has been sent.",
     });
   } catch (err) {
-    console.error("❌ Error requesting password reset:", err);
+    logger.error("❌ Error requesting password reset:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

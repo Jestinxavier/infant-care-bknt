@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const logger = require("../../utils/logger");
 
 /**
  * @route   GET /api/v1/health/database
@@ -101,7 +102,7 @@ const checkDatabaseHealth = async (req, res) => {
     return res.status(isHealthy ? 200 : 503).json(response);
 
   } catch (error) {
-    console.error('❌ Health check error:', error);
+    logger.error('❌ Health check error:', error);
     
     return res.status(503).json({
       success: false,
@@ -148,7 +149,7 @@ const pingDatabase = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Database ping failed:', error);
+    logger.error('❌ Database ping failed:', error);
     
     return res.status(503).json({
       success: false,
@@ -221,7 +222,7 @@ const getCompleteHealth = async (req, res) => {
     return res.status(isDbConnected ? 200 : 503).json(response);
 
   } catch (error) {
-    console.error('❌ Complete health check failed:', error);
+    logger.error('❌ Complete health check failed:', error);
     
     return res.status(503).json({
       success: false,
@@ -269,7 +270,7 @@ const checkEnvironmentVariables = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Environment check error:', error);
+    logger.error('❌ Environment check error:', error);
     
     return res.status(500).json({
       success: false,
@@ -333,7 +334,7 @@ const getIPInfo = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ IP info error:', error);
+    logger.error('❌ IP info error:', error);
     
     return res.status(500).json({
       success: false,
@@ -453,7 +454,7 @@ const getConnectionLogs = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Connection logs error:', error);
+    logger.error('❌ Connection logs error:', error);
     
     return res.status(500).json({
       success: false,

@@ -4,6 +4,7 @@ const ApiResponse = require("../core/ApiResponse");
 const asyncHandler = require("../core/middleware/asyncHandler");
 const Asset = require("../models/Asset");
 const crypto = require("crypto");
+const logger = require("../utils/logger");
 
 /**
  * CSV Image Controller (Unified Asset System)
@@ -128,7 +129,7 @@ class CsvImageController {
           bytes: uploadResult.bytes,
         });
 
-        console.log(`✅ [CSV Image] Asset uploaded: ${asset.publicId}`);
+        logger.info(`✅ [CSV Image] Asset uploaded: ${asset.publicId}`);
 
         res.status(200).json(
           ApiResponse.success("Temp image uploaded", {
@@ -143,7 +144,7 @@ class CsvImageController {
           }).toJSON()
         );
       } catch (error) {
-        console.error("❌ [CSV Image] Upload error:", error);
+        logger.error("❌ [CSV Image] Upload error:", error);
         res
           .status(500)
           .json(
@@ -195,13 +196,13 @@ class CsvImageController {
       // Delete from DB
       await Asset.deleteOne({ _id: asset._id });
 
-      console.log("✅ [CSV Image] Deleted asset:", temp_key);
+      logger.info("✅ [CSV Image] Deleted asset:", temp_key);
 
       res
         .status(200)
         .json(ApiResponse.success("Temp image deleted", { temp_key }).toJSON());
     } catch (error) {
-      console.error("❌ [CSV Image] Delete error:", error);
+      logger.error("❌ [CSV Image] Delete error:", error);
       res
         .status(500)
         .json(ApiResponse.error("Failed to delete image", 500, error).toJSON());

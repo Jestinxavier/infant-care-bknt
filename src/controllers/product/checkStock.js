@@ -1,4 +1,5 @@
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 
 /**
  * Check stock availability for multiple items
@@ -88,7 +89,7 @@ const checkStock = async (req, res) => {
             results,
         });
     } catch (error) {
-        console.error("❌ Error checking stock:", error);
+        logger.error("❌ Error checking stock:", error);
         res.status(500).json({
             success: false,
             message: "Internal Server Error",

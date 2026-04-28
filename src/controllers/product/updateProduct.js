@@ -25,6 +25,7 @@ const {
 } = require("../../utils/filterAttributes");
 const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
+const logger = require("../../utils/logger");
 
 const norm = (v) =>
   (v ?? "")
@@ -74,7 +75,7 @@ const updateProduct = async (req, res) => {
       try {
         parsedBody.variants = JSON.parse(parsedBody.variants);
       } catch (e) {
-        console.error("Error parsing variants JSON in updateProduct:", e);
+        logger.error("Error parsing variants JSON in updateProduct:", e);
         parsedBody.variants = [];
       }
     }
@@ -82,7 +83,7 @@ const updateProduct = async (req, res) => {
       try {
         parsedBody.filterAttributes = JSON.parse(parsedBody.filterAttributes);
       } catch (e) {
-        console.error(
+        logger.error(
           "Error parsing filterAttributes JSON in updateProduct:",
           e
         );
@@ -93,7 +94,7 @@ const updateProduct = async (req, res) => {
       try {
         parsedBody.uiMeta = JSON.parse(parsedBody.uiMeta);
       } catch (e) {
-        console.error("Error parsing uiMeta JSON in updateProduct:", e);
+        logger.error("Error parsing uiMeta JSON in updateProduct:", e);
         parsedBody.uiMeta = {};
       }
     }
@@ -142,7 +143,7 @@ const updateProduct = async (req, res) => {
     const productId = bodyProductId || req.params.productId;
 
     // DEBUG: Log bundle-related fields
-    console.log("📦 [updateProduct] Received bundle fields:", {
+    logger.info("📦 [updateProduct] Received bundle fields:", {
       product_type,
       bundle_config,
       price,
@@ -433,9 +434,9 @@ const updateProduct = async (req, res) => {
           categoryCode: product.categoryCode || "GEN",
           productName: product.title,
         });
-        console.log("✅ Auto-generated SKU in update:", product.sku);
+        logger.info("✅ Auto-generated SKU in update:", product.sku);
       } catch (e) {
-        console.error("Failed generate SKU update:", e);
+        logger.error("Failed generate SKU update:", e);
       }
     }
     if (url_key !== undefined) product.url_key = url_key;
@@ -481,10 +482,39 @@ const updateProduct = async (req, res) => {
         try {
           product.subCategories = JSON.parse(subCategories);
         } catch (e) {
-          console.error("Error parsing subCategories JSON:", e);
+          logger.error("Error parsing subCategories JSON:", e);
         }
       } else if (Array.isArray(subCategories)) {
         product.subCategories = subCategories;
+      }
+    }
+
+    // Update product-level videos
+    if (req.body.videos !== undefined) {
+      try {
+        const videosRaw = typeof req.body.videos === "string"
+          ? JSON.parse(req.body.videos)
+          : req.body.videos;
+        if (Array.isArray(videosRaw)) {
+          const YOUTUBE_ID_RE = /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+          const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+          product.videos = videosRaw
+            .filter((v) => v && v.type && v.url)
+            .map((v) => {
+              let thumbnail = v.thumbnail || null;
+              if (!thumbnail) {
+                if (v.type === "cloudinary" && v.publicId) {
+                  thumbnail = `https://res.cloudinary.com/${cloudName}/video/upload/so_0,f_jpg,w_320/${v.publicId}.jpg`;
+                } else if (v.type === "youtube") {
+                  const m = v.url.match(YOUTUBE_ID_RE);
+                  if (m) thumbnail = `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg`;
+                }
+              }
+              return { type: v.type, url: v.url, publicId: v.publicId || undefined, thumbnail, title: v.title || undefined };
+            });
+        }
+      } catch (err) {
+        logger.error("Error parsing product videos:", err);
       }
     }
 
@@ -507,7 +537,7 @@ const updateProduct = async (req, res) => {
             .filter(Boolean);
         }
       } catch (err) {
-        console.error("Error parsing product images:", err);
+        logger.error("Error parsing product images:", err);
       }
     }
 
@@ -850,12 +880,12 @@ const updateProduct = async (req, res) => {
 
       // If any required fields are missing, force to draft
       if (missingFields.length > 0) {
-        console.log(
+        logger.info(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
             ", "
           )}`
         );
-        console.log("   → Auto-saving as 'draft' instead");
+        logger.info("   → Auto-saving as 'draft' instead");
         product.status = "draft";
       }
     }
@@ -875,7 +905,7 @@ const updateProduct = async (req, res) => {
           "product",
           product._id
         );
-        console.log("✅ [Product] Finalized images:", {
+        logger.info("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
           succeeded: finalizeResult.success.length,
           failed: finalizeResult.failed.length,
@@ -883,7 +913,7 @@ const updateProduct = async (req, res) => {
       }
     } catch (finalizeError) {
       // Non-critical error - log but don't fail the request
-      console.warn(
+      logger.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
         finalizeError
       );
@@ -912,7 +942,7 @@ const updateProduct = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error updating product:", err);
+    logger.error("❌ Error updating product:", err);
 
     if (
       err.code === "INVALID_COLLECTIONS" ||

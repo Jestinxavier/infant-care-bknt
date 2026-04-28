@@ -1,45 +1,38 @@
 const jwt = require("jsonwebtoken");
+const ApiError = require("../core/ApiError");
 
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
-  if (!authHeader)
-    return res.status(401).json({ message: "No token provided" });
+  if (!authHeader) return next(ApiError.unauthorized("No token provided"));
 
-  const token = authHeader.split(" ")[1]; // Bearer <token>
-  if (!token) return res.status(401).json({ message: "Invalid token format" });
+  const token = authHeader.split(" ")[1];
+  if (!token) return next(ApiError.unauthorized("Invalid token format"));
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // attach user info to request
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
-    return res.status(401).json({ message: "Invalid or expired token" });
+    next(ApiError.unauthorized("Invalid or expired token"));
   }
 };
 
 /**
- * Optional auth middleware - populates req.user if valid token exists,
- * but doesn't require authentication. Allows both guests and logged-in users.
+ * Optional auth — populates req.user when a valid token is present,
+ * continues as guest otherwise. Used on cart and public product routes.
  */
 const optionalVerifyToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
-  if (!authHeader) {
-    req.user = null;
-    return next();
-  }
+  req.user = null;
 
-  const token = authHeader.split(" ")[1]; // Bearer <token>
-  if (!token) {
-    req.user = null;
-    return next();
-  }
+  if (!authHeader) return next();
+
+  const token = authHeader.split(" ")[1];
+  if (!token) return next();
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // attach user info to request
-  } catch (err) {
-    // Token invalid - just continue as guest
-    req.user = null;
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    // Invalid token → guest mode, not an error
   }
   next();
 };

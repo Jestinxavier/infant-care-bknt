@@ -1,5 +1,7 @@
 const Asset = require("../../models/Asset");
 const mongoose = require("mongoose");
+const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
 
 /**
  * Get assets with filtering and pagination
@@ -35,7 +37,7 @@ const getAssets = async (req, res) => {
 
     // Search by publicId (partial match, case-insensitive)
     if (search) {
-      baseQuery.publicId = { $regex: search, $options: "i" };
+      baseQuery.publicId = { $regex: escapeRegex(search), $options: "i" };
     }
 
     const [total] = await Promise.all([Asset.countDocuments(baseQuery)]);
@@ -78,7 +80,7 @@ const getAssets = async (req, res) => {
         const firstIdHex = String(items[0]._id);
         const cursorHex = String(cursorObjectId);
         if (firstIdHex >= cursorHex) {
-          console.warn(
+          logger.warn(
             `[Assets] Cursor anomaly detected (firstId=${firstIdHex}, cursor=${cursorHex}). Forcing hasMore=false.`
           );
           hasMore = false;
@@ -114,7 +116,7 @@ const getAssets = async (req, res) => {
           previousFirst.length > 0 &&
           String(previousFirst[0]._id) === String(items[0]._id)
         ) {
-          console.warn(
+          logger.warn(
             `[Assets] Page window anomaly detected at page=${page}. Repeated first _id=${String(
               items[0]._id
             )}. Forcing hasMore=false.`
@@ -140,7 +142,7 @@ const getAssets = async (req, res) => {
       count: items.length,
     });
   } catch (error) {
-    console.error("❌ Error fetching assets:", error);
+    logger.error("❌ Error fetching assets:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

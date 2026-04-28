@@ -6,6 +6,17 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
 require("dotenv").config();
+
+// Sentry must be initialized before any other require that might throw
+const Sentry = require("@sentry/node");
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "production",
+    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 0,
+  });
+}
+
 const app = express();
 
 app.use(helmet());
@@ -39,7 +50,7 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    console.error(`❌ CORS blocked: ${origin}`);
+    require("./utils/logger").warn(`CORS blocked: ${origin}`);
     callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
@@ -137,8 +148,7 @@ app.use("/api/v1/cms/products", cmsProductRoutes);
 // Public CMS routes (for frontend)
 app.use("/api/v1/cms", cmsPublicRoutes);
 
-//payment routes
-app.use("/api/v1/payment", paymentRoutes);
+// NOTE: /api/v1/payments (plural) is the canonical route — duplicate /payment removed.
 
 // Admin routes - mounted with configurable prefix
 app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
@@ -201,20 +211,19 @@ app.get("/order-confirmation", checkOrderStatus);
 // Manual payment status check endpoint (for debugging)
 app.get("/api/payments/check/:orderId", manualCheckPaymentStatus);
 
+const errorMiddleware = require("./core/middleware/errorMiddleware");
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
 
-// Global error handler — keep stack traces out of production responses
-app.use((err, req, res, _next) => {
-  const status = err.status || err.statusCode || 500;
-  console.log("-----------GLOBAL ERROR-------------", err, err.message);
-  const message =
-    process.env.NODE_ENV === "production"
-      ? "Internal Server Error"
-      : err.message;
-  res.status(status).json({ success: false, message });
-});
+// Sentry error handler must come before the custom error handler
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
+// Global error handler
+app.use(errorMiddleware);
 
 module.exports = app;

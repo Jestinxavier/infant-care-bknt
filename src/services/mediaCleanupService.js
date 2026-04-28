@@ -6,6 +6,7 @@
 const cron = require("node-cron");
 const { cloudinary } = require("../config/cloudinary");
 const Media = require("../models/Media");
+const logger = require("../utils/logger");
 
 /**
  * Cleanup stale temporary images older than 7 days
@@ -13,7 +14,7 @@ const Media = require("../models/Media");
  */
 async function cleanupStaleTempImages() {
   try {
-    console.log("🧹 [Media Cleanup] Starting cleanup of stale temp images...");
+    logger.info("🧹 [Media Cleanup] Starting cleanup of stale temp images...");
 
     // Find all temp images older than 7 days
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -22,12 +23,12 @@ async function cleanupStaleTempImages() {
       uploadedAt: { $lt: sevenDaysAgo },
     });
 
-    console.log(
+    logger.info(
       `📊 [Media Cleanup] Found ${staleTempImages.length} stale temp images`
     );
 
     if (staleTempImages.length === 0) {
-      console.log("✅ [Media Cleanup] No stale images to clean up");
+      logger.info("✅ [Media Cleanup] No stale images to clean up");
       return;
     }
 
@@ -48,12 +49,12 @@ async function cleanupStaleTempImages() {
           // Remove from database
           await Media.findByIdAndDelete(media._id);
           results.deleted.push(media.public_id);
-          console.log(`✅ [Media Cleanup] Deleted: ${media.public_id}`);
+          logger.info(`✅ [Media Cleanup] Deleted: ${media.public_id}`);
         } else {
           throw new Error(`Cloudinary delete failed: ${result.result}`);
         }
       } catch (error) {
-        console.error(
+        logger.error(
           `❌ [Media Cleanup] Failed to delete ${media.public_id}:`,
           error
         );
@@ -82,7 +83,7 @@ async function cleanupStaleTempImages() {
         }
       );
 
-      console.log(
+      logger.info(
         `📊 [Media Cleanup] Found ${staleCloudinaryAssets.length} stale assets in Cloudinary with temp-upload tag`
       );
 
@@ -100,31 +101,31 @@ async function cleanupStaleTempImages() {
             });
 
             if (result.result === "ok") {
-              console.log(
+              logger.info(
                 `✅ [Media Cleanup] Deleted orphaned Cloudinary asset: ${asset.public_id}`
               );
             }
           }
         } catch (error) {
-          console.error(
+          logger.error(
             `❌ [Media Cleanup] Failed to delete Cloudinary asset ${asset.public_id}:`,
             error
           );
         }
       }
     } catch (cloudinaryError) {
-      console.warn(
+      logger.warn(
         "⚠️ [Media Cleanup] Could not query Cloudinary by tag:",
         cloudinaryError
       );
     }
 
-    console.log("✅ [Media Cleanup] Cleanup completed:", {
+    logger.info("✅ [Media Cleanup] Cleanup completed:", {
       deleted: results.deleted.length,
       failed: results.failed.length,
     });
   } catch (error) {
-    console.error("❌ [Media Cleanup] Cleanup error:", error);
+    logger.error("❌ [Media Cleanup] Cleanup error:", error);
   }
 }
 
@@ -136,23 +137,23 @@ function startMediaCleanupCron() {
   // Schedule: 0 2 * * * = Every day at 2:00 AM
   const cronExpression = process.env.MEDIA_CLEANUP_CRON || "0 2 * * *";
 
-  console.log(
+  logger.info(
     `⏰ [Media Cleanup] Scheduling cron job with expression: ${cronExpression}`
   );
 
   cron.schedule(cronExpression, async () => {
-    console.log("⏰ [Media Cleanup] Cron job triggered");
+    logger.info("⏰ [Media Cleanup] Cron job triggered");
     await cleanupStaleTempImages();
   });
 
-  console.log("✅ [Media Cleanup] Cron job started");
+  logger.info("✅ [Media Cleanup] Cron job started");
 
   // Run immediately on startup if in development (for testing)
   if (
     process.env.NODE_ENV === "development" &&
     process.env.RUN_CLEANUP_ON_START === "true"
   ) {
-    console.log(
+    logger.info(
       "🧪 [Media Cleanup] Running cleanup on startup (development mode)"
     );
     cleanupStaleTempImages();

@@ -1,6 +1,7 @@
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Review = require("../../models/Review");
+const logger = require("../../utils/logger");
 
 /**
  * Delete a product and all its variants, reviews, and related data
@@ -45,7 +46,7 @@ const deleteProduct = async (req, res) => {
         variantId: { $in: variantIds },
       });
       deletedReviewsCount = deleteReviewsResult.deletedCount;
-      console.log(
+      logger.info(
         `Deleted ${deletedReviewsCount} reviews for ${variantIds.length} variants`,
       );
     }
@@ -53,7 +54,7 @@ const deleteProduct = async (req, res) => {
     // Step 3: Delete all variants associated with this product
     const deleteVariantsResult = await Variant.deleteMany({ productId });
     const deletedVariantsCount = deleteVariantsResult.deletedCount;
-    console.log(
+    logger.info(
       `Deleted ${deletedVariantsCount} variants for product ${productId}`,
     );
 
@@ -67,7 +68,7 @@ const deleteProduct = async (req, res) => {
       const publicIds = extractImagePublicIds(product);
 
       if (publicIds.length > 0) {
-        console.log(`Checking usage for ${publicIds.length} images...`);
+        logger.info(`Checking usage for ${publicIds.length} images...`);
 
         // Query Asset DB to check usage
         const Asset = require("../../models/Asset");
@@ -83,7 +84,7 @@ const deleteProduct = async (req, res) => {
           if (!asset) {
             // Asset not tracked in DB - legacy image, safe to delete
             // safeToDeleteIds.push(publicId); 
-             console.log(`⚠️ Skipping untracked image deletion: ${publicId}`);
+             logger.info(`⚠️ Skipping untracked image deletion: ${publicId}`);
           } else {
             // Check if used by other entities
             const usedByOthers = asset.usedBy.some(
@@ -93,7 +94,7 @@ const deleteProduct = async (req, res) => {
 
             if (usedByOthers || asset.usedBy.length > 1) {
               // Image is shared with other products/entities - skip deletion
-              console.log(
+              logger.info(
                 `⚠️ Skipping deletion of shared image: ${publicId} (used by ${asset.usedBy.length} entities)`,
               );
               sharedImageIds.push(publicId);
@@ -113,21 +114,21 @@ const deleteProduct = async (req, res) => {
         }
 
         if (safeToDeleteIds.length > 0) {
-          console.log(`Deleting ${safeToDeleteIds.length} exclusive images...`);
+          logger.info(`Deleting ${safeToDeleteIds.length} exclusive images...`);
           const { deleteAssets } = require("../../utils/mediaFinalizer");
           const results = await deleteAssets(safeToDeleteIds);
           deletedImagesCount = results.deleted.length + results.archived.length;
-          console.log(`Deleted ${deletedImagesCount} images successfully`);
+          logger.info(`Deleted ${deletedImagesCount} images successfully`);
         }
 
         if (sharedImageIds.length > 0) {
-          console.log(
+          logger.info(
             `✓ Protected ${sharedImageIds.length} shared images from deletion`,
           );
         }
       }
     } catch (imageError) {
-      console.error("❌ Error processing images:", imageError);
+      logger.error("❌ Error processing images:", imageError);
       // Continue with product deletion even if images fail
     }
     */
@@ -135,7 +136,7 @@ const deleteProduct = async (req, res) => {
 
     // Step 5: Delete the product
     await Product.findByIdAndDelete(productId);
-    console.log(`Deleted product ${productId}: ${product.name}`);
+    logger.info(`Deleted product ${productId}: ${product.name}`);
 
     res.status(200).json({
       success: true,
@@ -149,7 +150,7 @@ const deleteProduct = async (req, res) => {
       deletedImagesCount,
     });
   } catch (err) {
-    console.error("❌ Error deleting product:", err);
+    logger.error("❌ Error deleting product:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

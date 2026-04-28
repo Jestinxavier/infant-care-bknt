@@ -5,20 +5,29 @@ const couponSchema = new mongoose.Schema(
     code: {
       type: String,
       required: true,
-      unique: true,
+      unique: true, // unique:true already creates the index — no index:true needed
       uppercase: true,
       trim: true,
-      index: true,
     },
     type: {
       type: String,
-      enum: ["flat", "percentage"],
+      enum: ["flat", "percentage", "free_gift"],
       required: true,
     },
     value: {
       type: Number,
-      required: true,
+      required: false,
+      default: 0,
       min: 0,
+    },
+    // Only for type === "free_gift"
+    freeGift: {
+      triggerProductIds: [
+        { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+      ],
+      triggerMinQty: { type: Number, default: 1, min: 1 },
+      giftProductId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+      giftQty: { type: Number, default: 1, min: 1 },
     },
     minCartValue: {
       type: Number,

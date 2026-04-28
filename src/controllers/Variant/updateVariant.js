@@ -1,4 +1,5 @@
 const Variant = require("../../models/Variant");
+const logger = require("../../utils/logger");
 const { parser } = require("../../config/cloudinary");
 
 const updateVariant = async (req, res) => {
@@ -29,7 +30,7 @@ const updateVariant = async (req, res) => {
 
     res.status(200).json({ message: "Variant updated successfully", variant: variantResponse });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     res.status(500).json({ error: err.message });
   }
 };

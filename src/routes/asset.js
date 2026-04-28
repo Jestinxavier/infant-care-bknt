@@ -7,6 +7,7 @@ const {
   bulkDeleteAssets,
 } = require("../controllers/asset");
 const verifyToken = require("../middlewares/authMiddleware");
+const logger = require("../utils/logger");
 const { executeCleanup } = require("../jobs/cleanupExpiredAssets");
 
 const router = express.Router();
@@ -255,7 +256,7 @@ router.post("/cleanup", verifyToken, async (req, res) => {
   try {
     const { dryRun = false } = req.body;
 
-    console.log(
+    logger.info(
       `🧹 [Manual Cleanup] Triggered by ${
         req.user?.email || "unknown"
       } (dryRun: ${dryRun})`,
@@ -273,7 +274,7 @@ router.post("/cleanup", verifyToken, async (req, res) => {
       results,
     });
   } catch (error) {
-    console.error("❌ Manual cleanup error:", error);
+    logger.error("❌ Manual cleanup error:", error);
     res.status(500).json({
       success: false,
       message: "Cleanup failed",

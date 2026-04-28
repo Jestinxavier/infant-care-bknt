@@ -1,4 +1,5 @@
 const authService = require("../../services/service");
+const logger = require("../../utils/logger");
 const { getAuthCookieClearOptions } = require("../../utils/authCookieOptions");
 
 const logout = async (req, res) => {
@@ -24,7 +25,7 @@ const logout = async (req, res) => {
     res.json({ message: "Logged out successfully" });
   } catch (err) {
     // Still return success since cookies are cleared
-    console.error("Token deletion error (non-critical):", err.message);
+    logger.error("Token deletion error (non-critical):", err.message);
     res.json({ message: "Logged out successfully" });
   }
 };

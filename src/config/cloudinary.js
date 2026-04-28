@@ -3,6 +3,7 @@ const path = require("path");
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const multer = require("multer");
+const logger = require("../utils/logger");
 
 // ✅ Load environment from root .env file
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
@@ -11,23 +12,13 @@ cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  timeout: 30000, // 30s — prevents upload requests hanging indefinitely
 });
 
 cloudinary.api
   .ping()
-  .then((res) => console.log("✅ Cloudinary ping success:", res))
-  .catch((err) => console.error("❌ Cloudinary ping failed:", err));
-
-// Debug log
-console.log("🌩️ Cloudinary Config Check:", {
-  name: process.env.CLOUDINARY_CLOUD_NAME,
-  key: process.env.CLOUDINARY_API_KEY
-    ? `✅,${process.env.CLOUDINARY_API_KEY}`
-    : "❌ Missing",
-  secret: process.env.CLOUDINARY_API_SECRET
-    ? `✅,${process.env.CLOUDINARY_API_SECRET}`
-    : "❌ Missing",
-});
+  .then(() => logger.info("Cloudinary connected"))
+  .catch((err) => logger.error("Cloudinary ping failed", { error: err.message }));
 
 // Valid folder names for security (prevent arbitrary folder creation)
 const VALID_FOLDERS = [

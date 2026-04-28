@@ -1,4 +1,5 @@
 const authService = require("../../services/service");
+const logger = require("../../utils/logger");
 const { ACCESS_TOKEN_LIFETIME_MS } = require("../../../resources/constants");
 const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
 
@@ -34,7 +35,7 @@ const login = async (req, res) => {
       user, // Include user info in response
     });
   } catch (err) {
-    console.error("❌ Login error:", err.message);
+    logger.error("❌ Login error:", err.message);
     const status = err.message === "Invalid credentials" ? 401 : 400;
     res.status(status).json({
       success: false,

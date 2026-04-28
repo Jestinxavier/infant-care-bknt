@@ -1,5 +1,6 @@
 const User = require("../../models/user");
 const PendingUser = require("../../models/PendingUser");
+const logger = require("../../utils/logger");
 
 /**
  * Check if user exists by email
@@ -25,7 +26,7 @@ const checkUserExists = async (req, res) => {
         : "No user found with this email",
     });
   } catch (err) {
-    console.error("❌ Error checking user:", err);
+    logger.error("❌ Error checking user:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

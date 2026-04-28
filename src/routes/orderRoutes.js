@@ -6,6 +6,18 @@ const {
   getOrderById,
 } = require("../controllers/Order");
 const verifyToken = require("../middlewares/authMiddleware");
+const { optionalVerifyToken } = require("../middlewares/authMiddleware");
+const { guestOrderLookup } = require("../controllers/Order/guestOrderLookup");
+const { guestConvert } = require("../controllers/auth/guestConvert");
+const rateLimit = require("express-rate-limit");
+
+const guestLookupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { success: false, message: "Too many lookup attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 /**
  * @swagger
@@ -192,10 +204,16 @@ const verifyToken = require("../middlewares/authMiddleware");
 // GET /api/v1/orders - Get all orders for user
 router.get("/", verifyToken, getOrders);
 
-// GET /api/v1/orders/:orderId - Get single order
+// GET /api/v1/orders/guest-lookup?orderId=&email= (rate-limited, no auth)
+router.get("/guest-lookup", guestLookupLimiter, guestOrderLookup);
+
+// POST /api/v1/auth/guest-convert — convert guest to account
+router.post("/guest-convert", guestConvert);
+
+// GET /api/v1/orders/:orderId - Get single order (must be after specific routes above)
 router.get("/:orderId", verifyToken, getOrderById);
 
 // POST /api/v1/orders/create
-router.post("/create", createOrder);
+router.post("/create", optionalVerifyToken, createOrder);
 
 module.exports = router;

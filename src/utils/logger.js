@@ -1,45 +1,52 @@
-const fs = require('fs');
-const path = require('path');
+// Structured logger — JSON in production, readable in development.
+// Replace all console.log/warn/error calls with this module.
+// Fields: level, message, timestamp, context (arbitrary key-value data).
 
-// Ensure logs directory exists
-const logsDir = path.join(process.cwd(), 'logs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+const isProd = process.env.NODE_ENV === "production";
+
+function timestamp() {
+  return new Date().toISOString();
 }
 
-/**
- * Appends a log message to a specific file with a timestamp.
- * @param {string} filename - The name of the log file (e.g., 'phonepe-error.log')
- * @param {string} level - Log level ('INFO', 'ERROR', 'WARN')
- * @param {string} message - The main log message
- * @param {object|any} data - Additional data to stringify and log
- */
-const logToFile = (filename, level, message, data = null) => {
-  try {
-    const timestamp = new Date().toISOString();
-    const filePath = path.join(logsDir, filename);
-    
-    let logEntry = `[${timestamp}] [${level}] ${message}`;
-    
-    if (data) {
-      if (data instanceof Error) {
-        logEntry += `\nStack: ${data.stack}`;
-      } else {
-        logEntry += `\nData: ${JSON.stringify(data, null, 2)}`;
-      }
-    }
-    
-    logEntry += '\n------------------------------------------------------------\n';
-    
-    fs.appendFile(filePath, logEntry, (err) => {
-      if (err) console.error(`Failed to write to log file ${filename}:`, err);
-    });
-  } catch (err) {
-    console.error('Logging failed:', err);
+function write(level, message, context = {}) {
+  if (isProd) {
+    // JSON lines — parseable by Datadog, Logtail, CloudWatch, etc.
+    process.stdout.write(
+      JSON.stringify({ level, message, timestamp: timestamp(), ...context }) + "\n"
+    );
+  } else {
+    const prefix = {
+      info:  "ℹ️  [INFO]",
+      warn:  "⚠️  [WARN]",
+      error: "❌ [ERROR]",
+      debug: "🔍 [DEBUG]",
+    }[level] || `[${level.toUpperCase()}]`;
+
+    const ctxStr = Object.keys(context).length
+      ? "\n  " + JSON.stringify(context, null, 2).split("\n").join("\n  ")
+      : "";
+    console.log(`${prefix} ${message}${ctxStr}`);
   }
+}
+
+const logger = {
+  info:  (message, context = {}) => write("info",  message, context),
+  warn:  (message, context = {}) => write("warn",  message, context),
+  error: (message, context = {}) => write("error", message, context),
+  debug: (message, context = {}) => {
+    if (process.env.LOG_LEVEL === "debug") write("debug", message, context);
+  },
+
+  // Convenience: request-scoped logger (attaches path + method)
+  forRequest: (req) => ({
+    info:  (msg, ctx = {}) => logger.info(msg,  { path: req.path, method: req.method, ...ctx }),
+    warn:  (msg, ctx = {}) => logger.warn(msg,  { path: req.path, method: req.method, ...ctx }),
+    error: (msg, ctx = {}) => logger.error(msg, { path: req.path, method: req.method, ...ctx }),
+  }),
+
+  // Backward-compat wrappers for PhonePe logger usage
+  logPhonePeError: (message, data) => logger.error(message, { domain: "phonepe", data }),
+  logPhonePeInfo:  (message, data) => logger.info(message,  { domain: "phonepe", data }),
 };
 
-module.exports = {
-  logPhonePeError: (message, data) => logToFile('phonepe-error.log', 'ERROR', message, data),
-  logPhonePeInfo: (message, data) => logToFile('phonepe-info.log', 'INFO', message, data),
-};
+module.exports = logger;

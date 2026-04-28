@@ -1,4 +1,5 @@
 const FAQCategory = require("../models/FAQCategory");
+const logger = require("../utils/logger");
 
 // @desc    Fix displayOrder for all categories
 // @route   PUT /api/v1/admin/faq-categories/fix-display-order
@@ -8,7 +9,7 @@ exports.fixDisplayOrder = async (req, res) => {
     // Get all categories sorted by creation date
     const categories = await FAQCategory.find({}).sort({ createdAt: 1 });
 
-    console.log(`Found ${categories.length} categories to fix`);
+    logger.info(`Found ${categories.length} categories to fix`);
 
     const updates = [];
 
@@ -24,7 +25,7 @@ exports.fixDisplayOrder = async (req, res) => {
           oldOrder: category.displayOrder,
           newOrder: i,
         });
-        console.log(`Updated category "${category.name}" displayOrder to ${i}`);
+        logger.info(`Updated category "${category.name}" displayOrder to ${i}`);
       }
     }
 
@@ -35,7 +36,7 @@ exports.fixDisplayOrder = async (req, res) => {
       updates,
     });
   } catch (error) {
-    console.error("Error fixing category displayOrder:", error);
+    logger.error("Error fixing category displayOrder:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",

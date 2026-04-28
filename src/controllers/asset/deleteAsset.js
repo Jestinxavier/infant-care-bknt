@@ -1,5 +1,6 @@
 const cloudinary = require("../../config/cloudinary");
 const Asset = require("../../models/Asset");
+const logger = require("../../utils/logger");
 
 /**
  * Delete asset (only if temp and not in use)
@@ -22,7 +23,7 @@ const deleteAsset = async (req, res) => {
         asset = await Asset.findById(id);
       } catch (error) {
         // If findById fails (e.g., id looks valid but causes cast error), try publicId
-        console.log(`ID ${id} is not a valid ObjectId, trying publicId`);
+        logger.info(`ID ${id} is not a valid ObjectId, trying publicId`);
       }
     }
 
@@ -47,7 +48,7 @@ const deleteAsset = async (req, res) => {
         asset.usedBy = []; // Clear usage references
         await asset.save();
 
-        console.log(
+        logger.info(
           `📦 Asset archived for delayed deletion: ${asset.publicId}`
         );
 
@@ -87,21 +88,21 @@ const deleteAsset = async (req, res) => {
       });
     }
 
-    console.log(`🗑️ Deleting asset: ${asset.publicId}`);
+    logger.info(`🗑️ Deleting asset: ${asset.publicId}`);
 
     // Delete from Cloudinary
     try {
       await cloudinary.cloudinary.uploader.destroy(asset.publicId);
-      console.log(`✅ Deleted from Cloudinary: ${asset.publicId}`);
+      logger.info(`✅ Deleted from Cloudinary: ${asset.publicId}`);
     } catch (cloudinaryError) {
-      console.error("❌ Cloudinary deletion error:", cloudinaryError);
+      logger.error("❌ Cloudinary deletion error:", cloudinaryError);
       // Continue with DB deletion even if Cloudinary fails
     }
 
     // Delete from database - use asset._id (ObjectId) not the raw param (which might be string)
     await Asset.findByIdAndDelete(asset._id);
 
-    console.log(`✅ Deleted from DB: ${asset.publicId}`);
+    logger.info(`✅ Deleted from DB: ${asset.publicId}`);
 
     res.status(200).json({
       success: true,
@@ -112,7 +113,7 @@ const deleteAsset = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error deleting asset:", error);
+    logger.error("❌ Error deleting asset:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

@@ -24,6 +24,7 @@ const {
   validate,
 } = require("../middlewares/validators");
 const verifyToken = require("../middlewares/authMiddleware");
+const logger = require("../utils/logger");
 const { avatarParser } = require("../config/avatarUpload");
 
 const router = express.Router();
@@ -604,7 +605,7 @@ router.put(
   (req, res, next) => {
     avatarParser.single("avatar")(req, res, (err) => {
       if (err) {
-        console.error("❌ Avatar upload error:", err);
+        logger.error("❌ Avatar upload error:", err);
         return res.status(400).json({
           success: false,
           message: "Avatar upload error",

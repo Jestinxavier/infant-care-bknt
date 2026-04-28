@@ -1,6 +1,7 @@
 const Order = require("../../models/Order");
 const Review = require("../../models/Review");
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 
 /**
  * Get single order by ID for the authenticated user
@@ -178,7 +179,7 @@ const getOrderById = async (req, res) => {
       order: formattedOrder,
     });
   } catch (err) {
-    console.error("❌ Error fetching order:", err);
+    logger.error("❌ Error fetching order:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

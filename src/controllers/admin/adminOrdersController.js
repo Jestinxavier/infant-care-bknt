@@ -5,10 +5,10 @@ const emailService = require("../../services/emailService");
 const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
+const { canTransitionStatus } = require("../../features/order/rules/order.rules");
+const logger = require("../../utils/logger");
 
-// Escape user-provided search strings so they are treated as literal text in regex
-const escapeRegex = (str = "") =>
-  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = require("../../utils/escapeRegex");
 
 /**
  * Admin: Get all orders (not filtered by user)
@@ -199,7 +199,7 @@ const getAllOrders = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Admin Error fetching orders:", err);
+    logger.error("❌ Admin Error fetching orders:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -262,7 +262,7 @@ const getOrderById = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Admin Error fetching order:", err);
+    logger.error("❌ Admin Error fetching order:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -330,9 +330,16 @@ const updateOrderStatus = async (req, res) => {
       if (!validStatuses.includes(status)) {
         return res.status(400).json({
           success: false,
-          message: `Invalid status. Must be one of: ${validStatuses.join(
-            ", "
-          )}`,
+          message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        });
+      }
+
+      // Enforce state machine: only allow valid forward/backward transitions
+      if (status !== currentOrder.orderStatus && !canTransitionStatus(currentOrder.orderStatus, status)) {
+        return res.status(422).json({
+          success: false,
+          errorCode: "INVALID_TRANSITION",
+          message: `Cannot transition order from "${currentOrder.orderStatus}" to "${status}"`,
         });
       }
 
@@ -529,10 +536,7 @@ const updateOrderStatus = async (req, res) => {
       try {
         await restoreOrderStock(currentOrder);
       } catch (restoreErr) {
-        console.error(
-          "❌ Failed to restore stock on order cancel:",
-          restoreErr
-        );
+        logger.error("Failed to restore stock on order cancel", { orderId: currentOrder._id, error: restoreErr.message });
         return res.status(500).json({
           success: false,
           message:
@@ -603,11 +607,11 @@ const updateOrderStatus = async (req, res) => {
       emailService
         .sendOrderCancelledEmail(order.userId, order)
         .catch((err) =>
-          console.error("❌ Order cancelled email failed:", err.message)
+          logger.error("Order cancelled email failed", { orderId: order._id, error: err.message })
         );
     }
   } catch (err) {
-    console.error("❌ Admin Error updating order status:", err);
+    logger.error("Admin error updating order status", { error: err.message, stack: err.stack });
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -681,7 +685,7 @@ const sendOrderInvoice = async (req, res) => {
       message: "Invoice email sent successfully",
     });
   } catch (err) {
-    console.error("❌ Admin Error sending invoice:", err);
+    logger.error("❌ Admin Error sending invoice:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -768,10 +772,10 @@ const markOrderAsPaid = async (req, res) => {
     if (updated.userId?.email) {
       emailService
         .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => console.error("❌ Invoice email failed after mark-paid:", err.message));
+        .catch((err) => logger.error("❌ Invoice email failed after mark-paid:", err.message));
     }
   } catch (err) {
-    console.error("❌ Admin Error marking order as paid:", err);
+    logger.error("❌ Admin Error marking order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
   }
 };

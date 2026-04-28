@@ -1,4 +1,5 @@
 const Address = require("../../models/Address");
+const logger = require("../../utils/logger");
 
 const getAddresses = async (req, res) => {
   try {
@@ -19,7 +20,7 @@ const getAddresses = async (req, res) => {
       addresses,
     });
   } catch (err) {
-    console.error("❌ Error fetching addresses:", err);
+    logger.error("❌ Error fetching addresses:", err);
     res
       .status(500)
       .json({

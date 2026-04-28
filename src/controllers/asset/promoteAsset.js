@@ -1,5 +1,6 @@
 const Asset = require("../../models/Asset");
 const mongoose = require("mongoose");
+const logger = require("../../utils/logger");
 
 /**
  * Promote asset from temp to permanent and add usage tracking
@@ -34,7 +35,7 @@ const promoteAsset = async (req, res) => {
     if (isValidObjectId) {
       // Promote using instance method with real entity
       await asset.promoteToPermanent(entity, entityId);
-      console.log(
+      logger.info(
         `✅ Asset promoted: ${asset.publicId} → permanent, used by ${entity}:${entityId}`,
       );
     } else {
@@ -42,7 +43,7 @@ const promoteAsset = async (req, res) => {
       asset.status = "permanent";
       asset.expiresAt = null;
       await asset.save();
-      console.log(
+      logger.info(
         `✅ Asset manually promoted: ${asset.publicId} → permanent (no entity link)`,
       );
     }
@@ -53,7 +54,7 @@ const promoteAsset = async (req, res) => {
       asset,
     });
   } catch (error) {
-    console.error("❌ Error promoting asset:", error);
+    logger.error("❌ Error promoting asset:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

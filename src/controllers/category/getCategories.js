@@ -1,4 +1,5 @@
 const Category = require("../../models/Category");
+const logger = require("../../utils/logger");
 const { toCloudinaryUrl } = require("../../utils/cloudinaryUrlUtils");
 const { cacheGet, cacheSet } = require("../../utils/redisCache");
 
@@ -41,7 +42,7 @@ const getAllCategories = async (req, res) => {
 
     res.status(200).json(response);
   } catch (error) {
-    console.error("❌ Error fetching categories:", error);
+    logger.error("❌ Error fetching categories:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -96,7 +97,7 @@ const getCategoryById = async (req, res) => {
       category: categoryObj,
     });
   } catch (error) {
-    console.error("❌ Error fetching category:", error);
+    logger.error("❌ Error fetching category:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

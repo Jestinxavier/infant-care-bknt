@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const logger = require("../../utils/logger");
 
 /**
  * Create or update CMS content for a specific page
@@ -107,7 +108,7 @@ const updateCmsContent = async (req, res) => {
         const mergedData = Array.isArray(content)
           ? { ...existingDoc.toObject(), content }
           : { ...existingDoc.toObject(), ...content };
-        console.log(
+        logger.info(
           `📝 [CMS] Saving ${page} with ${Array.isArray(content) ? "array" : "object"} content`,
         );
         updatedContent = await pageConfig.model.findOneAndUpdate(
@@ -134,7 +135,7 @@ const updateCmsContent = async (req, res) => {
         updatedContent.toObject(),
       );
 
-      console.log(
+      logger.info(
         `🔍 [CMS] Extracted ${imagePublicIds.length} image public_ids from ${page}:`,
         imagePublicIds,
       );
@@ -145,17 +146,17 @@ const updateCmsContent = async (req, res) => {
           "cms",
           updatedContent._id,
         );
-        console.log(`✅ [CMS] Finalized images for ${page}:`, {
+        logger.info(`✅ [CMS] Finalized images for ${page}:`, {
           total: imagePublicIds.length,
           succeeded: finalizeResult.success.length,
           failed: finalizeResult.failed.length,
           failedDetails: finalizeResult.failed,
         });
       } else {
-        console.log(`⚠️ [CMS] No images found to finalize in ${page}`);
+        logger.info(`⚠️ [CMS] No images found to finalize in ${page}`);
       }
     } catch (finalizeError) {
-      console.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
+      logger.warn("⚠️ [CMS] Failed to finalize images:", finalizeError);
     }
 
     res.status(200).json({
@@ -170,7 +171,7 @@ const updateCmsContent = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error updating CMS content:", err);
+    logger.error("❌ Error updating CMS content:", err);
 
     // Handle validation errors
     if (err.name === "ValidationError") {
@@ -233,7 +234,7 @@ const deleteCmsContent = async (req, res) => {
       message: `CMS content for '${page}' deleted successfully`,
     });
   } catch (err) {
-    console.error("❌ Error deleting CMS content:", err);
+    logger.error("❌ Error deleting CMS content:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

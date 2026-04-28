@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/user");
 const PendingUser = require("../models/PendingUser");
 const Token = require("../models/token");
+const logger = require("../utils/logger");
 const { generateAccessToken, generateRefreshToken } = require("../utils/token");
 const {
   generateOTP,
@@ -40,11 +41,11 @@ exports.requestOTP = async ({ email, username, password }) => {
   // Send OTP email
   try {
     await sendOTPEmail({ email }, otp);
-    console.log("✅ OTP sent to:", email);
+    logger.info("✅ OTP sent to:", email);
   } catch (emailError) {
     // Delete OTP record if email fails
     await PendingUser.deleteOne({ _id: pendingOTP._id });
-    console.error("❌ Failed to send OTP:", emailError);
+    logger.error("❌ Failed to send OTP:", emailError);
     throw new Error("Failed to send OTP email. Please try again.");
   }
 
@@ -141,7 +142,7 @@ exports.verifyOTPAndRegister = async ({
   try {
     await sendWelcomeEmail(user);
   } catch (error) {
-    console.error("❌ Failed to send welcome email:", error);
+    logger.error("❌ Failed to send welcome email:", error);
   }
 
   return {
@@ -166,7 +167,7 @@ exports.loginUser = async ({ email, password }) => {
 
   const user = await User.findOne({ email: normalizedEmail });
   if (!user) {
-    console.error(
+    logger.error(
       "❌ Login failed: User not found for email:",
       normalizedEmail
     );
@@ -174,28 +175,28 @@ exports.loginUser = async ({ email, password }) => {
   }
 
   if (!password) {
-    console.error("❌ Login failed: Password not provided");
+    logger.error("❌ Login failed: Password not provided");
     throw new Error("Password is required");
   }
 
   // Debug: Log password comparison attempt (don't log actual password)
-  console.log("🔐 Attempting password comparison for user:", user.email);
-  console.log("🔐 Password hash exists:", !!user.password);
-  console.log(
+  logger.info("🔐 Attempting password comparison for user:", user.email);
+  logger.info("🔐 Password hash exists:", !!user.password);
+  logger.info(
     "🔐 Password hash starts with $2:",
     user.password?.startsWith("$2")
   );
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
-    console.error(
+    logger.error(
       "❌ Login failed: Password mismatch for user:",
       normalizedEmail
     );
     throw new Error("Invalid credentials");
   }
 
-  console.log("✅ Password verified successfully for user:", normalizedEmail);
+  logger.info("✅ Password verified successfully for user:", normalizedEmail);
 
   // Check if email is verified
   if (!user.isEmailVerified) {

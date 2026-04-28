@@ -1,5 +1,6 @@
 const FAQ = require("../models/FAQ");
 const FAQCategory = require("../models/FAQCategory");
+const logger = require("../utils/logger");
 
 // @desc    Get all FAQs (public)
 // @route   GET /api/v1/faqs
@@ -33,7 +34,7 @@ exports.getAllFAQs = async (req, res) => {
       faqs,
     });
   } catch (error) {
-    console.error("Error fetching FAQs:", error);
+    logger.error("Error fetching FAQs:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -63,7 +64,7 @@ exports.createFAQ = async (req, res) => {
       faq,
     });
   } catch (error) {
-    console.error("Error creating FAQ:", error);
+    logger.error("Error creating FAQ:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -102,7 +103,7 @@ exports.updateFAQ = async (req, res) => {
       faq,
     });
   } catch (error) {
-    console.error("Error updating FAQ:", error);
+    logger.error("Error updating FAQ:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -132,7 +133,7 @@ exports.deleteFAQ = async (req, res) => {
       message: "FAQ deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting FAQ:", error);
+    logger.error("Error deleting FAQ:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -166,7 +167,7 @@ exports.reorderFAQs = async (req, res) => {
       message: "FAQs reordered successfully",
     });
   } catch (error) {
-    console.error("Error reordering FAQs:", error);
+    logger.error("Error reordering FAQs:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",

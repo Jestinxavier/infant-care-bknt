@@ -6,6 +6,7 @@ const Footer = require("../../models/Footer");
 const ApiError = require("../../core/ApiError");
 const mongoose = require("mongoose");
 const menuValidator = require("./menu.validation");
+const logger = require("../../utils/logger");
 const { ensureContentImageUrls } = require("../../utils/cloudinaryUrlUtils");
 
 /**
@@ -106,7 +107,7 @@ class CmsService {
     // Similar to how /api/v1/homepage endpoint works
     if (page === "home" || page === "about") {
       const allDocuments = await pageConfig.model.find({}).sort({ order: 1 });
-      console.log(
+      logger.info(
         `✅ [CMS Service] ${page}: Found ${allDocuments.length} widget documents`
       );
 
@@ -140,7 +141,7 @@ class CmsService {
     let allDocuments = [];
     if (!document) {
       allDocuments = await pageConfig.model.find({});
-      console.log(
+      logger.info(
         `🔍 [CMS Service] No single document found, found ${allDocuments.length} documents`
       );
     }
@@ -148,7 +149,7 @@ class CmsService {
     // If no content exists, return empty structure instead of throwing error
     // This allows the frontend to work with empty pages and create new content
     if (!document && allDocuments.length === 0) {
-      console.log(
+      logger.info(
         `⚠️ [CMS Service] No content found for page '${page}', returning empty structure`
       );
 
@@ -181,7 +182,7 @@ class CmsService {
         : document
       : null;
 
-    console.log(`🔍 [CMS Service] Raw document for page "${page}":`, {
+    logger.info(`🔍 [CMS Service] Raw document for page "${page}":`, {
       hasDocument: !!document,
       documentCount: allDocuments.length,
       hasContent: docObject ? !!docObject.content : false,
@@ -207,7 +208,7 @@ class CmsService {
         const policyDoc = await pageConfig.model.findOne({ slug });
         if (!policyDoc) {
           // Fallback or empty struct?
-          console.log(`⚠️ [CMS Service] Policy with slug '${slug}' not found`);
+          logger.info(`⚠️ [CMS Service] Policy with slug '${slug}' not found`);
           return {
             page,
             title: pageConfig.title,
@@ -224,7 +225,7 @@ class CmsService {
       } else {
         // Return ALL policy documents
         const allPolicies = await pageConfig.model.find({});
-        console.log(
+        logger.info(
           `✅ [CMS Service] Found ${allPolicies.length} policy documents`
         );
 
@@ -249,13 +250,13 @@ class CmsService {
       Array.isArray(docObject.content)
     ) {
       content = docObject.content;
-      console.log(
+      logger.info(
         `✅ [CMS Service] Extracted content array with ${content.length} blocks`
       );
 
       // Log first few blocks for debugging
       if (content.length > 0) {
-        console.log(
+        logger.info(
           `📦 [CMS Service] First 3 blocks:`,
           content.slice(0, 3).map((block) => ({
             block_type: block.block_type,
@@ -275,7 +276,7 @@ class CmsService {
     ) {
       // For footer/header, extract the content object
       content = docObject.content;
-      console.log(`✅ [CMS Service] Extracted ${page} content object`);
+      logger.info(`✅ [CMS Service] Extracted ${page} content object`);
     }
     // Case 3: Multiple documents where each document is a block (legacy structure)
     else if (allDocuments.length > 0) {
@@ -288,7 +289,7 @@ class CmsService {
         delete docObj.updatedAt;
         return docObj;
       });
-      console.log(
+      logger.info(
         `✅ [CMS Service] Extracted ${content.length} blocks from multiple documents`
       );
     }
@@ -297,11 +298,11 @@ class CmsService {
       // Remove MongoDB internal fields
       const { _id, __v, createdAt, updatedAt, ...rest } = docObject;
       content = rest;
-      console.log(`⚠️ [CMS Service] Using entire document as content`);
+      logger.info(`⚠️ [CMS Service] Using entire document as content`);
     }
     // Case 5: For header/footer, document IS the content
     else {
-      console.log(`⚠️ [CMS Service] No content found, using empty array`);
+      logger.info(`⚠️ [CMS Service] No content found, using empty array`);
       content = [];
     }
 
@@ -336,7 +337,7 @@ class CmsService {
       // For home/about, we perform a smart update to preserve documents where possible
       // This avoids ID churn and cleaner handling of existing data structure issues
 
-      console.log(
+      logger.info(
         `[CMS Service] Synchronizing content for page '${page}' with ${contentData.length} blocks`
       );
 
@@ -367,7 +368,7 @@ class CmsService {
           if (!processedIds.has(block.id)) {
             match = existingDocsMap.get(block.id);
           } else {
-            console.warn(
+            logger.warn(
               `[CMS Service] ID collision or duplicate detected for ${block.id}. Treating as new/separate item.`
             );
           }
@@ -405,7 +406,7 @@ class CmsService {
         .map((d) => d._id);
 
       if (idsToDelete.length > 0) {
-        console.log(
+        logger.info(
           `[CMS Service] Deleting ${idsToDelete.length} removed blocks`
         );
         await pageConfig.model.deleteMany({ _id: { $in: idsToDelete } });
@@ -476,7 +477,7 @@ class CmsService {
             contentData.navigation &&
             contentData.navigation.menu
           ) {
-            console.log(
+            logger.info(
               "[CMS Service] Validating header navigation menu structure"
             );
             const validationResult = menuValidator.validateMenu(
@@ -484,7 +485,7 @@ class CmsService {
             );
 
             if (!validationResult.valid) {
-              console.error(
+              logger.error(
                 "[CMS Service] Menu validation failed:",
                 validationResult.errors
               );
@@ -493,7 +494,7 @@ class CmsService {
               );
             }
 
-            console.log("[CMS Service] Menu validation passed successfully");
+            logger.info("[CMS Service] Menu validation passed successfully");
           }
 
           updateData = { content: contentData };
@@ -558,10 +559,10 @@ class CmsService {
       );
     }
 
-    console.log(
+    logger.info(
       `[CMS Service] Updating block '${blockType}' for page '${page}'`
     );
-    console.log(
+    logger.info(
       `[CMS Service] Incoming blockData:`,
       JSON.stringify(blockData, null, 2)
     );
@@ -618,7 +619,7 @@ class CmsService {
     if (blockData.content && Array.isArray(blockData.content)) {
       // Frontend sends { content: [...] } - use it directly
       transformedContent = blockData.content;
-      console.log(
+      logger.info(
         `[CMS Service] Using direct content array with ${transformedContent.length} items`
       );
     } else if (blockData.banners) {
@@ -685,7 +686,7 @@ class CmsService {
       flatDocument.categorySlug = blockData.categorySlug;
     }
 
-    console.log(
+    logger.info(
       `[CMS Service] Transformed flat document:`,
       JSON.stringify(flatDocument, null, 2)
     );
@@ -693,13 +694,13 @@ class CmsService {
     let result;
     if (!existing) {
       // Create new document with flat structure
-      console.log(
+      logger.info(
         `[CMS Service] Creating new document for block '${blockType}'`
       );
       result = await pageConfig.model.create(flatDocument);
     } else {
       // Update existing document with flat structure
-      console.log(
+      logger.info(
         `[CMS Service] Updating existing document for block '${blockType}'`
       );
       result = await pageConfig.model.findByIdAndUpdate(
@@ -715,7 +716,7 @@ class CmsService {
         ? { ...resultObj, id: resultObj._id.toString() }
         : resultObj;
 
-    console.log(
+    logger.info(
       `✅ [CMS Service] Successfully saved block '${blockType}' with flat structure`
     );
 

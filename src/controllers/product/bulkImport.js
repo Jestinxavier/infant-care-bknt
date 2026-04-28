@@ -9,6 +9,7 @@ const Asset = require("../../models/Asset");
 const { cloudinary } = require("../../config/cloudinary");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+const logger = require("../../utils/logger");
 const {
   suggestProductSku,
   generateVariantSku,
@@ -228,7 +229,7 @@ class BulkImportController {
     const tempImagesNeeded = new Set();
     const AttributeDefinition = require("../../models/AttributeDefinition");
 
-    console.log(
+    logger.info(
       `🔍 [Bulk Import] Validating ${products.length} products (Strict Mode)...`
     );
 
@@ -248,7 +249,7 @@ class BulkImportController {
       }
     });
 
-    console.log(
+    logger.info(
       `📚 [Bulk Import] Loaded ${attributeMap.size} global attributes for validation.`
     );
 
@@ -670,7 +671,7 @@ class BulkImportController {
 
     const isValid = errors.length === 0;
 
-    console.log(
+    logger.info(
       `${isValid ? "✅" : "❌"} [Bulk Import] Validation ${
         isValid ? "passed" : "failed"
       }: ${errors.length} errors`
@@ -736,12 +737,12 @@ class BulkImportController {
       }
     });
     if (ignoredFilterAttributeFieldsCount > 0) {
-      console.warn(
+      logger.warn(
         `⚠️ [Bulk Import] Ignored ${ignoredFilterAttributeFieldsCount} filterAttributes field(s). CSV bulk import does not support filterAttributes.`
       );
     }
     if (ignoredDeprecatedTagFieldsCount > 0) {
-      console.warn(
+      logger.warn(
         `⚠️ [Bulk Import] Ignored ${ignoredDeprecatedTagFieldsCount} deprecated tag field(s). Use collections instead.`
       );
     }
@@ -757,21 +758,21 @@ class BulkImportController {
       try {
         await session.startTransaction();
         isTransactionStarted = true;
-        console.log(
+        logger.info(
           "✅ [Bulk Import] Transaction started (replica set detected)"
         );
       } catch (transactionError) {
-        console.warn(
+        logger.warn(
           "⚠️ [Bulk Import] Failed to start transaction:",
           transactionError.message
         );
-        console.warn("⚠️ [Bulk Import] Continuing without transaction");
+        logger.warn("⚠️ [Bulk Import] Continuing without transaction");
       }
     } else {
-      console.warn(
+      logger.warn(
         "⚠️ [Bulk Import] Standalone MongoDB detected - transactions not supported"
       );
-      console.warn(
+      logger.warn(
         "⚠️ [Bulk Import] Import will proceed without atomic guarantees"
       );
     }
@@ -783,7 +784,7 @@ class BulkImportController {
     const tempKeysUsed = [];
 
     try {
-      console.log(
+      logger.info(
         `📦 [Bulk Import] Starting commit for ${products.length} products...`
       );
 
@@ -844,7 +845,7 @@ class BulkImportController {
       const imageMapping = new Map(); // temp_key -> { new_public_id, url }
 
       if (tempKeysArray.length > 0) {
-        console.log(
+        logger.info(
           `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`
         );
 
@@ -882,11 +883,11 @@ class BulkImportController {
             });
             tempKeysUsed.push(tempImage.temp_key);
 
-            console.log(
+            logger.info(
               `  ✅ Converted: ${tempImage.temp_key} → ${newPublicId}`
             );
           } catch (error) {
-            console.error(
+            logger.error(
               `  ❌ Failed to convert ${tempImage.temp_key}:`,
               error.message
             );
@@ -1239,7 +1240,7 @@ class BulkImportController {
                 finalVariantSku = generateVariantSku(finalProductSku, attrsObj);
               } catch (error) {
                 // Fallback if generateVariantSku fails
-                console.warn(
+                logger.warn(
                   `Failed to generate variant SKU: ${error.message}`
                 );
                 finalVariantSku = `${finalProductSku}-${optionsHash.substring(
@@ -1394,7 +1395,7 @@ class BulkImportController {
             },
             isTransactionStarted ? { session } : {}
           );
-          console.log(`  📝 Updated product: ${productData.sku}`);
+          logger.info(`  📝 Updated product: ${productData.sku}`);
         } else {
           // Create new product
           const newProductData = {
@@ -1451,7 +1452,7 @@ class BulkImportController {
           const newProduct = new Product(newProductData);
           await newProduct.save(isTransactionStarted ? { session } : {});
           createdProductIds.push(newProduct._id);
-          console.log(`  ✨ Created product with SKU: ${finalProductSku}`);
+          logger.info(`  ✨ Created product with SKU: ${finalProductSku}`);
         }
 
         // REMOVED: Separate Step 3 for creating variants in Variant collection
@@ -1463,7 +1464,7 @@ class BulkImportController {
           { temp_key: { $in: tempKeysUsed } },
           isTransactionStarted ? { session } : {}
         );
-        console.log(
+        logger.info(
           `🧹 [Bulk Import] Cleaned up ${tempKeysUsed.length} temp image records`
         );
       }
@@ -1472,9 +1473,9 @@ class BulkImportController {
       if (isTransactionStarted) {
         try {
           await session.commitTransaction();
-          console.log("✅ [Bulk Import] Transaction committed");
+          logger.info("✅ [Bulk Import] Transaction committed");
         } catch (commitError) {
-          console.warn(
+          logger.warn(
             "⚠️ [Bulk Import] Failed to commit transaction (standalone MongoDB):",
             commitError.message
           );
@@ -1482,7 +1483,7 @@ class BulkImportController {
       }
       session.endSession();
 
-      console.log(
+      logger.info(
         `✅ [Bulk Import] Successfully committed ${products.length} products`
       );
 
@@ -1499,7 +1500,7 @@ class BulkImportController {
         }).toJSON()
       );
     } catch (error) {
-      console.error(`❌ [Bulk Import] Error during commit:`, error.message);
+      logger.error(`❌ [Bulk Import] Error during commit:`, error.message);
 
       if (
         error.code === "INVALID_COLLECTIONS" ||
@@ -1522,9 +1523,9 @@ class BulkImportController {
       if (isTransactionStarted) {
         try {
           await session.abortTransaction();
-          console.log("🔄 [Bulk Import] Transaction aborted");
+          logger.info("🔄 [Bulk Import] Transaction aborted");
         } catch (abortError) {
-          console.warn(
+          logger.warn(
             "⚠️ [Bulk Import] Failed to abort transaction (standalone MongoDB):",
             abortError.message
           );
@@ -1536,11 +1537,11 @@ class BulkImportController {
       if (createdProductIds.length > 0) {
         try {
           await Product.deleteMany({ _id: { $in: createdProductIds } });
-          console.log(
+          logger.info(
             `🔄 [Rollback] Deleted ${createdProductIds.length} products`
           );
         } catch (rollbackError) {
-          console.error(
+          logger.error(
             "❌ [Rollback] Failed to delete products:",
             rollbackError.message
           );
@@ -1557,11 +1558,11 @@ class BulkImportController {
               resource_type: "image",
             }
           );
-          console.log(
+          logger.info(
             `🔄 [Rollback] Reverted image: ${img.new_public_id} → ${img.old_public_id}`
           );
         } catch (rollbackError) {
-          console.error(
+          logger.error(
             `❌ [Rollback] Failed to revert image:`,
             rollbackError.message
           );
@@ -1619,7 +1620,7 @@ class BulkImportController {
       return isReplicaSet || isMongos;
     } catch (error) {
       // If we can't determine topology, assume standalone (no transaction support)
-      console.warn(
+      logger.warn(
         "⚠️ [Bulk Import] Unable to detect MongoDB topology:",
         error.message
       );

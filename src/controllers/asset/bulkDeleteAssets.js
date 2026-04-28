@@ -1,5 +1,6 @@
 const cloudinary = require("../../config/cloudinary");
 const Asset = require("../../models/Asset");
+const logger = require("../../utils/logger");
 
 /**
  * Bulk Delete Assets
@@ -24,7 +25,7 @@ const bulkDeleteAssets = async (req, res) => {
       failed: [],
     };
 
-    console.log(
+    logger.info(
       `🗑️ Processing bulk delete for ${ids.length} assets (force=${force})`,
     );
 
@@ -90,7 +91,7 @@ const bulkDeleteAssets = async (req, res) => {
         try {
           await cloudinary.cloudinary.uploader.destroy(asset.publicId);
         } catch (cloudError) {
-          console.warn(
+          logger.warn(
             `Cloudinary delete failed for ${asset.publicId}: ${cloudError.message}`,
           );
           // Continue to DB delete
@@ -100,7 +101,7 @@ const bulkDeleteAssets = async (req, res) => {
         await Asset.findByIdAndDelete(asset._id);
         results.deleted.push(asset.publicId);
       } catch (error) {
-        console.error(`Error deleting ${id}:`, error);
+        logger.error(`Error deleting ${id}:`, error);
         results.failed.push({ id, error: error.message });
       }
     }
@@ -111,7 +112,7 @@ const bulkDeleteAssets = async (req, res) => {
       results,
     });
   } catch (error) {
-    console.error("❌ Error in bulk delete:", error);
+    logger.error("❌ Error in bulk delete:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

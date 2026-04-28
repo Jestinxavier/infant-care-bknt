@@ -1,5 +1,6 @@
 const User = require("../../models/user");
 const PendingUser = require("../../models/PendingUser");
+const logger = require("../../utils/logger");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
 const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../../resources/constants");
 
@@ -57,10 +58,10 @@ const requestPasswordResetOTP = async (req, res) => {
     // Send OTP email
     try {
       await sendOTPEmail({ email: user.email, username: user.username }, otp);
-      console.log("✅ Password reset OTP sent to:", user.email);
+      logger.info("✅ Password reset OTP sent to:", user.email);
     } catch (emailError) {
       await PendingUser.deleteOne({ _id: pendingOTP._id });
-      console.error("❌ Failed to send password reset OTP:", emailError);
+      logger.error("❌ Failed to send password reset OTP:", emailError);
       return res.status(500).json({
         success: false,
         message: "Failed to send OTP email. Please try again.",
@@ -74,7 +75,7 @@ const requestPasswordResetOTP = async (req, res) => {
       expiresIn: TOKEN_EXPIRY.OTP,
     });
   } catch (err) {
-    console.error("❌ Error requesting password reset OTP:", err);
+    logger.error("❌ Error requesting password reset OTP:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -168,7 +169,7 @@ const verifyPasswordResetOTP = async (req, res) => {
       message: "Password reset successfully. You can now login with your new password.",
     });
   } catch (err) {
-    console.error("❌ Error verifying password reset OTP:", err);
+    logger.error("❌ Error verifying password reset OTP:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

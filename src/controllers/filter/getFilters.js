@@ -1,5 +1,6 @@
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
+const logger = require("../../utils/logger");
 const { generateFilterConfig } = require("../../utils/generateFilterConfig");
 const {
   FILTER_ATTRIBUTE_KEYS,
@@ -328,17 +329,17 @@ const getFilters = async (req, res) => {
       false
     );
 
-    console.log("🛒 Product filter:", effectiveProductFilter);
+    logger.info("🛒 Product filter:", effectiveProductFilter);
 
     // Get all products for this category/search (for filter generation)
     let products = await Product.find(effectiveProductFilter)
       .populate("category", "name slug code")
       .lean();
 
-    console.log(`📦 Found ${products.length} products for filter generation`);
+    logger.info(`📦 Found ${products.length} products for filter generation`);
     if (products.length > 0) {
       products.forEach((p, i) => {
-        console.log(
+        logger.info(
           `  Product ${i + 1}: ${p.title || p.name}, Variants: ${p.variants?.length || 0
           }`
         );
@@ -512,7 +513,7 @@ const getFilters = async (req, res) => {
       filters,
     });
   } catch (err) {
-    console.error("❌ Error fetching filters:", err);
+    logger.error("❌ Error fetching filters:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

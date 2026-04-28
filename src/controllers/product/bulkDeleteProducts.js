@@ -4,6 +4,7 @@ const Review = require("../../models/Review");
 const { cloudinary } = require("../../config/cloudinary");
 const { extractImagePublicIds } = require("../../utils/mediaFinalizer");
 const Media = require("../../models/Media");
+const logger = require("../../utils/logger");
 
 /**
  * Bulk delete multiple products and all their associated data
@@ -107,9 +108,9 @@ const bulkDeleteProducts = async (req, res) => {
         });
         results.successCount++;
 
-        console.log(`✅ Deleted product ${productId}: ${product.name}`);
+        logger.info(`✅ Deleted product ${productId}: ${product.name}`);
       } catch (error) {
-        console.error(`❌ Error deleting product ${productId}:`, error);
+        logger.error(`❌ Error deleting product ${productId}:`, error);
         results.failed.push({
           productId,
           reason: error.message || "Unknown error",
@@ -121,7 +122,7 @@ const bulkDeleteProducts = async (req, res) => {
     // Batch process image deletion AFTER all products are deleted
     if (results.allPublicIds && results.allPublicIds.size > 0) {
       try {
-        console.log(
+        logger.info(
           `Processing ${results.allPublicIds.size} unique images from bulk delete...`,
         );
 
@@ -148,7 +149,7 @@ const bulkDeleteProducts = async (req, res) => {
             });
 
             if (usedByOthers) {
-              console.log(`⚠️ Skipping shared image: ${publicId}`);
+              logger.info(`⚠️ Skipping shared image: ${publicId}`);
               skippedCount++;
 
               // Remove references to deleted products
@@ -169,14 +170,14 @@ const bulkDeleteProducts = async (req, res) => {
           const deleteResults = await deleteAssets(safeToDeleteIds);
           results.deletedImagesCount =
             deleteResults.deleted.length + deleteResults.archived.length;
-          console.log(`✅ Deleted ${results.deletedImagesCount} images`);
+          logger.info(`✅ Deleted ${results.deletedImagesCount} images`);
         }
 
         if (skippedCount > 0) {
-          console.log(`✓ Protected ${skippedCount} shared images`);
+          logger.info(`✓ Protected ${skippedCount} shared images`);
         }
       } catch (imageError) {
-        console.error("❌ Error batch processing images:", imageError);
+        logger.error("❌ Error batch processing images:", imageError);
       }
     }
 
@@ -207,7 +208,7 @@ const bulkDeleteProducts = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Bulk delete error:", err);
+    logger.error("❌ Bulk delete error:", err);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",

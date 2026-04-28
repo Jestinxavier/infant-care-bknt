@@ -2,9 +2,7 @@ const mongoose = require("mongoose");
 const User = require("../../models/user");
 const Order = require("../../models/Order");
 
-// Escape user-provided search strings so they are treated as literal text in regex
-const escapeRegex = (str = "") =>
-  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = require("../../utils/escapeRegex");
 
 /**
  * Admin: Get all customers with pagination and order stats
@@ -104,7 +102,7 @@ const getAllCustomers = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Admin Error fetching customers:", error);
+    logger.error("❌ Admin Error fetching customers:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -114,6 +112,7 @@ const getAllCustomers = async (req, res) => {
 };
 
 const Address = require("../../models/Address");
+const logger = require("../../utils/logger");
 
 /**
  * Admin: Get customer details and their order history
@@ -174,7 +173,7 @@ const getCustomerById = async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("❌ Admin Error fetching customer details:", error);
+    logger.error("❌ Admin Error fetching customer details:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

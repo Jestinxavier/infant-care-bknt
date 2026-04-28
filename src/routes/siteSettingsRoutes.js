@@ -13,6 +13,15 @@ const {
   getPopularSearchesAdmin,
   upsertPopularSearches,
 } = require("../controllers/siteSettingsController");
+const { invalidateCartSettings } = require("../controllers/cart/hybridCartController");
+
+// Middleware: invalidate cart settings cache after any mutation to a cart.* key
+const burstCartCache = (req, res, next) => {
+  res.on("finish", () => {
+    if (res.statusCode < 300) invalidateCartSettings();
+  });
+  next();
+};
 
 /**
  * @swagger
@@ -177,7 +186,7 @@ router.get("/:key", verifyToken, requireAdmin, getSetting);
  *       201:
  *         description: Setting created
  */
-router.post("/", verifyToken, requireAdmin, createSetting);
+router.post("/", verifyToken, requireAdmin, burstCartCache, createSetting);
 
 /**
  * @swagger
@@ -211,7 +220,7 @@ router.post("/", verifyToken, requireAdmin, createSetting);
  *       200:
  *         description: Setting updated
  */
-router.put("/:key", verifyToken, requireAdmin, updateSetting);
+router.put("/:key", verifyToken, requireAdmin, burstCartCache, updateSetting);
 
 /**
  * @swagger
@@ -231,6 +240,6 @@ router.put("/:key", verifyToken, requireAdmin, updateSetting);
  *       200:
  *         description: Setting deleted
  */
-router.delete("/:key", verifyToken, requireAdmin, deleteSetting);
+router.delete("/:key", verifyToken, requireAdmin, burstCartCache, deleteSetting);
 
 module.exports = router;

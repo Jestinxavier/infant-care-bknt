@@ -1,5 +1,6 @@
 const Category = require("../../models/Category");
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 const { cacheDel } = require("../../utils/redisCache");
 
 const deleteCategory = async (req, res) => {
@@ -58,7 +59,7 @@ const deleteCategory = async (req, res) => {
       deletedCategory: { id: category._id, name: category.name }
     });
   } catch (error) {
-    console.error("❌ Error deleting category:", error);
+    logger.error("❌ Error deleting category:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

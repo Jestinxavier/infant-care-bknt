@@ -1,49 +1,47 @@
-// Using native fetch (available in Node.js 18+)
+const logger = require("../utils/logger");
+
+const REVALIDATION_TIMEOUT_MS = 5000;
 
 /**
- * Trigger revalidation on the frontend
- * @param {Object} options
- * @param {string} [options.type] - Resource type (product, category, etc.)
- * @param {string} [options.resource] - Resource identifier (slug, id)
- * @param {string} [options.tag] - Specific tag to revalidate
+ * Trigger Next.js cache revalidation on the frontend.
+ * Fire-and-forget — never throws, so a slow/down frontend never blocks API responses.
  */
-const triggerRevalidation = async ({ type, resource, tag }) => {
+const triggerRevalidation = async ({ type, resource, tag } = {}) => {
+  const frontendUrl = process.env.FRONTEND_URL;
+  const revalidateKey = process.env.NEXT_REVALIDATE_KEY;
+
+  if (!frontendUrl || !revalidateKey) {
+    logger.warn("[Revalidation] Missing FRONTEND_URL or NEXT_REVALIDATE_KEY — skipping");
+    return;
+  }
+
+  const params = new URLSearchParams({ key: revalidateKey });
+  if (type) params.append("type", type);
+  if (resource) params.append("resource", resource);
+  if (tag) params.append("tag", tag);
+
+  const url = `${frontendUrl}/api/revalidate?${params.toString()}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REVALIDATION_TIMEOUT_MS);
+
   try {
-    const frontendUrl = process.env.FRONTEND_URL;
-    const revalidateKey = process.env.NEXT_REVALIDATE_KEY;
-
-    if (!frontendUrl || !revalidateKey) {
-      console.warn(
-        "⚠️ [Revalidation] Missing FRONTEND_URL or NEXT_REVALIDATE_KEY variables. Skipping revalidation.",
-      );
-      return;
-    }
-
-    const params = new URLSearchParams();
-    params.append("key", revalidateKey);
-    if (type) params.append("type", type);
-    if (resource) params.append("resource", resource);
-    if (tag) params.append("tag", tag);
-
-    const url = `${frontendUrl}/api/revalidate?${params.toString()}`;
-
-    console.log(`🔄 [Revalidation] Triggering revalidation: ${url}`);
-
-    // Using native fetch (Node.js 18+)
-    const response = await fetch(url, { method: "GET" });
+    logger.info("[Revalidation] Triggering", { url: url.replace(revalidateKey, "***") });
+    const response = await fetch(url, { method: "GET", signal: controller.signal });
 
     if (!response.ok) {
-      const body = await response.text();
-      console.error(`❌ [Revalidation] Failed: ${response.status} ${body}`);
+      const body = await response.text().catch(() => "");
+      logger.warn("[Revalidation] Non-OK response", { status: response.status, body });
     } else {
-      const data = await response.json();
-      console.log("✅ [Revalidation] Success:", data);
+      logger.info("[Revalidation] Success", { type, resource, tag });
     }
-  } catch (error) {
-    console.error(
-      "❌ [Revalidation] Error triggering revalidation:",
-      error.message,
-    );
+  } catch (err) {
+    if (err.name === "AbortError") {
+      logger.warn("[Revalidation] Timed out after 5s", { type, resource, tag });
+    } else {
+      logger.error("[Revalidation] Failed", { message: err.message, type, resource, tag });
+    }
+  } finally {
+    clearTimeout(timer);
   }
 };
 

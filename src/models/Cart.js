@@ -44,6 +44,9 @@ const cartItemSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Free gift coupon injection markers
+    isFreeGiftCoupon: { type: Boolean, default: false },
+    freeGiftCouponCode: { type: String, default: null },
   },
   { _id: true, timestamps: false },
 );
@@ -91,19 +94,19 @@ const cartSchema = new mongoose.Schema(
       min: 0,
     },
     // Metadata
+    // TTL index defined via cartSchema.index() below — do not add index:true here
     expiresAt: {
       type: Date,
-      // Default: 30 days from creation for abandoned carts
       default: function () {
         return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       },
-      index: { expireAfterSeconds: 0 }, // TTL index for auto-deletion
     },
     // Coupons Applied (supports stacking up to 2)
     coupons: [
       {
         code: { type: String },
         couponId: { type: mongoose.Schema.Types.ObjectId, ref: "Coupon" },
+        type: { type: String, default: "flat" }, // mirrors Coupon.type for fast reads
         discountAmount: { type: Number, default: 0 },
         minCartValue: { type: Number, default: 0 },
         // Per-line-item discount breakdown (Shopify-style)

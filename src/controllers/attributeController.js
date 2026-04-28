@@ -4,6 +4,7 @@
  */
 
 const AttributeDefinition = require("../models/AttributeDefinition");
+const logger = require("../utils/logger");
 const { normalizeCode, toTitleCase } = require("../utils/normalizeValue");
 
 /**
@@ -22,7 +23,7 @@ const getAllAttributes = async (req, res) => {
       count: attributes.length,
     });
   } catch (error) {
-    console.error("Error fetching attributes:", error);
+    logger.error("Error fetching attributes:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch attributes",
@@ -53,7 +54,7 @@ const getAttributeById = async (req, res) => {
       attribute,
     });
   } catch (error) {
-    console.error("Error fetching attribute:", error);
+    logger.error("Error fetching attribute:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch attribute",
@@ -113,7 +114,7 @@ const createAttribute = async (req, res) => {
       attribute,
     });
   } catch (error) {
-    console.error("Error creating attribute:", error);
+    logger.error("Error creating attribute:", error);
 
     // Handle duplicate key error
     if (error.code === 11000) {
@@ -185,7 +186,7 @@ const updateAttribute = async (req, res) => {
       attribute,
     });
   } catch (error) {
-    console.error("Error updating attribute:", error);
+    logger.error("Error updating attribute:", error);
 
     if (error.name === "ValidationError") {
       const messages = Object.values(error.errors).map((e) => e.message);
@@ -238,7 +239,7 @@ const deleteAttribute = async (req, res) => {
       message: "Attribute deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting attribute:", error);
+    logger.error("Error deleting attribute:", error);
 
     if (error.name === "AttributeInUseError") {
       return res.status(400).json({

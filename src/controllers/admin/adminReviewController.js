@@ -1,6 +1,8 @@
 const Review = require("../../models/Review");
 const Product = require("../../models/Product");
 const { triggerRevalidation } = require("../../services/revalidateService");
+const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
 
 /**
  * Get all reviews with pagination and filtering
@@ -63,11 +65,11 @@ const getAllReviews = async (req, res) => {
       pipeline.push({
         $match: {
           $or: [
-            { review: { $regex: search, $options: "i" } },
-            { reply: { $regex: search, $options: "i" } },
-            { "userId.username": { $regex: search, $options: "i" } },
-            { "userId.email": { $regex: search, $options: "i" } },
-            { "productId.name": { $regex: search, $options: "i" } },
+            { review: { $regex: escapeRegex(search), $options: "i" } },
+            { reply: { $regex: escapeRegex(search), $options: "i" } },
+            { "userId.username": { $regex: escapeRegex(search), $options: "i" } },
+            { "userId.email": { $regex: escapeRegex(search), $options: "i" } },
+            { "productId.name": { $regex: escapeRegex(search), $options: "i" } },
           ],
         },
       });
@@ -156,7 +158,7 @@ const getAllReviews = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error fetching reviews (aggregation):", error);
+    logger.error("❌ Error fetching reviews (aggregation):", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
@@ -206,7 +208,7 @@ const replyToReview = async (req, res) => {
       review: reviewUpdate,
     });
   } catch (error) {
-    console.error("❌ Error replying to review:", error);
+    logger.error("❌ Error replying to review:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
@@ -255,7 +257,7 @@ const approveReview = async (req, res) => {
       review,
     });
   } catch (error) {
-    console.error("❌ Error approving review:", error);
+    logger.error("❌ Error approving review:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
@@ -311,7 +313,7 @@ const rejectReview = async (req, res) => {
       review,
     });
   } catch (error) {
-    console.error("❌ Error rejecting review:", error);
+    logger.error("❌ Error rejecting review:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };

@@ -1,4 +1,5 @@
 const Category = require("../../models/Category");
+const logger = require("../../utils/logger");
 const { cloudinary } = require("../../config/cloudinary");
 const { cacheDel } = require("../../utils/redisCache");
 
@@ -82,11 +83,11 @@ const createCategory = async (req, res) => {
 
         if (imagePublicIds.length > 0) {
           await finalizeImages(imagePublicIds, "category", category._id);
-          console.log(`✅ [Category] Finalized image for ${category.name}`);
+          logger.info(`✅ [Category] Finalized image for ${category.name}`);
         }
       }
     } catch (finalizeError) {
-      console.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
+      logger.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
     }
 
     await cacheDel("categories");
@@ -97,7 +98,7 @@ const createCategory = async (req, res) => {
       category,
     });
   } catch (error) {
-    console.error("❌ Error creating category:", error);
+    logger.error("❌ Error creating category:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

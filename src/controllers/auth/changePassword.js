@@ -1,4 +1,5 @@
 const User = require("../../models/user");
+const logger = require("../../utils/logger");
 
 /**
  * Change password (for authenticated users)
@@ -65,7 +66,7 @@ const changePassword = async (req, res) => {
       message: "Password changed successfully",
     });
   } catch (err) {
-    console.error("❌ Error changing password:", err);
+    logger.error("❌ Error changing password:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

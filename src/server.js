@@ -3,6 +3,7 @@ const app = require("./app");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const path = require("path");
+const logger = require("./utils/logger");
 
 // Load .env from project root
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -22,7 +23,7 @@ const REQUIRED_ENV_VARS = [
 
 const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
 if (missingVars.length) {
-  console.error(`❌ Missing required environment variables: ${missingVars.join(", ")}`);
+  logger.error(`Missing required environment variables: ${missingVars.join(", ")}`);
   if (process.env.NODE_ENV !== "production") {
     process.exit(1);
   }
@@ -58,17 +59,17 @@ const connectDB = async (retryCount = 5) => {
       throw new Error("MONGODB_URI is not defined");
     }
 
-    console.log(`🔍 Connecting to MongoDB (Attempt ${6 - retryCount}/5)...`);
+    logger.info(`Connecting to MongoDB (Attempt ${6 - retryCount}/5)...`);
 
     // For local development or non-Vercel deployments
     const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
     isConnected = db.connections[0].readyState === 1;
-    console.log("✅ MongoDB Connected");
+    logger.info("MongoDB connected");
     return Promise.resolve();
   } catch (err) {
-    console.error(`❌ MongoDB connection failed: ${err.message}`);
+    logger.error(`MongoDB connection failed: ${err.message}`);
     if (retryCount > 1) {
-      console.log(`🔄 Retrying in 5 seconds...`);
+      logger.info("Retrying MongoDB connection in 5 seconds...");
       await new Promise((resolve) => setTimeout(resolve, 5000));
       return connectDB(retryCount - 1);
     }
@@ -85,20 +86,20 @@ const startServer = async () => {
   try {
     // Connect to database first
     await connectDB();
-    console.log("✅ Database connection established");
+    logger.info("Database connection established");
 
     try {
       const { startMediaCleanupCron } = require("./services/mediaCleanupService");
       startMediaCleanupCron();
     } catch (cronError) {
-      console.warn("⚠️ Failed to start media cleanup cron:", cronError.message);
+      logger.warn("Failed to start media cleanup cron", { error: cronError.message });
     }
 
     try {
       const { startCsvImageCleanupCron } = require("./services/csvImageCleanupService");
       startCsvImageCleanupCron();
     } catch (cronError) {
-      console.warn("⚠️ Failed to start CSV image cleanup cron:", cronError.message);
+      logger.warn("Failed to start CSV image cleanup cron", { error: cronError.message });
     }
 
     try {
@@ -106,7 +107,7 @@ const startServer = async () => {
       startCleanupCron();
       runCleanupOnStartup();
     } catch (cronError) {
-      console.warn("⚠️ Failed to start expired assets cleanup cron:", cronError.message);
+      logger.warn("Failed to start expired assets cleanup cron", { error: cronError.message });
     }
 
     const http = require("http");
@@ -116,13 +117,11 @@ const startServer = async () => {
     socketService.init(server);
 
     server.listen(PORT, () => {
-      console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-      console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs/`);
-      console.log(`🏥 Health Check: http://localhost:${PORT}/api/v1/health/status`);
-      console.log("\n✨ Server is ready to accept requests!\n");
+      logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+      logger.info(`API docs: http://localhost:${PORT}/api-docs/`);
     });
   } catch (error) {
-    console.error("❌ Failed to start server:", error.message);
+    logger.error("Failed to start server", { error: error.message });
     if (process.env.NODE_ENV !== "production") {
       process.exit(1);
     }

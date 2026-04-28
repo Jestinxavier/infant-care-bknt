@@ -2,6 +2,7 @@ const Review = require("../models/Review");
 const Variant = require("../models/Variant");
 const Product = require("../models/Product");
 const mongoose = require("mongoose");
+const logger = require("../utils/logger");
 
 /**
  * Update product rating based on all its reviews
@@ -35,12 +36,12 @@ const updateProductRating = async (productId) => {
       totalReviews: allReviews.length,
     });
 
-    console.log(
+    logger.info(
       `✅ Updated product ${productId} rating: ${averageRating} (${allReviews.length} reviews)`,
     );
     return { averageRating, totalReviews: allReviews.length };
   } catch (error) {
-    console.error("❌ Error updating product rating:", error);
+    logger.error("❌ Error updating product rating:", error);
     throw error;
   }
 };
@@ -75,7 +76,7 @@ const updateVariantRating = async (variantId) => {
 
     return { averageRating, totalReviews: reviews.length };
   } catch (error) {
-    console.warn(
+    logger.warn(
       "⚠️ Standalone variant update failed (possibly not a standalone variant):",
       variantId,
     );
@@ -91,7 +92,7 @@ const updateVariantRating = async (variantId) => {
 const updateRatings = async (productId, variantId) => {
   try {
     if (!productId) {
-      console.warn("⚠️ Cannot update ratings: productId is missing");
+      logger.warn("⚠️ Cannot update ratings: productId is missing");
       return;
     }
 
@@ -105,7 +106,7 @@ const updateRatings = async (productId, variantId) => {
 
     return { success: true };
   } catch (error) {
-    console.error("❌ Error updating ratings:", error);
+    logger.error("❌ Error updating ratings:", error);
     throw error;
   }
 };

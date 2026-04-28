@@ -1,4 +1,5 @@
 const Address = require("../../models/Address");
+const logger = require("../../utils/logger");
 
 const createAddress = async (req, res) => {
   try {
@@ -101,7 +102,7 @@ const createAddress = async (req, res) => {
       address,
     });
   } catch (err) {
-    console.error("❌ Error saving address:", err);
+    logger.error("❌ Error saving address:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

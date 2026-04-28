@@ -1,5 +1,6 @@
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
+const logger = require("../../utils/logger");
 const { generateSlug } = require("../../utils/slugGenerator");
 
 /**
@@ -493,7 +494,7 @@ const getVariantsByCategory = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error fetching variants by category:", err);
+    logger.error("❌ Error fetching variants by category:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

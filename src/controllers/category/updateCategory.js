@@ -1,4 +1,5 @@
 const Category = require("../../models/Category");
+const logger = require("../../utils/logger");
 const { cloudinary } = require("../../config/cloudinary");
 const { cacheDel } = require("../../utils/redisCache");
 
@@ -77,7 +78,7 @@ const updateCategory = async (req, res) => {
           const { deleteAssets } = require("../../utils/mediaFinalizer");
           await deleteAssets([`categories/${publicId}`]);
         } catch (err) {
-          console.log("⚠️ Could not delete old category image:", err.message);
+          logger.info("⚠️ Could not delete old category image:", err.message);
         }
       }
       category.image = imageFile.path; // Cloudinary URL
@@ -92,7 +93,7 @@ const updateCategory = async (req, res) => {
           const { deleteAssets } = require("../../utils/mediaFinalizer");
           await deleteAssets([`categories/${publicId}`]);
         } catch (err) {
-          console.log("⚠️ Could not delete category image:", err.message);
+          logger.info("⚠️ Could not delete category image:", err.message);
         }
       }
       category.image = null; // Clear image field
@@ -161,12 +162,12 @@ const updateCategory = async (req, res) => {
 
         if (imagePublicIds.length > 0) {
           await finalizeImages(imagePublicIds, "category", updatedCategory._id);
-          console.log(
+          logger.info(
             `✅ [Category] Finalized image for ${updatedCategory.name}`
           );
         }
       } catch (finalizeError) {
-        console.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
+        logger.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
       }
     }
 
@@ -178,7 +179,7 @@ const updateCategory = async (req, res) => {
       category: updatedCategory,
     });
   } catch (error) {
-    console.error("❌ Error updating category:", error);
+    logger.error("❌ Error updating category:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

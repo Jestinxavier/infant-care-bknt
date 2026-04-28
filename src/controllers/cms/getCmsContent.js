@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const logger = require("../../utils/logger");
 
 /**
  * Get all CMS content
@@ -75,7 +76,7 @@ const getCmsContent = async (req, res) => {
       data: formattedContent,
     });
   } catch (err) {
-    console.error("❌ Error fetching CMS content:", err);
+    logger.error("❌ Error fetching CMS content:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -165,7 +166,7 @@ const getCmsContentByPage = async (req, res) => {
       data: resultData,
     });
   } catch (err) {
-    console.error("❌ Error fetching CMS content:", err);
+    logger.error("❌ Error fetching CMS content:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

@@ -130,5 +130,9 @@ userSchema.methods.comparePassword = async function (password) {
 };
 
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+// Role index — used by admin dashboard countDocuments({ role: "user" })
+userSchema.index({ role: 1 });
+// Email OTP lookup — used during registration verification
+userSchema.index({ email: 1, emailOTPExpires: 1 });
 
 module.exports = mongoose.model("User", userSchema);

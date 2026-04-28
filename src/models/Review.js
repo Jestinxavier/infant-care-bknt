@@ -37,5 +37,7 @@ const reviewSchema = new mongoose.Schema(
 reviewSchema.index({ productId: 1, status: 1 });
 reviewSchema.index({ userId: 1 });
 reviewSchema.index({ status: 1 });
+// Prevents a user from submitting two reviews for the same product+order combination
+reviewSchema.index({ userId: 1, productId: 1, orderId: 1 }, { unique: true });
 
 module.exports = mongoose.model("Review", reviewSchema);

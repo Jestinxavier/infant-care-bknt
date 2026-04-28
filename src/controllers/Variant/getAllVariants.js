@@ -1,5 +1,6 @@
 const Variant = require("../../models/Variant");
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 
 /**
  * Get all variants with product information
@@ -103,7 +104,7 @@ const getAllVariants = async (req, res) => {
       variants: processedVariants,
     });
   } catch (err) {
-    console.error("❌ Error fetching variants:", err);
+    logger.error("❌ Error fetching variants:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

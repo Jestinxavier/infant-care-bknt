@@ -1,6 +1,8 @@
 const Coupon = require("../../models/Coupon");
 const Product = require("../../models/Product");
 const Order = require("../../models/Order");
+const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
 
 /**
  * POST /api/v1/admin/coupons
@@ -24,7 +26,10 @@ const createCoupon = async (req, res) => {
       isPublic,
     } = req.body;
 
-    if (!code || !type || value === undefined || !startDate || !endDate) {
+    if (!code || !type || !startDate || !endDate) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+    if (type !== "free_gift" && value === undefined) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
@@ -40,14 +45,27 @@ const createCoupon = async (req, res) => {
     if (end < new Date()) {
       return res.status(400).json({ success: false, message: "End date cannot be in the past" });
     }
-    if (value <= 0) {
-      return res.status(400).json({ success: false, message: "Discount value must be greater than 0" });
+    if (type !== "free_gift") {
+      if (value <= 0) {
+        return res.status(400).json({ success: false, message: "Discount value must be greater than 0" });
+      }
+      if (type === "percentage" && value > 100) {
+        return res.status(400).json({ success: false, message: "Percentage discount cannot exceed 100%" });
+      }
+      if (type === "flat" && maxDiscount) {
+        return res.status(400).json({ success: false, message: "Max discount is not applicable for flat discounts" });
+      }
     }
-    if (type === "percentage" && value > 100) {
-      return res.status(400).json({ success: false, message: "Percentage discount cannot exceed 100%" });
-    }
-    if (type === "flat" && maxDiscount) {
-      return res.status(400).json({ success: false, message: "Max discount is not applicable for flat discounts" });
+
+    // Validate free_gift-specific fields
+    const { freeGift } = req.body;
+    if (type === "free_gift") {
+      if (!freeGift?.giftProductId) {
+        return res.status(400).json({ success: false, message: "Gift product is required for free gift coupons" });
+      }
+      if (!freeGift?.triggerProductIds || freeGift.triggerProductIds.length === 0) {
+        return res.status(400).json({ success: false, message: "At least one trigger product is required for free gift coupons" });
+      }
     }
 
     const scope = ["specific_products", "category"].includes(applicableTo) ? applicableTo : "all";
@@ -68,9 +86,15 @@ const createCoupon = async (req, res) => {
     const coupon = await Coupon.create({
       code: code.toUpperCase(),
       type,
-      value,
+      value: type === "free_gift" ? 0 : value,
       minCartValue: minCartValue || 0,
       maxDiscount: type === "percentage" ? maxDiscount || null : null,
+      freeGift: type === "free_gift" ? {
+        triggerProductIds: freeGift.triggerProductIds,
+        triggerMinQty: freeGift.triggerMinQty || 1,
+        giftProductId: freeGift.giftProductId,
+        giftQty: freeGift.giftQty || 1,
+      } : undefined,
       startDate: start,
       endDate: end,
       usageLimit: usageLimit || null,
@@ -88,7 +112,7 @@ const createCoupon = async (req, res) => {
 
     res.status(201).json({ success: true, coupon: populated });
   } catch (error) {
-    console.error("❌ Error creating coupon:", error);
+    logger.error("❌ Error creating coupon:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -141,6 +165,18 @@ const updateCoupon = async (req, res) => {
 
     if (updates.code) updates.code = updates.code.toUpperCase();
     if (updates.isNewUserOnly === true) updates.perUserLimit = 1;
+    if (updates.type === "free_gift") updates.value = 0;
+
+    // Validate free_gift fields on update
+    if (updates.type === "free_gift" || (coupon.type === "free_gift" && updates.freeGift)) {
+      const fg = updates.freeGift || coupon.freeGift;
+      if (!fg?.giftProductId) {
+        return res.status(400).json({ success: false, message: "Gift product is required for free gift coupons" });
+      }
+      if (!fg?.triggerProductIds || fg.triggerProductIds.length === 0) {
+        return res.status(400).json({ success: false, message: "At least one trigger product is required for free gift coupons" });
+      }
+    }
 
     // Validate and normalize scope
     if (updates.applicableTo === "specific_products" && (!updates.applicableProductIds || updates.applicableProductIds.length === 0)) {
@@ -201,7 +237,7 @@ const searchProductsForCoupon = async (req, res) => {
     const categoryId = (req.query.category || "").trim();
 
     const query = { status: "published" };
-    if (q) query.title = { $regex: q, $options: "i" };
+    if (q) query.title = { $regex: escapeRegex(q), $options: "i" };
     if (categoryId) query.category = categoryId;
 
     const products = await Product.find(query)

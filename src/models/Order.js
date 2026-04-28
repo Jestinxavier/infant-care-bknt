@@ -59,7 +59,15 @@ const orderSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null,
+    },
+    // Guest checkout fields (populated when userId is null)
+    isGuestOrder: { type: Boolean, default: false, index: true },
+    guestInfo: {
+      name: { type: String },
+      email: { type: String },
+      phone: { type: String },
     },
     orderId: {
       type: String,
@@ -238,7 +246,11 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ userId: 1, placedAt: -1 });
+orderSchema.index({ isGuestOrder: 1, "guestInfo.email": 1, orderId: 1 });
+orderSchema.index({ userId: 1, orderStatus: 1, placedAt: -1 });
 orderSchema.index({ orderStatus: 1, placedAt: -1 });
+// Dashboard aggregations use createdAt (from timestamps: true), not placedAt
+orderSchema.index({ createdAt: -1, orderStatus: 1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ phonepeTransactionId: 1 }, { sparse: true });
 

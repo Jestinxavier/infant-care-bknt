@@ -1,4 +1,5 @@
 const Homepage = require("../../models/Homepage");
+const logger = require("../../utils/logger");
 const { cacheGet, cacheSet } = require("../../utils/redisCache");
 
 const CACHE_KEY = "homepage";
@@ -41,7 +42,7 @@ const getHomepage = async (req, res) => {
 
     res.status(200).json(response);
   } catch (err) {
-    console.error("❌ Error fetching homepage data:", err);
+    logger.error("❌ Error fetching homepage data:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -75,7 +76,7 @@ const getHomepageById = async (req, res) => {
       data: homepageData,
     });
   } catch (err) {
-    console.error("❌ Error fetching homepage data:", err);
+    logger.error("❌ Error fetching homepage data:", err);
 
     // Handle invalid ObjectId
     if (err.name === "CastError") {

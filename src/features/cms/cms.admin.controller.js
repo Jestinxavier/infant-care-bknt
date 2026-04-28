@@ -1,6 +1,7 @@
 const cmsService = require("./cms.service");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
+const logger = require("../../utils/logger");
 const { cacheDelPattern, cacheDel } = require("../../utils/redisCache");
 
 /**
@@ -12,15 +13,15 @@ class CmsAdminController {
    * Get all CMS content
    */
   getAllContent = asyncHandler(async (req, res) => {
-    console.log("📥 [CMS] GET /admin/cms - getAllContent called");
-    console.log("📥 [CMS] Request headers:", {
+    logger.info("📥 [CMS] GET /admin/cms - getAllContent called");
+    logger.info("📥 [CMS] Request headers:", {
       authorization: req.headers.authorization ? "Bearer ***" : "none",
       origin: req.headers.origin,
     });
 
     const content = await cmsService.getAllContent();
 
-    console.log("📤 [CMS] Response data:", {
+    logger.info("📤 [CMS] Response data:", {
       contentLength: Array.isArray(content) ? content.length : "not array",
       pages: Array.isArray(content) ? content.map((c) => c.page) : "N/A",
       firstPageContent:
@@ -50,16 +51,16 @@ class CmsAdminController {
    */
   getContentByPage = asyncHandler(async (req, res) => {
     const { page } = req.params;
-    console.log(`📥 [CMS] GET /admin/cms/${page} - getContentByPage called`);
-    console.log("📥 [CMS] Request params:", { page });
-    console.log("📥 [CMS] Request headers:", {
+    logger.info(`📥 [CMS] GET /admin/cms/${page} - getContentByPage called`);
+    logger.info("📥 [CMS] Request params:", { page });
+    logger.info("📥 [CMS] Request headers:", {
       authorization: req.headers.authorization ? "Bearer ***" : "none",
       origin: req.headers.origin,
     });
 
     const content = await cmsService.getContentByPage(page);
 
-    console.log(`📤 [CMS] Response for page "${page}":`, {
+    logger.info(`📤 [CMS] Response for page "${page}":`, {
       page: content.page,
       title: content.title,
       contentType: Array.isArray(content.content)
@@ -87,7 +88,7 @@ class CmsAdminController {
     if (page === "home" || page === "about") {
       // Home/About should be an array
       if (!Array.isArray(content.content)) {
-        console.warn(
+        logger.warn(
           `⚠️ [CMS] Content for ${page} is not an array, converting...`
         );
         content.content = content.content ? [content.content] : [];
@@ -111,8 +112,8 @@ class CmsAdminController {
   updateContent = asyncHandler(async (req, res) => {
     const { page, content } = req.body;
 
-    console.log(`📥 [CMS] POST /admin/cms - updateContent called`);
-    console.log("📥 [CMS] Request body:", {
+    logger.info(`📥 [CMS] POST /admin/cms - updateContent called`);
+    logger.info("📥 [CMS] Request body:", {
       page,
       hasContent: !!content,
       contentType: Array.isArray(content)
@@ -146,7 +147,7 @@ class CmsAdminController {
     await cacheDelPattern(`cms:${page}*`);
     if (page === "home") await cacheDel("homepage");
 
-    console.log(`📤 [CMS] Update successful for page "${page}":`, {
+    logger.info(`📤 [CMS] Update successful for page "${page}":`, {
       page: updated.page,
       title: updated.title,
       contentLength: Array.isArray(updated.content)
@@ -174,8 +175,8 @@ class CmsAdminController {
     const { page } = req.params;
     const { content, slug, title } = req.body; // Extract slug and title for policies
 
-    console.log(`📥 [CMS] PUT /admin/cms/${page} - updateContentByPage called`);
-    console.log("📥 [CMS] Request body:", {
+    logger.info(`📥 [CMS] PUT /admin/cms/${page} - updateContentByPage called`);
+    logger.info("📥 [CMS] Request body:", {
       page,
       slug,
       title,
@@ -203,7 +204,7 @@ class CmsAdminController {
     await cacheDelPattern(`cms:${page}*`);
     if (page === "home") await cacheDel("homepage");
 
-    console.log(`📤 [CMS] Update successful for page "${page}":`, {
+    logger.info(`📤 [CMS] Update successful for page "${page}":`, {
       page: updated.page,
       title: updated.title,
       contentLength: Array.isArray(updated.content)
@@ -228,10 +229,10 @@ class CmsAdminController {
     const { page, blockType } = req.params;
     const blockData = req.body;
 
-    console.log(
+    logger.info(
       `📥 [CMS] PATCH /admin/cms/${page}/block/${blockType} - updateSingleBlock called`
     );
-    console.log("📥 [CMS] Request body:", {
+    logger.info("📥 [CMS] Request body:", {
       page,
       blockType,
       hasData: !!blockData,
@@ -254,7 +255,7 @@ class CmsAdminController {
     await cacheDelPattern(`cms:${page}*`);
     if (page === "home") await cacheDel("homepage");
 
-    console.log(
+    logger.info(
       `📤 [CMS] Single block update successful for block '${blockType}' in page '${page}'`
     );
 

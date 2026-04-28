@@ -4,6 +4,7 @@ const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const { updateRatings } = require("../../services/ratingService");
 const mongoose = require("mongoose");
+const logger = require("../../utils/logger");
 
 /**
  * Get purchased products eligible for review
@@ -65,7 +66,7 @@ const getPurchasedProductsForReview = async (req, res) => {
       purchasedProducts: purchasedItems,
     });
   } catch (err) {
-    console.error("❌ Error fetching purchased products:", err);
+    logger.error("❌ Error fetching purchased products:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -166,7 +167,7 @@ const addReview = async (req, res) => {
       review: newReview,
     });
   } catch (err) {
-    console.error("❌ Error adding review:", err);
+    logger.error("❌ Error adding review:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -196,7 +197,7 @@ const getMyReviews = async (req, res) => {
       reviews,
     });
   } catch (err) {
-    console.error("❌ Error fetching user reviews:", err);
+    logger.error("❌ Error fetching user reviews:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -258,7 +259,7 @@ const updateMyReview = async (req, res) => {
       review: existingReview,
     });
   } catch (err) {
-    console.error("❌ Error updating review:", err);
+    logger.error("❌ Error updating review:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -295,7 +296,7 @@ const deleteMyReview = async (req, res) => {
       message: "✅ Review deleted successfully",
     });
   } catch (err) {
-    console.error("❌ Error deleting review:", err);
+    logger.error("❌ Error deleting review:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -361,7 +362,7 @@ const getProductReviews = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error fetching product reviews:", err);
+    logger.error("❌ Error fetching product reviews:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -396,7 +397,7 @@ const getVariantReviews = async (req, res) => {
       reviews,
     });
   } catch (err) {
-    console.error("❌ Error fetching reviews:", err);
+    logger.error("❌ Error fetching reviews:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -444,7 +445,7 @@ const getTopReviews = async (req, res) => {
       reviews: formattedReviews,
     });
   } catch (err) {
-    console.error("❌ Error fetching top reviews:", err);
+    logger.error("❌ Error fetching top reviews:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

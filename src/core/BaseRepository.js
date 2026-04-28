@@ -21,28 +21,62 @@ class BaseRepository {
 
     const skip = (page - 1) * limit;
 
-    const query = this.model.find(filter);
+    const usesTextScore =
+      sort &&
+      typeof sort === "object" &&
+      Object.values(sort).some(
+        (v) => v && typeof v === "object" && v.$meta === "textScore"
+      );
 
-    if (select) {
-      query.select(select);
-    }
-
+    // When populate is required we need Mongoose query chain for .populate() support
     if (populate.length > 0) {
-      populate.forEach((pop) => {
-        query.populate(pop);
-      });
+      const query = this.model.find(filter);
+      if (select) query.select(select);
+      else if (usesTextScore) query.select({ score: { $meta: "textScore" } });
+      populate.forEach((pop) => query.populate(pop));
+      if (sort) query.sort(sort);
+      query.skip(skip).limit(limit);
+
+      const [data, total] = await Promise.all([
+        query.exec(),
+        this.model.countDocuments(filter),
+      ]);
+
+      return {
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
+        },
+      };
     }
 
-    if (sort) {
-      query.sort(sort);
+    // Single-pass $facet aggregation — one DB roundtrip for data + count
+    const pipeline = [{ $match: filter }];
+
+    if (usesTextScore) {
+      pipeline.push({ $addFields: { score: { $meta: "textScore" } } });
     }
+    if (sort) pipeline.push({ $sort: sort });
 
-    query.skip(skip).limit(limit);
+    const dataStages = [{ $skip: skip }, { $limit: limit }];
+    if (select) dataStages.push({ $project: this._selectToProject(select) });
+    else if (usesTextScore) dataStages.push({ $project: { score: 1 } });
 
-    const [data, total] = await Promise.all([
-      query.exec(),
-      this.model.countDocuments(filter),
-    ]);
+    pipeline.push({
+      $facet: {
+        data: dataStages,
+        total: [{ $count: "count" }],
+      },
+    });
+
+    const [result] = await this.model.aggregate(pipeline);
+    const data = result?.data ?? [];
+    const total = result?.total?.[0]?.count ?? 0;
 
     return {
       data,
@@ -55,6 +89,15 @@ class BaseRepository {
         hasPrev: page > 1,
       },
     };
+  }
+
+  _selectToProject(select) {
+    if (typeof select === "object") return select;
+    return select.split(/\s+/).reduce((acc, f) => {
+      if (f.startsWith("-")) acc[f.slice(1)] = 0;
+      else if (f) acc[f] = 1;
+      return acc;
+    }, {});
   }
 
   /**

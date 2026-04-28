@@ -14,27 +14,34 @@ const {
 } = require("../../utils/formatCartResponse");
 const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
+const { cacheGetOrSet, cacheDel, TTL } = require("../../utils/redisCache");
 
 const SiteSetting = require("../../models/SiteSetting");
+const logger = require("../../utils/logger");
+
+const CART_SETTINGS_CACHE_KEY = "cart:settings";
 
 /**
- * Get cart settings from DB
+ * Get cart settings — cached for 5 minutes.
+ * Call invalidateCartSettings() after any admin shipping-config update.
  */
-const getCartSettings = async () => {
-  const settings = await SiteSetting.find({ scope: "cart" });
-  const config = {
-    freeThreshold: SHIPPING_COST.FREE_THRESHOLD, // Default
-    shippingCost: SHIPPING_COST.SHIPPING_COST, // Default
-  };
-
-  settings.forEach((s) => {
-    if (s.key === "cart.shipping.freeThreshold")
-      config.freeThreshold = Number(s.value);
-    if (s.key === "cart.shipping.flat") config.shippingCost = Number(s.value);
+const getCartSettings = () =>
+  cacheGetOrSet(CART_SETTINGS_CACHE_KEY, TTL.CART_SETTINGS, async () => {
+    const settings = await SiteSetting.find({ scope: "cart" });
+    const config = {
+      freeThreshold: SHIPPING_COST.FREE_THRESHOLD,
+      shippingCost: SHIPPING_COST.SHIPPING_COST,
+    };
+    settings.forEach((s) => {
+      if (s.key === "cart.shipping.freeThreshold")
+        config.freeThreshold = Number(s.value);
+      if (s.key === "cart.shipping.flat")
+        config.shippingCost = Number(s.value);
+    });
+    return config;
   });
 
-  return config;
-};
+const invalidateCartSettings = () => cacheDel(CART_SETTINGS_CACHE_KEY);
 
 /**
  * Calculate shipping estimate
@@ -155,9 +162,38 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
 
     // Fetch coupon to get type/value for recalculation
     const couponDoc = await Coupon.findById(cartCoupon.couponId)
-      .select("type value maxDiscount applicableTo applicableProductIds isActive")
+      .select("type value maxDiscount applicableTo applicableProductIds isActive freeGift")
       .lean();
-    if (!couponDoc || !couponDoc.isActive) continue;
+    if (!couponDoc || !couponDoc.isActive) {
+      // Also remove orphaned gift items for this coupon
+      if (cartCoupon.type === "free_gift") {
+        cart.items = cart.items.filter((i) => i.freeGiftCouponCode !== cartCoupon.code);
+      }
+      continue;
+    }
+
+    // ── free_gift: re-check trigger condition ──────────────────────────
+    if (couponDoc.type === "free_gift") {
+      const fg = couponDoc.freeGift;
+      if (fg?.triggerProductIds?.length) {
+        const triggerIds = new Set(fg.triggerProductIds.map((id) => id.toString()));
+        let triggerQty = 0;
+        for (const item of cart.items) {
+          const pid = (item.productId?._id || item.productId)?.toString();
+          if (pid && triggerIds.has(pid) && !item.isFreeGiftCoupon) {
+            triggerQty += item.quantity;
+          }
+        }
+        if (triggerQty < (fg.triggerMinQty || 1)) {
+          // Trigger no longer met — drop coupon and injected gift item
+          cart.items = cart.items.filter((i) => i.freeGiftCouponCode !== cartCoupon.code);
+          continue;
+        }
+      }
+      // Trigger still met — keep coupon as-is (discount is fixed gift value)
+      updatedCoupons.push({ ...cartCoupon.toObject ? cartCoupon.toObject() : cartCoupon });
+      continue;
+    }
 
     // Determine eligible subtotal (product-scoped coupons)
     let eligibleSubtotal = discountedSubtotal;
@@ -217,6 +253,7 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
     updatedCoupons.push({
       code: cartCoupon.code,
       couponId: cartCoupon.couponId,
+      type: cartCoupon.type || couponDoc.type,
       discountAmount,
       minCartValue: cartCoupon.minCartValue,
       lineDiscounts,
@@ -374,7 +411,7 @@ const computeBundleStocksAndIssues = async (req, cart) => {
 
     // Fail fast if not populated - caller must populate first
     if (!productDoc || !productDoc._id) {
-      console.error(
+      logger.error(
         "❌ computeBundleStocksAndIssues: Cart items must be populated with productId",
       );
       continue; // Skip unpopulated items
@@ -547,7 +584,7 @@ const createCart = async (req, res) => {
       cart: formatted,
     });
   } catch (error) {
-    console.error("❌ Error creating cart:", error);
+    logger.error("❌ Error creating cart:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -596,7 +633,7 @@ const setCookie = async (req, res) => {
       message: "Cookie set successfully",
     });
   } catch (error) {
-    console.error("❌ Error setting cookie:", error);
+    logger.error("❌ Error setting cookie:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -680,7 +717,7 @@ const getCart = async (req, res) => {
       isValid,
     });
   } catch (error) {
-    console.error("❌ Error getting cart:", error);
+    logger.error("❌ Error getting cart:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -889,7 +926,7 @@ const addItem = async (req, res) => {
       cart: formatted,
     });
   } catch (error) {
-    console.error("❌ Error adding item:", error);
+    logger.error("❌ Error adding item:", error);
     if (error.statusCode) {
       return res.status(error.statusCode).json({
         success: false,
@@ -1029,7 +1066,7 @@ const updateItem = async (req, res) => {
       cart: formatted,
     });
   } catch (error) {
-    console.error("❌ Error updating item:", error);
+    logger.error("❌ Error updating item:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1171,7 +1208,7 @@ const removeItem = async (req, res) => {
       cart: formatted,
     });
   } catch (error) {
-    console.error("❌ Error removing item:", error);
+    logger.error("❌ Error removing item:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1222,7 +1259,7 @@ const clearCart = async (req, res) => {
       cart: formatted,
     });
   } catch (error) {
-    console.error("❌ Error clearing cart:", error);
+    logger.error("❌ Error clearing cart:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1253,7 +1290,7 @@ const getCount = async (req, res) => {
       count,
     });
   } catch (error) {
-    console.error("❌ Error getting count:", error);
+    logger.error("❌ Error getting count:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1304,7 +1341,7 @@ const getItems = async (req, res) => {
       items: formatted.items || [],
     });
   } catch (error) {
-    console.error("❌ Error getting items:", error);
+    logger.error("❌ Error getting items:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1376,7 +1413,7 @@ const getPriceSummary = async (req, res) => {
       priceSummary: formatted.priceSummary,
     });
   } catch (error) {
-    console.error("❌ Error getting price summary:", error);
+    logger.error("❌ Error getting price summary:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1447,7 +1484,7 @@ const getProductData = async (req, res) => {
       productData,
     });
   } catch (error) {
-    console.error("❌ Error getting product data:", error);
+    logger.error("❌ Error getting product data:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1524,7 +1561,7 @@ const getSummary = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Error getting summary:", error);
+    logger.error("❌ Error getting summary:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1785,7 +1822,7 @@ const mergeCart = async (req, res) => {
       cart: null,
     });
   } catch (error) {
-    console.error("❌ Error merging cart:", error);
+    logger.error("❌ Error merging cart:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -1946,6 +1983,13 @@ const applyCoupon = async (req, res) => {
         errorCode: "DUPLICATE_COUPON",
       });
     }
+    if (coupon.type === "free_gift" && cart.coupons.some((c) => c.type === "free_gift")) {
+      return res.status(400).json({
+        success: false,
+        message: "Only one free gift coupon can be applied at a time",
+        errorCode: "ONE_FREE_GIFT_ONLY",
+      });
+    }
 
     // ─── Scope eligibility: build eligible item set ───────────────────────
     let eligibleSubtotal = totals.discountedSubtotal;
@@ -2022,6 +2066,101 @@ const applyCoupon = async (req, res) => {
       });
     }
 
+    // ─── Free gift coupon branch ──────────────────────────────────────────
+    if (coupon.type === "free_gift") {
+      const fg = coupon.freeGift;
+      if (!fg?.giftProductId || !fg?.triggerProductIds?.length) {
+        return res.status(400).json({
+          success: false,
+          message: "This coupon is not configured correctly. Please contact support.",
+        });
+      }
+
+      // Check trigger products are in cart with sufficient qty
+      const triggerIds = new Set(fg.triggerProductIds.map((id) => id.toString()));
+      let triggerQtyInCart = 0;
+      for (const item of cart.items) {
+        const pid = (item.productId?._id || item.productId)?.toString();
+        if (pid && triggerIds.has(pid) && !item.isFreeGiftCoupon) {
+          triggerQtyInCart += item.quantity;
+        }
+      }
+      if (triggerQtyInCart < fg.triggerMinQty) {
+        const triggerProducts = await Product.find(
+          { _id: { $in: fg.triggerProductIds } },
+          "title",
+        ).lean();
+        const names = triggerProducts.map((p) => p.title).join(", ");
+        return res.status(400).json({
+          success: false,
+          message: `Add at least ${fg.triggerMinQty} of ${names} to qualify for this gift`,
+          errorCode: "TRIGGER_PRODUCT_NOT_IN_CART",
+        });
+      }
+
+      // Fetch gift product and check stock
+      const giftProduct = await Product.findById(fg.giftProductId).lean();
+      if (!giftProduct) {
+        return res.status(400).json({
+          success: false,
+          message: "Gift product is no longer available",
+          errorCode: "GIFT_PRODUCT_NOT_FOUND",
+        });
+      }
+      const giftStock = giftProduct.stockObj?.available ?? giftProduct.stock ?? 0;
+      if (giftStock < fg.giftQty) {
+        return res.status(400).json({
+          success: false,
+          message: "The free gift is currently out of stock",
+          errorCode: "GIFT_PRODUCT_OUT_OF_STOCK",
+        });
+      }
+
+      // Inject gift item into cart
+      const giftPrice = giftProduct.offerPrice || giftProduct.price || 0;
+      cart.items.push({
+        productId: giftProduct._id,
+        variantId: null,
+        quantity: fg.giftQty,
+        titleSnapshot: giftProduct.title,
+        imageSnapshot: giftProduct.images?.[0] || "",
+        skuSnapshot: giftProduct.sku || null,
+        isFreeGiftCoupon: true,
+        freeGiftCouponCode: coupon.code,
+      });
+
+      // Push coupon entry — discountAmount = monetary value of gift (for display)
+      cart.coupons.push({
+        code: coupon.code,
+        couponId: coupon._id,
+        type: "free_gift",
+        discountAmount: Math.round(giftPrice * fg.giftQty * 100) / 100,
+        minCartValue: coupon.minCartValue ?? 0,
+        lineDiscounts: [],
+      });
+
+      // Recalculate totals (gift item has price 0 so totals don't change monetarily)
+      const couponDiscountTotal = totalCouponDiscount(cart);
+      const payableBeforeShipping = totals.discountedSubtotal - couponDiscountTotal;
+      const adjustedShipping = calculateShipping(payableBeforeShipping, totals.settings);
+      totals.shippingEstimate = Math.round(adjustedShipping * 100) / 100;
+      totals.total = Math.round((totals.discountedSubtotal + adjustedShipping) * 100) / 100;
+      assignCartTotals(cart, totals, couponDiscountTotal);
+
+      await cart.save();
+
+      const bundleStocksGift = await computeBundleStocks(req, cart);
+      const giftProductsMap = await fetchGiftProducts(cart.items);
+      const formattedGift = formatCartResponse(cart, bundleStocksGift, itemPrices, giftProductsMap);
+
+      return res.status(200).json({
+        success: true,
+        cart: formattedGift,
+        message: `🎁 Free gift added: ${giftProduct.title}`,
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     // Calculate discount — flat is capped at eligibleSubtotal (Shopify behaviour)
     let discountAmount = 0;
     if (coupon.type === "flat") {
@@ -2056,6 +2195,7 @@ const applyCoupon = async (req, res) => {
     cart.coupons.push({
       code: coupon.code,
       couponId: coupon._id,
+      type: coupon.type,
       discountAmount,
       minCartValue: coupon.minCartValue ?? 0,
       lineDiscounts,
@@ -2088,7 +2228,7 @@ const applyCoupon = async (req, res) => {
       message: "Coupon applied successfully",
     });
   } catch (error) {
-    console.error("❌ Error applying coupon:", error);
+    logger.error("❌ Error applying coupon:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -2123,10 +2263,21 @@ const removeCoupon = async (req, res) => {
 
     const { code } = req.body;
     if (code) {
-      // Remove specific coupon by code
-      cart.coupons = (cart.coupons || []).filter((c) => c.code !== code.toUpperCase());
+      const upperCode = code.toUpperCase();
+      const removedCoupon = (cart.coupons || []).find((c) => c.code === upperCode);
+      // If removing a free_gift coupon, also remove the injected gift item
+      if (removedCoupon?.type === "free_gift") {
+        cart.items = cart.items.filter((item) => item.freeGiftCouponCode !== upperCode);
+      }
+      cart.coupons = (cart.coupons || []).filter((c) => c.code !== upperCode);
     } else {
-      // Remove all coupons (backward compat)
+      // Remove all coupons (backward compat) — also remove all gift items
+      const giftCodes = new Set(
+        (cart.coupons || []).filter((c) => c.type === "free_gift").map((c) => c.code),
+      );
+      if (giftCodes.size > 0) {
+        cart.items = cart.items.filter((item) => !item.isFreeGiftCoupon);
+      }
       cart.coupons = [];
     }
 
@@ -2163,7 +2314,7 @@ const removeCoupon = async (req, res) => {
       message: "Coupon removed successfully",
     });
   } catch (error) {
-    console.error("❌ Error removing coupon:", error);
+    logger.error("❌ Error removing coupon:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -2276,7 +2427,7 @@ const getAvailableCoupons = async (req, res) => {
       coupons: formattedCoupons,
     });
   } catch (error) {
-    console.error("❌ Error getting coupons:", error);
+    logger.error("❌ Error getting coupons:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -2299,17 +2450,20 @@ const performRecoverCart = async (req, res, lockedCart) => {
   const newCartId = generateCartId();
   const userId = req.user?.id || (lockedCart.userId ? lockedCart.userId : null);
 
-  const newItems = lockedCart.items.map((item) => ({
-    _id: item._id, // Preserve for seamless frontend (itemId still works after recovery)
-    productId: item.productId,
-    variantId: item.variantId,
-    quantity: item.quantity,
-    titleSnapshot: item.titleSnapshot,
-    imageSnapshot: item.imageSnapshot,
-    skuSnapshot: item.skuSnapshot,
-    attributesSnapshot: item.attributesSnapshot,
-    selectedGiftSku: item.selectedGiftSku,
-  }));
+  // Exclude injected free-gift items — coupons are not cloned so gifts would be orphaned
+  const newItems = lockedCart.items
+    .filter((item) => !item.isFreeGiftCoupon)
+    .map((item) => ({
+      _id: item._id, // Preserve for seamless frontend (itemId still works after recovery)
+      productId: item.productId,
+      variantId: item.variantId,
+      quantity: item.quantity,
+      titleSnapshot: item.titleSnapshot,
+      imageSnapshot: item.imageSnapshot,
+      skuSnapshot: item.skuSnapshot,
+      attributesSnapshot: item.attributesSnapshot,
+      selectedGiftSku: item.selectedGiftSku,
+    }));
 
   const newCart = await Cart.create({
     cartId: newCartId,
@@ -2428,7 +2582,7 @@ const recoverCart = async (req, res) => {
           message: "Cart recovered successfully",
         });
       } catch (populateErr) {
-        console.error(
+        logger.error(
           "❌ [recoverCart] Populate/save error after recovery:",
           populateErr.message,
         );
@@ -2450,7 +2604,7 @@ const recoverCart = async (req, res) => {
       message: "Cart recovered successfully",
     });
   } catch (error) {
-    console.error("❌ Error recovering cart:", error);
+    logger.error("❌ Error recovering cart:", error);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -2476,4 +2630,5 @@ module.exports = {
   removeCoupon,
   getAvailableCoupons,
   recoverCart,
+  invalidateCartSettings,
 };

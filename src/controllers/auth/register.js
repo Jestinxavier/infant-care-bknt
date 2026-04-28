@@ -1,4 +1,5 @@
 const authService = require("../../services/service");
+const logger = require("../../utils/logger");
 const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
 
 /**
@@ -6,7 +7,7 @@ const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
  */
 const requestOTP = async (req, res) => {
   try {
-    console.log("📧 Request OTP called with:", req.body);
+    logger.info("📧 Request OTP called with:", req.body);
 
     // Validate email exists
     if (!req.body.email) {
@@ -17,11 +18,11 @@ const requestOTP = async (req, res) => {
     }
 
     const result = await authService.requestOTP(req.body);
-    console.log("✅ OTP request successful for:", req.body.email);
+    logger.info("✅ OTP request successful for:", req.body.email);
     res.status(200).json(result);
   } catch (err) {
-    console.error("❌ OTP request failed:", err.message);
-    console.error("🐞 Full error:", err);
+    logger.error("❌ OTP request failed:", err.message);
+    logger.error("🐞 Full error:", err);
     res.status(400).json({ success: false, message: err.message });
   }
 };

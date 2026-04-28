@@ -10,6 +10,7 @@ const {
   bulkDeleteCategories,
 } = require("../controllers/category");
 const verifyToken = require("../middlewares/authMiddleware");
+const logger = require("../utils/logger");
 const { categoryImageUploader } = require("../config/categoryImageUpload");
 
 /**
@@ -178,7 +179,7 @@ router.post(
   (req, res, next) => {
     categoryImageUploader.single("image")(req, res, function (err) {
       if (err) {
-        console.error("❌ Category image upload error:", err);
+        logger.error("❌ Category image upload error:", err);
         return res
           .status(400)
           .json({ success: false, message: err.message, error: err });
@@ -244,7 +245,7 @@ router.put(
   (req, res, next) => {
     categoryImageUploader.single("image")(req, res, function (err) {
       if (err) {
-        console.error("❌ Category image upload error:", err);
+        logger.error("❌ Category image upload error:", err);
         return res
           .status(400)
           .json({ success: false, message: err.message, error: err });

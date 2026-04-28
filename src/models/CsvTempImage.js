@@ -35,11 +35,10 @@ const csvTempImageSchema = new mongoose.Schema(
     format: { type: String, default: "jpg" },
     size: { type: Number, default: 0 }, // bytes
 
-    // Lifecycle tracking
+    // Lifecycle tracking — indexed via schema.index() below, not inline
     uploadedAt: {
       type: Date,
       default: Date.now,
-      index: true, // Index for cron cleanup queries
     },
 
     // User who uploaded

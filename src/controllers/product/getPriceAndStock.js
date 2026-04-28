@@ -9,6 +9,7 @@
  */
 
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 const { resolvePrice } = require("../../utils/pricingUtils");
 
 const getPriceAndStock = async (req, res) => {
@@ -138,7 +139,7 @@ const getPriceAndStock = async (req, res) => {
       message: "Product not found",
     });
   } catch (err) {
-    console.error("❌ Error fetching price/stock:", err);
+    logger.error("❌ Error fetching price/stock:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

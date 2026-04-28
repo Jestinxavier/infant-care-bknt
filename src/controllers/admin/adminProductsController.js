@@ -3,9 +3,8 @@ const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { transformForDashboard } = require("../../utils/transformForDashboard");
 
-// Escape user-provided search strings so they are treated as literal text in regex
-const escapeRegex = (str = "") =>
-  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
 
 /**
  * Admin: Get all products with full details (including drafts, all variants)
@@ -108,7 +107,7 @@ const getAllProducts = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Admin Error fetching products:", err);
+    logger.error("❌ Admin Error fetching products:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
@@ -144,7 +143,7 @@ const getProductById = async (req, res) => {
 
     // Debug: Log raw product details from database
     if (product.details) {
-      console.log("[getProductById] Raw product details from DB:", JSON.stringify(product.details, null, 2));
+      logger.info("[getProductById] Raw product details from DB:", JSON.stringify(product.details, null, 2));
     }
 
     // Format product for admin
@@ -240,7 +239,7 @@ const getProductById = async (req, res) => {
       product: productObj,
     });
   } catch (err) {
-    console.error("❌ Admin Error fetching product:", err);
+    logger.error("❌ Admin Error fetching product:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

@@ -1,4 +1,5 @@
 const Footer = require("../../models/Footer");
+const logger = require("../../utils/logger");
 const { cacheGet, cacheSet } = require("../../utils/redisCache");
 
 const CACHE_KEY = "footer";
@@ -49,7 +50,7 @@ const getFooter = async (req, res) => {
 
     res.status(200).json(response);
   } catch (err) {
-    console.error("❌ Error fetching footer data:", err);
+    logger.error("❌ Error fetching footer data:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

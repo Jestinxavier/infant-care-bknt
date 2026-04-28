@@ -20,6 +20,7 @@ const {
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
 const mongoose = require("mongoose");
+const logger = require("../../utils/logger");
 
 const MIN_FUZZY_QUERY_LENGTH = 3;
 const MIN_VARIANT_QUERY_LENGTH = 3;
@@ -979,8 +980,8 @@ class ProductService {
    * Create product
    */
   async createProduct(inputData) {
-    console.log("=== createProduct called ===");
-    console.log("Input SKU:", inputData.sku);
+    logger.info("=== createProduct called ===");
+    logger.info("Input SKU:", inputData.sku);
 
     // Clone input
     const productData = { ...inputData };
@@ -1054,7 +1055,7 @@ class ProductService {
       !productData.sku ||
       (typeof productData.sku === "string" && !productData.sku.trim())
     ) {
-      console.log(">>> Auto-generating SKU...");
+      logger.info(">>> Auto-generating SKU...");
       // Check SKU uniqueness helper
       const checkSkuExists = async (sku) => {
         const Product = require("./product.model");
@@ -1069,7 +1070,7 @@ class ProductService {
         categoryCode: productData.categoryCode,
         productName: productData.title,
       });
-      console.log(">>> Generated SKU:", productData.sku);
+      logger.info(">>> Generated SKU:", productData.sku);
     } else {
       const skuValidation = validateSku(productData.sku);
       if (!skuValidation.valid) {
@@ -1091,7 +1092,7 @@ class ProductService {
     }
 
     if (!productData.sku) {
-      console.error("!!! SKU is null after generation !!!");
+      logger.error("!!! SKU is null after generation !!!");
       throw ApiError.internal("Failed to generate product SKU");
     }
 

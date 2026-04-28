@@ -22,6 +22,7 @@ const {
 } = require("../controllers/product");
 const productService = require("../features/product/product.service");
 const verifyToken = require("../middlewares/authMiddleware");
+const logger = require("../utils/logger");
 const router = express.Router();
 
 /**
@@ -70,7 +71,7 @@ router.get("/search", async (req, res) => {
       pagination: result.pagination,
     });
   } catch (error) {
-    console.error("Search error:", error);
+    logger.error("Search error:", error);
     return res.status(500).json({
       success: false,
       message: error.message || "Search failed",
@@ -220,10 +221,10 @@ router.post(
   (req, res, next) => {
     parser.any()(req, res, function (err) {
       if (err) {
-        console.error("❌ Multer/Cloudinary Error:", err);
+        logger.error("❌ Multer/Cloudinary Error:", err);
         return res.status(400).json({ message: "Upload error", error: err });
       }
-      console.log("✅ Multer parsing done");
+      logger.info("✅ Multer parsing done");
       next();
     });
   },

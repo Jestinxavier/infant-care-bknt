@@ -1,4 +1,5 @@
 const Address = require("../../models/Address");
+const logger = require("../../utils/logger");
 
 const updateAddress = async (req, res) => {
   try {
@@ -35,7 +36,7 @@ const updateAddress = async (req, res) => {
       address: updatedAddress
     });
   } catch (err) {
-    console.error("❌ Error updating address:", err);
+    logger.error("❌ Error updating address:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 
 const getRecommendations = async (req, res) => {
   try {
@@ -89,7 +90,7 @@ const getRecommendations = async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error("❌ Error fetching recommendations:", err);
+    logger.error("❌ Error fetching recommendations:", err);
     return res
       .status(500)
       .json({ success: false, message: "Internal Server Error" });

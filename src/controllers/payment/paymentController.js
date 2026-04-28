@@ -1,5 +1,6 @@
 const SiteSetting = require("../../models/SiteSetting");
 const Cart = require("../../models/Cart");
+const logger = require("../../utils/logger");
 
 /**
  * GET /api/v1/payment/options
@@ -67,7 +68,7 @@ const getPaymentOptions = async (req, res) => {
       options: enabledMethods,
     });
   } catch (error) {
-    console.error("[Payment Options Error]:", error);
+    logger.error("[Payment Options Error]:", error);
 
     return res.status(500).json({
       success: false,

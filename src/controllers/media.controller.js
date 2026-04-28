@@ -4,6 +4,7 @@ const ApiError = require("../core/ApiError");
 const asyncHandler = require("../core/middleware/asyncHandler");
 const Media = require("../models/Media");
 const multer = require("multer");
+const logger = require("../utils/logger");
 
 // Use memory storage so we can access the buffer for direct upload
 const memoryUpload = multer({
@@ -37,7 +38,7 @@ class MediaController {
         const imageType = req.body?.imageType || "default"; // product, banner_desktop, banner_mobile, category
         const validFolder = getValidFolder(folder);
 
-        console.log(
+        logger.info(
           `📁 [Media] Uploading to folder: ${validFolder}, type: ${imageType}`
         );
 
@@ -55,7 +56,7 @@ class MediaController {
 
         const publicIdBase = `${validFolder}/${fileHash}`;
 
-        console.log(`🔑 [Media] Content hash: ${fileHash}`);
+        logger.info(`🔑 [Media] Content hash: ${fileHash}`);
 
         // Upload directly to Cloudinary with specified folder
         // STRICT: NO transformations at upload - store original bytes only
@@ -80,7 +81,7 @@ class MediaController {
 
         const publicId = uploadResult.public_id;
 
-        console.log("✅ [Media] File uploaded successfully:", {
+        logger.info("✅ [Media] File uploaded successfully:", {
           originalname: req.file.originalname,
           mimetype: req.file.mimetype,
           size: req.file.size,
@@ -94,9 +95,9 @@ class MediaController {
           await cloudinary.uploader.add_tag("temp-upload", [publicId], {
             resource_type: "image",
           });
-          console.log("✅ [Media] Added temp-upload tag to:", publicId);
+          logger.info("✅ [Media] Added temp-upload tag to:", publicId);
         } catch (tagError) {
-          console.warn(
+          logger.warn(
             "⚠️ [Media] Failed to add temp tag (non-critical):",
             tagError
           );
@@ -137,9 +138,9 @@ class MediaController {
             },
             { upsert: true, new: true }
           );
-          console.log("✅ [Media] Saved metadata to database:", publicId);
+          logger.info("✅ [Media] Saved metadata to database:", publicId);
         } catch (dbError) {
-          console.warn(
+          logger.warn(
             "⚠️ [Media] Failed to save metadata to DB (non-critical):",
             dbError
           );
@@ -151,7 +152,7 @@ class MediaController {
             ApiResponse.success("File uploaded successfully", metadata).toJSON()
           );
       } catch (error) {
-        console.error("❌ [Media] Error processing upload:", error);
+        logger.error("❌ [Media] Error processing upload:", error);
         res
           .status(500)
           .json(
@@ -191,7 +192,7 @@ class MediaController {
         );
       }
     } catch (error) {
-      console.error("❌ [Media] Delete error:", error);
+      logger.error("❌ [Media] Delete error:", error);
       res
         .status(500)
         .json(ApiResponse.error("Failed to delete file", 500, error).toJSON());
@@ -226,9 +227,9 @@ class MediaController {
             await cloudinary.uploader.remove_tag("temp-upload", [publicId], {
               resource_type: "image",
             });
-            console.log("✅ [Media] Removed temp-upload tag from:", publicId);
+            logger.info("✅ [Media] Removed temp-upload tag from:", publicId);
           } catch (tagError) {
-            console.warn(
+            logger.warn(
               "⚠️ [Media] Failed to remove tag (may not exist):",
               tagError
             );
@@ -247,7 +248,7 @@ class MediaController {
 
           if (updated) {
             results.success.push(publicId);
-            console.log("✅ [Media] Marked as final in DB:", publicId);
+            logger.info("✅ [Media] Marked as final in DB:", publicId);
           } else {
             // Image not in DB, but Cloudinary tag removal succeeded
             // Create entry if it doesn't exist
@@ -271,9 +272,9 @@ class MediaController {
                 uploadedAt: new Date(cloudinaryResource.created_at),
               });
               results.success.push(publicId);
-              console.log("✅ [Media] Created final entry in DB:", publicId);
+              logger.info("✅ [Media] Created final entry in DB:", publicId);
             } catch (createError) {
-              console.warn(
+              logger.warn(
                 "⚠️ [Media] Could not create DB entry:",
                 createError
               );
@@ -281,7 +282,7 @@ class MediaController {
             }
           }
         } catch (error) {
-          console.error(`❌ [Media] Failed to finalize ${publicId}:`, error);
+          logger.error(`❌ [Media] Failed to finalize ${publicId}:`, error);
           results.failed.push({ publicId, error: error.message });
         }
       }
@@ -295,7 +296,7 @@ class MediaController {
         }).toJSON()
       );
     } catch (error) {
-      console.error("❌ [Media] Finalize error:", error);
+      logger.error("❌ [Media] Finalize error:", error);
       res
         .status(500)
         .json(
@@ -331,7 +332,7 @@ class MediaController {
         }).toJSON()
       );
     } catch (error) {
-      console.error("❌ [Media] Batch delete error:", error);
+      logger.error("❌ [Media] Batch delete error:", error);
       res
         .status(500)
         .json(

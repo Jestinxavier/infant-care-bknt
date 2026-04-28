@@ -29,6 +29,39 @@ const {
 } = require("../../utils/filterAttributes");
 const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
+const logger = require("../../utils/logger");
+
+/**
+ * Derive auto-thumbnail for a video entry and return the normalized object.
+ * For Cloudinary: uses the first frame as a JPG.
+ * For YouTube: uses the standard mqdefault thumbnail.
+ */
+const YOUTUBE_ID_RE = /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+
+const processVideosInput = (rawVideos) => {
+  if (!rawVideos) return [];
+  let videos = rawVideos;
+  if (typeof videos === "string") {
+    try { videos = JSON.parse(videos); } catch { return []; }
+  }
+  if (!Array.isArray(videos)) return [];
+
+  return videos
+    .filter((v) => v && v.type && v.url)
+    .map((v) => {
+      let thumbnail = v.thumbnail || null;
+      if (!thumbnail) {
+        if (v.type === "cloudinary" && v.publicId) {
+          const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+          thumbnail = `https://res.cloudinary.com/${cloudName}/video/upload/so_0,f_jpg,w_320/${v.publicId}.jpg`;
+        } else if (v.type === "youtube") {
+          const match = v.url.match(YOUTUBE_ID_RE);
+          if (match) thumbnail = `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg`;
+        }
+      }
+      return { type: v.type, url: v.url, publicId: v.publicId || undefined, thumbnail, title: v.title || undefined };
+    });
+};
 
 const norm = (v) =>
   (v ?? "")
@@ -76,9 +109,9 @@ const buildVariantTitle = (
 
 const createProduct = async (req, res) => {
   try {
-    console.log("📦 Creating product - Request received");
-    console.log("Request body keys:", Object.keys(req.body || {}));
-    console.log("Request files:", req.files?.length || 0, "files");
+    logger.info("📦 Creating product - Request received");
+    logger.info("Request body keys:", Object.keys(req.body || {}));
+    logger.info("Request files:", req.files?.length || 0, "files");
 
     // Parse FormData fields - FormData sends all fields as strings
     // Need to handle JSON strings and parse them
@@ -89,7 +122,7 @@ const createProduct = async (req, res) => {
       try {
         parsedBody.variants = JSON.parse(parsedBody.variants);
       } catch (e) {
-        console.error("Error parsing variants JSON:", e);
+        logger.error("Error parsing variants JSON:", e);
         parsedBody.variants = [];
       }
     }
@@ -98,7 +131,7 @@ const createProduct = async (req, res) => {
       try {
         parsedBody.variantOptions = JSON.parse(parsedBody.variantOptions);
       } catch (e) {
-        console.error("Error parsing variantOptions JSON:", e);
+        logger.error("Error parsing variantOptions JSON:", e);
         parsedBody.variantOptions = [];
       }
     }
@@ -317,7 +350,7 @@ const createProduct = async (req, res) => {
         categoryName = foundCategory.name;
         categoryCode = foundCategory.code;
       } else {
-        console.error(`Category lookup failed for: "${category}"`);
+        logger.error(`Category lookup failed for: "${category}"`);
         return res.status(400).json({
           success: false,
           message: `Category "${category}" not found. Please create the category first.`,
@@ -377,13 +410,16 @@ const createProduct = async (req, res) => {
           categoryCode: categoryCode || "GEN",
           productName: productTitle,
         });
-        console.log("✅ Auto-generated SKU:", productSku);
+        logger.info("✅ Auto-generated SKU:", productSku);
       } catch (skuError) {
-        console.error("Failed to generate SKU:", skuError);
+        logger.error("Failed to generate SKU:", skuError);
         // Verify if we should throw or allow draft save?
         // If we fail generation, we should probably allow draft save but with empty SKU.
       }
     }
+
+    // Process product videos
+    const productVideos = processVideosInput(parsedBody.videos);
 
     // Process product images
     let productImages = [];
@@ -401,8 +437,8 @@ const createProduct = async (req, res) => {
             productImages = [imageMetadata];
           }
         } catch (e) {
-          console.error("Error parsing images JSON:", e);
-          console.error(
+          logger.error("Error parsing images JSON:", e);
+          logger.error(
             "Images string value:",
             parsedBody.images.substring(0, 200),
           );
@@ -740,12 +776,12 @@ const createProduct = async (req, res) => {
 
       // If any required fields are missing, force to draft
       if (missingFields.length > 0) {
-        console.log(
+        logger.info(
           `⚠️ Product cannot be published - missing required fields: ${missingFields.join(
             ", ",
           )}`,
         );
-        console.log("   → Auto-saving as 'draft' instead");
+        logger.info("   → Auto-saving as 'draft' instead");
         normalizedStatus = "draft";
       }
     }
@@ -839,6 +875,7 @@ const createProduct = async (req, res) => {
       badgeCollection: parsedCollections.badgeCollection,
       images: productImageUrls.length > 0 ? productImageUrls : undefined,
       thumbnail: productImageUrls.length > 0 ? productImageUrls[0] : undefined,
+      videos: productVideos.length > 0 ? productVideos : undefined,
       metaTitle: metaTitle || null,
       metaDescription: metaDescription || null,
       subCategories: Array.isArray(subCategories) ? subCategories : [],
@@ -879,7 +916,7 @@ const createProduct = async (req, res) => {
           "product",
           product._id,
         );
-        console.log("✅ [Product] Finalized images:", {
+        logger.info("✅ [Product] Finalized images:", {
           total: imagePublicIds.length,
           succeeded: finalizeResult.success.length,
           failed: finalizeResult.failed.length,
@@ -887,7 +924,7 @@ const createProduct = async (req, res) => {
       }
     } catch (finalizeError) {
       // Non-critical error - log but don't fail the request
-      console.warn(
+      logger.warn(
         "⚠️ [Product] Failed to finalize images (non-critical):",
         finalizeError,
       );
@@ -906,12 +943,12 @@ const createProduct = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error creating product:", err);
-    console.error("Error stack:", err.stack);
-    console.error("Request body keys:", Object.keys(req.body || {}));
-    console.error("Request files count:", req.files?.length || 0);
-    console.error("Error name:", err.name);
-    console.error("Error code:", err.code);
+    logger.error("❌ Error creating product:", err);
+    logger.error("Error stack:", err.stack);
+    logger.error("Request body keys:", Object.keys(req.body || {}));
+    logger.error("Request files count:", req.files?.length || 0);
+    logger.error("Error name:", err.name);
+    logger.error("Error code:", err.code);
 
     // Handle validation errors (Mongoose ValidationError)
     if (err.name === "ValidationError") {

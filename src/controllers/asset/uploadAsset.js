@@ -2,11 +2,15 @@ const crypto = require("crypto");
 const multer = require("multer");
 const { cloudinary } = require("../../config/cloudinary");
 const Asset = require("../../models/Asset");
+const logger = require("../../utils/logger");
+
+const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo"]);
 
 // Use memory storage to access buffer for hashing
+// 100MB limit to accommodate video uploads (images are ~10MB, videos can be larger)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 /**
@@ -56,7 +60,7 @@ const uploadAsset = [
       const existingAsset = await Asset.findByHash(hash);
 
       if (existingAsset) {
-        console.log(`✅ Asset with hash ${hash} already exists, reusing`);
+        logger.info(`✅ Asset with hash ${hash} already exists, reusing`);
         // We can update the usage or just return it
         // Ideally, we should add to usedBy if we knew the entity, but intendedFor isn't enough
         // We will return it, and let the frontend use the ID.
@@ -113,7 +117,7 @@ const uploadAsset = [
         bytes: uploadResult.bytes,
       });
 
-      console.log(`✅ New asset uploaded: ${asset.publicId}`);
+      logger.info(`✅ New asset uploaded: ${asset.publicId}`);
 
       return res.status(201).json({
         success: true,
@@ -122,7 +126,7 @@ const uploadAsset = [
         duplicate: false,
       });
     } catch (error) {
-      console.error("❌ Error uploading asset:", error);
+      logger.error("❌ Error uploading asset:", error);
       res.status(500).json({
         success: false,
         message: "Internal server error",

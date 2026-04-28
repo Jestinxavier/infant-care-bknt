@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 const Asset = require("../models/Asset");
 const cloudinary = require("../config/cloudinary");
+const logger = require("../utils/logger");
 
 /**
  * Cleanup expired temporary assets
@@ -51,18 +52,18 @@ const executeCleanup = async (options = {}) => {
     const allAssetsToDelete = [...expiredTempAssets, ...expiredArchivedAssets];
 
     if (allAssetsToDelete.length === 0) {
-      console.log("🧹 [Asset Cleanup] No assets to clean up.");
+      logger.info("🧹 [Asset Cleanup] No assets to clean up.");
       return results;
     }
 
-    console.log(
+    logger.info(
       `🧹 [Asset Cleanup] Found ${allAssetsToDelete.length} assets to delete (${expiredTempAssets.length} temp, ${expiredArchivedAssets.length} archived).`
     );
 
     if (dryRun) {
-      console.log("🔍 [Dry Run] Would delete the following assets:");
+      logger.info("🔍 [Dry Run] Would delete the following assets:");
       allAssetsToDelete.forEach((asset) => {
-        console.log(`  - ${asset.publicId} (${asset.status})`);
+        logger.info(`  - ${asset.publicId} (${asset.status})`);
         results.deletedAssets.push({
           publicId: asset.publicId,
           status: asset.status,
@@ -84,7 +85,7 @@ const executeCleanup = async (options = {}) => {
 
         // Delete from DB
         await Asset.findByIdAndDelete(asset._id);
-        console.log(`  ✅ Deleted: ${asset.publicId}`);
+        logger.info(`  ✅ Deleted: ${asset.publicId}`);
 
         results.deletedCount++;
         results.deletedAssets.push({
@@ -92,7 +93,7 @@ const executeCleanup = async (options = {}) => {
           status: asset.status,
         });
       } catch (error) {
-        console.error(
+        logger.error(
           `  ❌ Failed to delete ${asset.publicId}:`,
           error.message
         );
@@ -104,13 +105,13 @@ const executeCleanup = async (options = {}) => {
       }
     }
 
-    console.log(
+    logger.info(
       `✅ Cleanup complete: ${results.deletedCount} deleted, ${results.failedCount} failed`
     );
 
     return results;
   } catch (error) {
-    console.error("❌ Cleanup execution error:", error);
+    logger.error("❌ Cleanup execution error:", error);
     results.errors.push({ error: error.message });
     throw error;
   }
@@ -122,15 +123,15 @@ const executeCleanup = async (options = {}) => {
 const startCleanupCron = () => {
   // Schedule: Run every day at 2 AM (0 2 * * *)
   cron.schedule("0 2 * * *", async () => {
-    console.log("🕐 [Asset Cleanup] Cron job triggered at 2 AM");
+    logger.info("🕐 [Asset Cleanup] Cron job triggered at 2 AM");
     try {
       await executeCleanup();
     } catch (error) {
-      console.error("❌ Cron cleanup job error:", error);
+      logger.error("❌ Cron cleanup job error:", error);
     }
   });
 
-  console.log("✅ Asset cleanup cron job scheduled (daily at 2 AM)");
+  logger.info("✅ Asset cleanup cron job scheduled (daily at 2 AM)");
 };
 
 /**
@@ -141,11 +142,11 @@ const runCleanupOnStartup = () => {
   const delayMs = 30 * 1000; // 30 seconds after startup
   setTimeout(async () => {
     try {
-      console.log("🧹 [Asset Cleanup] Running startup cleanup...");
+      logger.info("🧹 [Asset Cleanup] Running startup cleanup...");
       await executeCleanup();
-      console.log("🧹 [Asset Cleanup] Startup cleanup finished.");
+      logger.info("🧹 [Asset Cleanup] Startup cleanup finished.");
     } catch (error) {
-      console.error("❌ [Asset Cleanup] Startup cleanup error:", error.message);
+      logger.error("❌ [Asset Cleanup] Startup cleanup error:", error.message);
     }
   }, delayMs);
 };

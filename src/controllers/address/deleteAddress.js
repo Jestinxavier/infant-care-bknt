@@ -1,4 +1,5 @@
 const Address = require("../../models/Address");
+const logger = require("../../utils/logger");
 
 const deleteAddress = async (req, res) => {
   try {
@@ -28,7 +29,7 @@ const deleteAddress = async (req, res) => {
       message: "✅ Address deleted successfully"
     });
   } catch (err) {
-    console.error("❌ Error deleting address:", err);
+    logger.error("❌ Error deleting address:", err);
     res.status(500).json({
       success: false,
       message: "Internal Server Error",

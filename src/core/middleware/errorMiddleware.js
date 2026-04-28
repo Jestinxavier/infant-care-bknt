@@ -1,17 +1,17 @@
 const ApiError = require("../ApiError");
 const ApiResponse = require("../ApiResponse");
+const logger = require("../../utils/logger");
 
 /**
  * Global Error Handling Middleware
  * Catches all errors and returns standardized responses
  */
 const errorMiddleware = (err, req, res, next) => {
-  // Log error for debugging
-  console.error("❌ Error:", {
-    message: err.message,
-    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+  logger.error(err.message, {
     path: req.path,
     method: req.method,
+    status: err.statusCode || err.status || 500,
+    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
   });
 
   // If response already sent, delegate to default Express error handler

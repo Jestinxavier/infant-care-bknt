@@ -241,7 +241,7 @@ router.get("/products/search", verifyToken, requireAdmin, async (req, res) => {
       });
     }
 
-    const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapeRegex = require("../utils/escapeRegex");
     const searchRegex = new RegExp(escapeRegex(q.trim()), "i");
 
     // Support product_type=SIMPLE,CONFIGURABLE (comma-separated) or single value
@@ -277,7 +277,7 @@ router.get("/products/search", verifyToken, requireAdmin, async (req, res) => {
       data,
     });
   } catch (error) {
-    console.error("Admin product search error:", error);
+    logger.error("Admin product search error:", error);
     return res.status(500).json({
       success: false,
       message: error.message || "Search failed",
@@ -380,7 +380,7 @@ router.get(
         message: `SKU "${trimmedSku}" not found`,
       });
     } catch (error) {
-      console.error("Admin sku-lookup error:", error);
+      logger.error("Admin sku-lookup error:", error);
       return res.status(500).json({
         success: false,
         message: error.message || "Lookup failed",
@@ -532,10 +532,10 @@ router.post(
   (req, res, next) => {
     parser.any()(req, res, function (err) {
       if (err) {
-        console.error("❌ Multer/Cloudinary Error:", err);
+        logger.error("❌ Multer/Cloudinary Error:", err);
         return res.status(400).json({ message: "Upload error", error: err });
       }
-      console.log("✅ Multer parsing done");
+      logger.info("✅ Multer parsing done");
       next();
     });
   },
@@ -1239,6 +1239,7 @@ router.delete("/coupons/:id", verifyToken, requireAdmin, deleteCoupon);
 // ==================== CACHE REVALIDATION ====================
 // Secure proxy for Next.js cache revalidation - requires admin auth
 const revalidateProxy = require("../../routes/admin/revalidate");
+const logger = require("../utils/logger");
 router.use("/", revalidateProxy);
 
 // ==================== CATEGORIES ====================
@@ -1500,7 +1501,7 @@ router.post(
   (req, res, next) => {
     categoryImageUploader.single("image")(req, res, function (err) {
       if (err) {
-        console.error("❌ Category image upload error:", err);
+        logger.error("❌ Category image upload error:", err);
         return res
           .status(400)
           .json({ success: false, message: err.message, error: err });
@@ -1579,7 +1580,7 @@ router.patch(
   (req, res, next) => {
     categoryImageUploader.single("image")(req, res, function (err) {
       if (err) {
-        console.error("❌ Category image upload error:", err);
+        logger.error("❌ Category image upload error:", err);
         return res
           .status(400)
           .json({ success: false, message: err.message, error: err });

@@ -1,4 +1,5 @@
 const User = require("../../models/user");
+const logger = require("../../utils/logger");
 
 const getProfile = async (req, res) => {
   try {
@@ -30,7 +31,7 @@ const getProfile = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Get profile error:", error);
+    logger.error("Get profile error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch user profile",

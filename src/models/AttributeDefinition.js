@@ -72,8 +72,7 @@ const attributeDefinitionSchema = new mongoose.Schema(
   },
 );
 
-// Indexes
-attributeDefinitionSchema.index({ code: 1 }, { unique: true });
+// code unique index is created by unique:true in the field definition above
 attributeDefinitionSchema.index({ position: 1 });
 
 // Pre-save middleware to auto-lock when in use

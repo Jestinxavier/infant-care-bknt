@@ -1,4 +1,5 @@
 const SiteSetting = require("../models/SiteSetting");
+const logger = require("../utils/logger");
 const POPULAR_SEARCHES_KEY = "search.popular_terms";
 const POPULAR_SEARCHES_DESCRIPTION =
   "Popular search keywords shown in the storefront search drawer.";
@@ -23,7 +24,7 @@ const getAllSettings = async (req, res) => {
       settings,
     });
   } catch (error) {
-    console.error("Error fetching settings:", error);
+    logger.error("Error fetching settings:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch settings",
@@ -54,7 +55,7 @@ const getSetting = async (req, res) => {
       setting,
     });
   } catch (error) {
-    console.error("Error fetching setting:", error);
+    logger.error("Error fetching setting:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch setting",
@@ -93,7 +94,7 @@ const createSetting = async (req, res) => {
       setting,
     });
   } catch (error) {
-    console.error("Error creating setting:", error);
+    logger.error("Error creating setting:", error);
 
     if (error.code === 11000) {
       return res.status(400).json({
@@ -175,7 +176,7 @@ const updateSetting = async (req, res) => {
       setting,
     });
   } catch (error) {
-    console.error("Error updating setting:", error);
+    logger.error("Error updating setting:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update setting",
@@ -206,7 +207,7 @@ const deleteSetting = async (req, res) => {
       message: "Setting deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting setting:", error);
+    logger.error("Error deleting setting:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete setting",
@@ -248,7 +249,7 @@ const getPublicSettings = async (req, res) => {
       settings: settingsMap,
     });
   } catch (error) {
-    console.error("Error fetching public settings:", error);
+    logger.error("Error fetching public settings:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch settings",
@@ -280,7 +281,7 @@ const getPopularSearches = async (req, res) => {
       updatedAt: setting?.updatedAt || null,
     });
   } catch (error) {
-    console.error("Error fetching popular searches:", error);
+    logger.error("Error fetching popular searches:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch popular searches",
@@ -322,7 +323,7 @@ const getPopularSearchesAdmin = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching admin popular searches:", error);
+    logger.error("Error fetching admin popular searches:", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch popular searches",
@@ -390,7 +391,7 @@ const upsertPopularSearches = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error updating popular searches:", error);
+    logger.error("Error updating popular searches:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update popular searches",

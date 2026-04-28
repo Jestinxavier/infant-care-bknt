@@ -430,6 +430,20 @@ const sendRefundInitiatedEmail = async (user, order, refundAmountPaise) => {
    ✅ EXPORTS
 ===================================================== */
 
+/**
+ * Send order confirmation email to a guest (no user account).
+ * Reuses the invoice template with a synthetic user-shaped object.
+ * @param {{ name: string, email: string, phone: string }} guestInfo
+ * @param {import('../models/Order').default} order
+ */
+const sendGuestOrderConfirmationEmail = async (guestInfo, order) => {
+  const fakeUser = {
+    username: guestInfo.name,
+    email: guestInfo.email,
+  };
+  return sendInvoiceEmail(fakeUser, order);
+};
+
 module.exports = {
   generateOTP,
   sendOTPEmail,
@@ -440,4 +454,5 @@ module.exports = {
   sendOrderCancelledEmail,
   sendInvoiceEmail,
   sendRefundInitiatedEmail,
+  sendGuestOrderConfirmationEmail,
 };

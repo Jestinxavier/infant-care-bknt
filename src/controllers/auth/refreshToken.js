@@ -1,4 +1,5 @@
 const authService = require("../../services/service");
+const logger = require("../../utils/logger");
 const { ACCESS_TOKEN_LIFETIME_MS } = require("../../../resources/constants");
 
 const refreshToken = async (req, res) => {
@@ -9,8 +10,8 @@ const refreshToken = async (req, res) => {
     // Collect all cookies from the request
     const allCookies = req.cookies || {};
 
-    console.log(`🔄 Refresh token request from: ${clientType}`);
-    console.log("🍪 Available cookies:", Object.keys(allCookies));
+    logger.info(`🔄 Refresh token request from: ${clientType}`);
+    logger.info("🍪 Available cookies:", Object.keys(allCookies));
 
     // Get the appropriate refresh token based on client type
     let token;
@@ -29,7 +30,7 @@ const refreshToken = async (req, res) => {
     }
 
     if (!token) {
-      console.log(`❌ No refresh token found for ${clientType}`);
+      logger.info(`❌ No refresh token found for ${clientType}`);
       return res.status(401).json({
         message: "No refresh token provided",
         clientType,
@@ -37,7 +38,7 @@ const refreshToken = async (req, res) => {
       });
     }
 
-    console.log(`✅ Refresh token found for ${clientType}, refreshing...`);
+    logger.info(`✅ Refresh token found for ${clientType}, refreshing...`);
     const newAccessToken = await authService.refreshAccessToken(token);
 
     res.json({
@@ -46,7 +47,7 @@ const refreshToken = async (req, res) => {
       clientType,
     });
   } catch (err) {
-    console.error("❌ Refresh token error:", err.message);
+    logger.error("❌ Refresh token error:", err.message);
     res.status(403).json({ message: err.message });
   }
 };

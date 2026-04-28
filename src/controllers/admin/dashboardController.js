@@ -1,6 +1,12 @@
 const User = require("../../models/user");
 const Product = require("../../models/Product");
 const Order = require("../../models/Order");
+const { cacheGetOrSet, cacheDel, TTL } = require("../../utils/redisCache");
+
+/**
+ * Call this whenever an order is placed/updated to flush the dashboard cache.
+ */
+exports.invalidateDashboardCache = () => cacheDel("dashboard:week", "dashboard:month", "dashboard:year", "dashboard:all");
 
 /**
  * @desc    Get Admin Dashboard Stats
@@ -11,6 +17,9 @@ exports.getDashboardStats = async (req, res) => {
   try {
     // Parse and validate period parameter
     const { period = "week" } = req.query;
+    const cacheKey = `dashboard:${period}`;
+
+    const cached = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
 
     // Calculate date range based on period
     const now = new Date();
@@ -321,24 +330,27 @@ exports.getDashboardStats = async (req, res) => {
       count: item.count,
     }));
 
-    res.status(200).json({
-      success: true,
-      totalRevenue,
-      newOrders,
-      totalCustomers,
-      productsInStock,
-      salesOverTime: formattedSales,
-      recentOrders,
-      topProducts: topProductsRaw,
-      orderStatusDist,
-      categorySales,
-    });
+      return {
+        success: true,
+        totalRevenue,
+        newOrders,
+        totalCustomers,
+        productsInStock,
+        salesOverTime: formattedSales,
+        recentOrders,
+        topProducts: topProductsRaw,
+        orderStatusDist,
+        categorySales,
+      };
+    }); // end cacheGetOrSet
+
+    res.status(200).json(cached);
   } catch (error) {
-    console.error("Dashboard Stats Error:", error);
+    const logger = require("../../utils/logger");
+    logger.error("Dashboard stats error", { message: error.message });
     res.status(500).json({
       success: false,
       message: "Server Error: Unable to fetch dashboard stats",
-      error: error.message,
     });
   }
 };

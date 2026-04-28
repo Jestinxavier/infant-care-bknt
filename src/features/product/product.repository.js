@@ -39,33 +39,33 @@ class ProductRepository extends BaseRepository {
    * @param {Object} options - { page, limit, product_type, includeNonPublished }
    */
   async search(searchTerm, options = {}) {
-    // Build search conditions using regex for flexibility
-    // This allows searching by SKU, title, or description
-    const searchRegex = new RegExp(searchTerm, "i");
+    // SKU is an exact structural identifier — always search by regex for partial SKU matches.
+    // For title/description we use the text index (fast, uses inverted index).
+    // If the term looks like a SKU prefix (no spaces, short), add a SKU regex leg.
+    const isSkuLike = /^[A-Za-z0-9-]+$/.test(searchTerm) && searchTerm.length <= 20;
+
+    const textFilter = { $text: { $search: searchTerm } };
+    const skuFilter = isSkuLike
+      ? { "variants.sku": new RegExp(`^${searchTerm}`, "i") }
+      : null;
 
     const filter = {
-      $or: [
-        { sku: searchRegex },
-        { title: searchRegex },
-        { description: searchRegex },
-      ],
+      $or: skuFilter ? [textFilter, skuFilter] : [textFilter],
     };
 
-    // For bundle child picker, we want published products
-    // but also allow includeNonPublished option
     if (!options.includeNonPublished) {
       filter.status = "published";
     }
 
-    // Add product_type filter if provided
     if (options.product_type) {
       filter.product_type = options.product_type;
     }
 
+    // Sort by text score when using $text so best matches rank first
     return this.findAll(filter, {
       page: options.page,
       limit: options.limit,
-      sort: { title: 1 },
+      sort: { score: { $meta: "textScore" }, title: 1 },
     });
   }
 

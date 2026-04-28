@@ -1,5 +1,6 @@
 const Cart = require("../../models/Cart");
 const crypto = require("crypto");
+const logger = require("../../utils/logger");
 const {
   CHECKOUT_SESSION_MS,
   CART_ID,
@@ -15,11 +16,14 @@ const startCheckout = async (req, res) => {
     // Get cartId from body or cookies (use CART_ID constant = "cart_id")
     const cartId = bodyCartId || req.cookies?.[CART_ID];
 
-    if (!userId) {
+    // userId is optional — guests have no userId
+    const isGuest = !userId;
+
+    if (isGuest && !cartId) {
       return res.status(400).json({
         success: false,
-        errorCode: "MISSING_USER_ID",
-        message: "User ID is required",
+        errorCode: "MISSING_CART",
+        message: "Cart not found. Please add items to your cart first.",
       });
     }
 
@@ -27,8 +31,8 @@ const startCheckout = async (req, res) => {
     // This ensures we use the cart with the coupon applied
     let cart = null;
 
-    console.log(
-      `🔍 startCheckout: userId=${userId}, bodyCartId=${bodyCartId}, cookieCartId=${req.cookies?.[CART_ID]}, using cartId=${cartId}`
+    logger.info(
+      `🔍 startCheckout: userId=${userId ?? "guest"}, bodyCartId=${bodyCartId}, cookieCartId=${req.cookies?.[CART_ID]}, using cartId=${cartId}`
     );
 
     if (cartId) {
@@ -37,7 +41,7 @@ const startCheckout = async (req, res) => {
         status: { $in: ["active", "checkout"] },
       });
 
-      console.log(
+      logger.info(
         `🔍 Cart lookup by cartId "${cartId}":`,
         cart
           ? `found (userId=${cart.userId}, coupon=${JSON.stringify(
@@ -47,39 +51,49 @@ const startCheckout = async (req, res) => {
       );
 
       if (cart) {
-        // If cart exists but belongs to no user OR this user, claim/use it
-        if (!cart.userId || cart.userId.toString() === userId.toString()) {
+        if (isGuest) {
+          // Guest: use cart if it has no owner or is already a guest cart
           if (!cart.userId) {
-            console.log(`🏷 Claiming cart ${cartId} for user ${userId}`);
-            cart.userId = userId;
-            await cart.save();
+            logger.info(`✅ Guest using anonymous cart: ${cartId}`);
+          } else {
+            logger.info(`⚠️ Cart ${cartId} belongs to a user — guest cannot use it`);
+            cart = null;
           }
-          console.log(`✅ Using cart from cartId: ${cartId}`);
         } else {
-          // Cart belongs to different user - don't use it
-          console.log(
-            `⚠️ Cart ${cartId} belongs to different user, will find user's own cart`
-          );
-          cart = null;
+          // If cart exists but belongs to no user OR this user, claim/use it
+          if (!cart.userId || cart.userId.toString() === userId.toString()) {
+            if (!cart.userId) {
+              logger.info(`🏷 Claiming cart ${cartId} for user ${userId}`);
+              cart.userId = userId;
+              await cart.save();
+            }
+            logger.info(`✅ Using cart from cartId: ${cartId}`);
+          } else {
+            // Cart belongs to different user - don't use it
+            logger.info(
+              `⚠️ Cart ${cartId} belongs to different user, will find user's own cart`
+            );
+            cart = null;
+          }
         }
       }
     }
 
-    // 2. If no cart found by cartId, look for user's existing cart
-    if (!cart) {
+    // 2. If no cart found by cartId and user is authenticated, look for user's existing cart
+    if (!cart && !isGuest) {
       cart = await Cart.findOne({
         userId,
         status: { $in: ["active", "checkout"] },
       });
 
       if (cart) {
-        console.log(`📦 Found user's existing cart: ${cart.cartId}`);
+        logger.info(`📦 Found user's existing cart: ${cart.cartId}`);
       }
     }
 
-    // 3. If STILL not found, CREATE a new cart for the user
-    if (!cart) {
-      console.log(
+    // 3. If STILL not found, CREATE a new cart for the user (authenticated only)
+    if (!cart && !isGuest) {
+      logger.info(
         `🆕 Creating new cart for user ${userId} (No existing cart found)`
       );
       cart = await Cart.create({
@@ -87,6 +101,14 @@ const startCheckout = async (req, res) => {
         cartId: `usr_${userId}_${Date.now()}`, // Generate a unique cartId
         items: [],
         status: "active",
+      });
+    }
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        errorCode: "CART_NOT_FOUND",
+        message: "Cart not found. Please add items to your cart first.",
       });
     }
 
@@ -101,7 +123,7 @@ const startCheckout = async (req, res) => {
 
     // 4. Idempotency Check: If cart is already in valid checkout, return existing session
     if (cart.status === "checkout" && cart.checkoutExpiry > new Date()) {
-      console.log(
+      logger.info(
         `♻️ Idempotent checkout: Returning existing session for cart ${cart.cartId}`
       );
       return res.status(200).json({
@@ -150,7 +172,7 @@ const startCheckout = async (req, res) => {
 
     cart = lockedCart; // Use the updated locked cart
 
-    console.log(
+    logger.info(
       `🔒 Checkout started for user ${userId}, token: ${cart.checkoutToken}`
     );
 
@@ -161,7 +183,7 @@ const startCheckout = async (req, res) => {
       expiresAt: cart.checkoutExpiry,
     });
   } catch (error) {
-    console.error("❌ Checkout start error:", error);
+    logger.error("❌ Checkout start error:", error);
     return res.status(500).json({
       success: false,
       errorCode: "INTERNAL_ERROR",

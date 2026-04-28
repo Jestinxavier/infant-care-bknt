@@ -1,5 +1,6 @@
 const StockNotification = require("../../models/StockNotification");
 const Product = require("../../models/Product");
+const logger = require("../../utils/logger");
 const { STOCK_NOTIFICATION_STATUS } = require("../../../resources/constants");
 
 /**
@@ -82,7 +83,7 @@ const registerInterest = async (req, res) => {
       isNew: result.upsertedCount > 0,
     });
   } catch (error) {
-    console.error("Error registering stock notification:", error);
+    logger.error("Error registering stock notification:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

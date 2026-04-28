@@ -9,6 +9,7 @@ const {
 const Product = require("../models/Product");
 const path = require("path");
 const fs = require("fs");
+const logger = require("../utils/logger");
 
 /**
  * Export product variants to CSV
@@ -37,7 +38,7 @@ const exportVariants = async (req, res) => {
 
     res.status(200).send(csv);
   } catch (error) {
-    console.error("Error exporting variants:", error);
+    logger.error("Error exporting variants:", error);
     res.status(500).json({
       success: false,
       message: "Failed to export variants",
@@ -88,7 +89,7 @@ const importVariants = async (req, res) => {
       throw error;
     }
   } catch (error) {
-    console.error("Error importing variants:", error);
+    logger.error("Error importing variants:", error);
     res.status(500).json({
       success: false,
       message: "Failed to import variants",
@@ -142,7 +143,7 @@ const bulkUpdateStock = async (req, res) => {
       updatedCount,
     });
   } catch (error) {
-    console.error("Error bulk updating stock:", error);
+    logger.error("Error bulk updating stock:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update stock",
@@ -199,7 +200,7 @@ const bulkUpdatePrice = async (req, res) => {
       updatedCount,
     });
   } catch (error) {
-    console.error("Error bulk updating price:", error);
+    logger.error("Error bulk updating price:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update price",
