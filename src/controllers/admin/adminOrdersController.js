@@ -38,31 +38,25 @@ const getAllOrders = async (req, res) => {
     let filter = {};
 
     // ===== ROLE-BASED DATE RESTRICTIONS =====
-    const userRole = req.user?.role; // from auth middleware
-    const now = new Date();
-    const restrictionDaysAgo = new Date(now);
-    restrictionDaysAgo.setUTCDate(
-      now.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS
-    );
-    restrictionDaysAgo.setUTCHours(0, 0, 0, 0); // Start of day in UTC
-
-    // For admin: enforce date restriction
+    const userRole = req.user?.role;
     if (userRole === "admin") {
-      filter.createdAt = { $gte: restrictionDaysAgo };
+      const restrictionDate = new Date();
+      restrictionDate.setUTCDate(restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS);
+      restrictionDate.setUTCHours(0, 0, 0, 0);
 
-      // If custom date range provided, validate it doesn't exceed limit
       if (from) {
         const fromDate = new Date(from);
         fromDate.setUTCHours(0, 0, 0, 0);
-
-        if (fromDate < restrictionDaysAgo) {
+        if (fromDate < restrictionDate) {
           return res.status(403).json({
             success: false,
             errorCode: "DATE_RESTRICTED",
             message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-            maxDate: restrictionDaysAgo.toISOString().split("T")[0],
+            maxDate: restrictionDate.toISOString().split("T")[0],
           });
         }
+      } else {
+        filter.createdAt = { $gte: restrictionDate };
       }
     }
 
