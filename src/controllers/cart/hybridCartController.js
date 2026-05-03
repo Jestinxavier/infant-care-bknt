@@ -353,7 +353,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
     return {
       id: product._id.toString(),
       title: product.title,
-      image: product.images?.[0]?.url || "",
+      image: product.images?.[0] || "",
       sku: product.sku || null,
       price: product.pricing?.price || product.price || 0,
       discountPrice:
@@ -371,7 +371,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
     return {
       id: product._id.toString(),
       title: product.title,
-      image: product.images?.[0]?.url || "",
+      image: product.images?.[0] || "",
       sku: product.sku || null,
       price: product.pricing?.price || product.price || 0,
       discountPrice:
@@ -395,7 +395,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
   return {
     id: variant.id,
     title: product.title, // Use product title
-    image: variant.images?.[0]?.url || product.images?.[0]?.url || "",
+    image: variant.images?.[0] || product.images?.[0] || "",
     sku: variant.sku || product.sku || null,
     price: variant.pricing?.price || variant.price || 0,
     discountPrice:

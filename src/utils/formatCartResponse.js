@@ -19,6 +19,52 @@ function normalizeAttributesSnapshot(attrs) {
 }
 
 /**
+ * Safely extract a clean HTTP URL string from a single image entry.
+ * Products can have images stored in several formats due to data migrations:
+ *   - Plain string URL: "https://res.cloudinary.com/..."
+ *   - Stringified object: "{'0':'h','1':'t',...}" (Next.js Image crashes on this)
+ *   - Actual char-indexed object: { '0':'h', '1':'t', ... }
+ *   - String with "[object Object]" appended
+ * Returns empty string for anything that can't be resolved to an http URL.
+ */
+function extractImageUrl(img) {
+  if (!img) return "";
+
+  if (typeof img === "object") {
+    try {
+      const sortedKeys = Object.keys(img).sort((a, b) => parseInt(a) - parseInt(b));
+      const url = sortedKeys.map((k) => img[k]).join("");
+      return url.startsWith("http") ? url : "";
+    } catch {
+      return "";
+    }
+  }
+
+  if (typeof img === "string") {
+    if (img.includes("[object Object]")) {
+      img = img.split("[object Object]")[0];
+    }
+    if (img.trim().startsWith("{") && img.includes("'0':")) {
+      try {
+        const matches = [...img.matchAll(/'(\d+)':\s*'([^']*)'/g)];
+        if (matches.length > 0) {
+          const url = matches
+            .sort((a, b) => parseInt(a[1]) - parseInt(b[1]))
+            .map((m) => m[2])
+            .join("");
+          return url.startsWith("http") ? url : "";
+        }
+      } catch {
+        return "";
+      }
+    }
+    return img.startsWith("http") ? img : "";
+  }
+
+  return "";
+}
+
+/**
  * Check if cart contains any BUNDLE products
  */
 const cartHasBundles = (cart) => {
@@ -126,9 +172,10 @@ const formatCartResponse = (
             isOfferActive: pricing.isOfferActive,
           }
         : null,
-      // Display snapshots (fallback to product.sku when skuSnapshot missing on legacy items)
-      titleSnapshot: item.titleSnapshot,
-      imageSnapshot: item.imageSnapshot,
+      // Display snapshots (fall back to populated product data for legacy items
+      // that were saved before imageSnapshot was written correctly)
+      titleSnapshot: item.titleSnapshot || product?.title || "",
+      imageSnapshot: item.imageSnapshot || extractImageUrl(product?.images?.[0]),
       skuSnapshot: item.skuSnapshot || product?.sku || null,
       attributesSnapshot: normalizeAttributesSnapshot(
         item.attributesSnapshot
@@ -178,47 +225,7 @@ const formatCartResponse = (
         url_key: item.productId.url_key,
         product_type: item.productId.product_type || "SIMPLE",
         images: Array.isArray(item.productId.images)
-          ? item.productId.images
-              .map((img) => {
-                if (typeof img === "object" && img !== null) {
-                  // Handle actual object case (as before)
-                  try {
-                    const sortedKeys = Object.keys(img).sort(
-                      (a, b) => parseInt(a) - parseInt(b),
-                    );
-                    return sortedKeys.map((k) => img[k]).join("");
-                  } catch (e) {
-                    return null;
-                  }
-                }
-
-                if (typeof img === "string") {
-                  // Check for the specific malformed pattern: starts with { and has '0': '...'
-                  if (img.trim().startsWith("{") && img.includes("'0':")) {
-                    try {
-                      // Extract characters using regex looking for '0': 'h', '1': 't', etc.
-                      // Pattern: 'KEY': 'VALUE'
-                      const matches = [...img.matchAll(/'\\d+':\\s*'([^'])'/g)];
-                      if (matches.length > 0) {
-                        // Reconstruct the string
-                        return matches.map((m) => m[1]).join("");
-                      }
-                    } catch (e) {
-                      return null;
-                    }
-                  }
-                  // Clean standard URLs that might have garbage appended (saw [object Object] in user log)
-                  if (img.includes("[object Object]")) {
-                    return img.split("[object Object]")[0];
-                  }
-                  return img;
-                }
-                return null;
-              })
-              .filter(
-                (url) =>
-                  url && typeof url === "string" && url.startsWith("http"),
-              )
+          ? item.productId.images.map(extractImageUrl).filter(Boolean)
           : [],
       };
     }
