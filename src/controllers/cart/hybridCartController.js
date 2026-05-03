@@ -44,6 +44,56 @@ const getCartSettings = () =>
 const invalidateCartSettings = () => cacheDel(CART_SETTINGS_CACHE_KEY);
 
 /**
+ * Unified cart error responder.
+ * - Intentional throws (error.statusCode): forwarded as-is
+ * - Mongoose ValidationError: field-level breakdown
+ * - Mongoose CastError: bad ObjectId / type mismatch
+ * - Everything else: 500 with errorType + message
+ * Stack traces are included only outside production.
+ */
+const sendCartError = (res, error) => {
+  if (error.statusCode) {
+    return res.status(error.statusCode).json({
+      success: false,
+      errorCode: error.errorCode || "REQUEST_ERROR",
+      message: error.message,
+    });
+  }
+
+  const isDev = process.env.NODE_ENV !== "production";
+
+  if (error.name === "ValidationError") {
+    const fields = Object.entries(error.errors || {}).map(([field, err]) => ({
+      field,
+      message: err.message,
+      value: err.value,
+    }));
+    return res.status(500).json({
+      success: false,
+      message: "Validation failed",
+      errorType: "ValidationError",
+      fields,
+      ...(isDev && { stack: error.stack }),
+    });
+  }
+
+  if (error.name === "CastError") {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid value for field "${error.path}": ${error.value}`,
+      errorType: "CastError",
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: error.message || "Internal Server Error",
+    errorType: error.name || "Error",
+    ...(isDev && { stack: error.stack }),
+  });
+};
+
+/**
  * Calculate shipping estimate
  */
 const calculateShipping = (subtotal, settings) => {
@@ -303,7 +353,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
     return {
       id: product._id.toString(),
       title: product.title,
-      image: product.images?.[0] || "",
+      image: product.images?.[0]?.url || "",
       sku: product.sku || null,
       price: product.pricing?.price || product.price || 0,
       discountPrice:
@@ -321,7 +371,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
     return {
       id: product._id.toString(),
       title: product.title,
-      image: product.images?.[0] || "",
+      image: product.images?.[0]?.url || "",
       sku: product.sku || null,
       price: product.pricing?.price || product.price || 0,
       discountPrice:
@@ -345,7 +395,7 @@ const getProductDataForCart = async (productId, variantId = null) => {
   return {
     id: variant.id,
     title: product.title, // Use product title
-    image: variant.images?.[0] || product.images?.[0] || "",
+    image: variant.images?.[0]?.url || product.images?.[0]?.url || "",
     sku: variant.sku || product.sku || null,
     price: variant.pricing?.price || variant.price || 0,
     discountPrice:
@@ -585,11 +635,7 @@ const createCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error creating cart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -634,11 +680,7 @@ const setCookie = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error setting cookie:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -718,11 +760,7 @@ const getCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting cart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -927,18 +965,7 @@ const addItem = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error adding item:", error);
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({
-        success: false,
-        errorCode: error.errorCode || "REQUEST_ERROR",
-        message: error.message,
-      });
-    }
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1067,11 +1094,7 @@ const updateItem = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error updating item:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1209,11 +1232,7 @@ const removeItem = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error removing item:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1260,11 +1279,7 @@ const clearCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error clearing cart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1291,11 +1306,7 @@ const getCount = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting count:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1342,11 +1353,7 @@ const getItems = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting items:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1414,11 +1421,7 @@ const getPriceSummary = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting price summary:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1485,11 +1488,7 @@ const getProductData = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting product data:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -1562,11 +1561,7 @@ const getSummary = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting summary:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 /**
@@ -1645,7 +1640,10 @@ const mergeCart = async (req, res) => {
       // Normalize for matching (undefined/null/"" treated as same)
       const norm = (v) => (v === undefined || v === "" ? null : v);
       // Merge items with deduplication (same product+variant+selectedGiftSku → sum quantities)
+      // Skip free-gift items injected by coupons — guest coupons don't carry over,
+      // so orphaned gift items would break coupon tracking on the user cart.
       for (const guestItem of guestCart.items) {
+        if (guestItem.isFreeGiftCoupon) continue;
         const guestVar = norm(guestItem.variantId);
         const guestGift = norm(guestItem.selectedGiftSku);
         const existingIndex = userCart.items.findIndex(
@@ -1691,10 +1689,8 @@ const mergeCart = async (req, res) => {
           "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
-      // Recalculate totals dynamically
-      const totals = await calculateTotals(userCart.items);
-      assignCartTotals(userCart, totals, totalCouponDiscount(userCart));
-      const itemPrices = totals.itemPrices;
+      // Recalculate totals and re-validate all applied coupons against the new cart
+      const itemPrices = await recomputeCartTotals(userCart);
       await userCart.save();
 
       const bundleStocks = await computeBundleStocks(req, userCart);
@@ -1752,6 +1748,13 @@ const mergeCart = async (req, res) => {
         guestCart.userId &&
         guestCart.userId.toString() !== userId.toString()
       ) {
+        // Clear the stale cookie so subsequent requests don't keep hitting this path
+        res.clearCookie(CART_ID, {
+          path: "/",
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+        });
         return res.status(200).json({
           success: true,
           message: "Cart belongs to another user",
@@ -1823,11 +1826,7 @@ const mergeCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error merging cart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -2069,7 +2068,7 @@ const applyCoupon = async (req, res) => {
     // ─── Free gift coupon branch ──────────────────────────────────────────
     if (coupon.type === "free_gift") {
       const fg = coupon.freeGift;
-      if (!fg?.giftProductId || !fg?.triggerProductIds?.length) {
+      if (!fg?.triggerProductIds?.length) {
         return res.status(400).json({
           success: false,
           message: "This coupon is not configured correctly. Please contact support.",
@@ -2098,46 +2097,65 @@ const applyCoupon = async (req, res) => {
         });
       }
 
-      // Fetch gift product and check stock
-      const giftProduct = await Product.findById(fg.giftProductId).lean();
-      if (!giftProduct) {
-        return res.status(400).json({
-          success: false,
-          message: "Gift product is no longer available",
-          errorCode: "GIFT_PRODUCT_NOT_FOUND",
+      const isCustomGift = fg.giftType === "custom";
+
+      if (isCustomGift) {
+        // Custom gift: no cart item injection — admin fulfills it manually during packing
+        cart.coupons.push({
+          code: coupon.code,
+          couponId: coupon._id,
+          type: "free_gift",
+          discountAmount: 0,
+          minCartValue: coupon.minCartValue ?? 0,
+          lineDiscounts: [],
+        });
+      } else {
+        // Product gift: look up catalog item, check stock, inject into cart
+        if (!fg.giftProductId) {
+          return res.status(400).json({
+            success: false,
+            message: "This coupon is not configured correctly. Please contact support.",
+          });
+        }
+
+        const giftProduct = await Product.findById(fg.giftProductId).lean();
+        if (!giftProduct) {
+          return res.status(400).json({
+            success: false,
+            message: "Gift product is no longer available",
+            errorCode: "GIFT_PRODUCT_NOT_FOUND",
+          });
+        }
+        const giftStock = giftProduct.stockObj?.available ?? giftProduct.stock ?? 0;
+        if (giftStock < fg.giftQty) {
+          return res.status(400).json({
+            success: false,
+            message: "The free gift is currently out of stock",
+            errorCode: "GIFT_PRODUCT_OUT_OF_STOCK",
+          });
+        }
+
+        const giftPrice = giftProduct.offerPrice || giftProduct.price || 0;
+        cart.items.push({
+          productId: giftProduct._id,
+          variantId: null,
+          quantity: fg.giftQty,
+          titleSnapshot: giftProduct.title,
+          imageSnapshot: giftProduct.images?.[0] || "",
+          skuSnapshot: giftProduct.sku || null,
+          isFreeGiftCoupon: true,
+          freeGiftCouponCode: coupon.code,
+        });
+
+        cart.coupons.push({
+          code: coupon.code,
+          couponId: coupon._id,
+          type: "free_gift",
+          discountAmount: Math.round(giftPrice * fg.giftQty * 100) / 100,
+          minCartValue: coupon.minCartValue ?? 0,
+          lineDiscounts: [],
         });
       }
-      const giftStock = giftProduct.stockObj?.available ?? giftProduct.stock ?? 0;
-      if (giftStock < fg.giftQty) {
-        return res.status(400).json({
-          success: false,
-          message: "The free gift is currently out of stock",
-          errorCode: "GIFT_PRODUCT_OUT_OF_STOCK",
-        });
-      }
-
-      // Inject gift item into cart
-      const giftPrice = giftProduct.offerPrice || giftProduct.price || 0;
-      cart.items.push({
-        productId: giftProduct._id,
-        variantId: null,
-        quantity: fg.giftQty,
-        titleSnapshot: giftProduct.title,
-        imageSnapshot: giftProduct.images?.[0] || "",
-        skuSnapshot: giftProduct.sku || null,
-        isFreeGiftCoupon: true,
-        freeGiftCouponCode: coupon.code,
-      });
-
-      // Push coupon entry — discountAmount = monetary value of gift (for display)
-      cart.coupons.push({
-        code: coupon.code,
-        couponId: coupon._id,
-        type: "free_gift",
-        discountAmount: Math.round(giftPrice * fg.giftQty * 100) / 100,
-        minCartValue: coupon.minCartValue ?? 0,
-        lineDiscounts: [],
-      });
 
       // Recalculate totals (gift item has price 0 so totals don't change monetarily)
       const couponDiscountTotal = totalCouponDiscount(cart);
@@ -2156,7 +2174,7 @@ const applyCoupon = async (req, res) => {
       return res.status(200).json({
         success: true,
         cart: formattedGift,
-        message: `🎁 Free gift added: ${giftProduct.title}`,
+        message: `🎁 Free gift coupon applied!`,
       });
     }
     // ─────────────────────────────────────────────────────────────────────
@@ -2229,11 +2247,7 @@ const applyCoupon = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error applying coupon:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -2315,11 +2329,7 @@ const removeCoupon = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error removing coupon:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -2364,10 +2374,12 @@ const getAvailableCoupons = async (req, res) => {
       ],
     })
       .select(
-        "code type value minCartValue maxDiscount endDate isNewUserOnly perUserLimit applicableTo applicableProductIds applicableCategories",
+        "code type value minCartValue maxDiscount endDate isNewUserOnly perUserLimit applicableTo applicableProductIds applicableCategories freeGift",
       )
       .populate("applicableProductIds", "title images")
       .populate("applicableCategories", "name code")
+      .populate("freeGift.triggerProductIds", "title images")
+      .populate("freeGift.giftProductId", "title images")
       .sort({ endDate: 1 });
 
     // Filter out first-order-only coupons for users who already have paid orders
@@ -2376,12 +2388,43 @@ const getAvailableCoupons = async (req, res) => {
       : coupons;
 
     const formattedCoupons = visibleCoupons.map((coupon) => {
-      let description =
-        coupon.type === "flat"
-          ? `Flat ₹${coupon.value} off`
-          : `${coupon.value}% off${
-              coupon.maxDiscount ? ` up to ₹${coupon.maxDiscount}` : ""
-            }`;
+      let description;
+      let freeGiftInfo = null;
+
+      if (coupon.type === "free_gift" && coupon.freeGift) {
+        const fg = coupon.freeGift;
+        const isCustomGift = fg.giftType === "custom";
+        const giftTitle = isCustomGift
+          ? (fg.giftLabel || "item")
+          : (fg.giftProductId?.title || "item");
+        const triggerQty = fg.triggerMinQty || 1;
+        const giftQty = fg.giftQty || 1;
+        description = `Buy ${triggerQty}, get ${giftQty} ${giftTitle} free!`;
+        freeGiftInfo = {
+          triggerProducts: (fg.triggerProductIds || []).map((p) => ({
+            _id: p._id,
+            title: p.title,
+            image: p.images?.[0] || null,
+          })),
+          triggerMinQty: triggerQty,
+          giftType: fg.giftType || "product",
+          giftLabel: isCustomGift ? (fg.giftLabel || null) : null,
+          giftProduct: !isCustomGift && fg.giftProductId
+            ? {
+                _id: fg.giftProductId._id,
+                title: fg.giftProductId.title,
+                image: fg.giftProductId.images?.[0] || null,
+              }
+            : null,
+          giftQty,
+        };
+      } else if (coupon.type === "flat") {
+        description = `Flat ₹${coupon.value} off`;
+      } else {
+        description = `${coupon.value}% off${
+          coupon.maxDiscount ? ` up to ₹${coupon.maxDiscount}` : ""
+        }`;
+      }
 
       if (coupon.isNewUserOnly) {
         description += " (First order only)";
@@ -2419,6 +2462,7 @@ const getAvailableCoupons = async (req, res) => {
         applicableTo: coupon.applicableTo || "all",
         applicableProducts,
         applicableCategories,
+        freeGift: freeGiftInfo,
       };
     });
 
@@ -2428,11 +2472,7 @@ const getAvailableCoupons = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting coupons:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 
@@ -2465,12 +2505,18 @@ const performRecoverCart = async (req, res, lockedCart) => {
       selectedGiftSku: item.selectedGiftSku,
     }));
 
+  // Carry over non-free-gift coupons (free_gift coupons are tied to injected items we filtered out)
+  const newCoupons = (lockedCart.coupons || [])
+    .filter((c) => c.type !== "free_gift")
+    .map((c) => ({ ...c.toObject ? c.toObject() : c }));
+
   const newCart = await Cart.create({
     cartId: newCartId,
     userId,
     items: newItems,
     status: "active",
     coupon: undefined,
+    coupons: newCoupons,
   });
 
   // Mark the old cart as abandoned so it never gets resurrected as a ghost cart
@@ -2605,11 +2651,7 @@ const recoverCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error recovering cart:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
+    sendCartError(res, error);
   }
 };
 

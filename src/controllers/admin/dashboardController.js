@@ -48,13 +48,19 @@ exports.getDashboardStats = async (req, res) => {
         daysCount = 7;
     }
 
-    // Build reusable match stage
+    // Build reusable match stages. Sales analytics should reflect earned revenue,
+    // while operational widgets can include non-revenue order states.
     const dateMatch = isAllTime ? {} : { createdAt: { $gte: startDate } };
     const baseMatch = { orderStatus: { $ne: "cancelled" }, ...dateMatch };
+    const salesMatch = {
+      orderStatus: { $nin: ["cancelled", "returned"] },
+      paymentStatus: "paid",
+      ...dateMatch,
+    };
 
     // 1. Total Revenue - Optimized with single aggregation
     const revenueResult = await Order.aggregate([
-      { $match: { ...baseMatch, paymentStatus: "paid" } },
+      { $match: salesMatch },
       { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
     ]);
     const totalRevenue =
@@ -71,7 +77,7 @@ exports.getDashboardStats = async (req, res) => {
 
     // 5. Sales Over Time
     const salesOverTime = await Order.aggregate([
-      { $match: baseMatch },
+      { $match: salesMatch },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
@@ -145,7 +151,7 @@ exports.getDashboardStats = async (req, res) => {
 
     // 7. Top Selling Products - Optimized aggregation with period filter
     const topProductsRaw = await Order.aggregate([
-      { $match: baseMatch },
+      { $match: salesMatch },
       { $unwind: "$items" },
       {
         $group: {
@@ -239,7 +245,7 @@ exports.getDashboardStats = async (req, res) => {
 
     // 9. Sales by Category - Optimized with period filter
     const categorySalesRaw = await Order.aggregate([
-      { $match: baseMatch },
+      { $match: salesMatch },
       { $unwind: "$items" },
       {
         $lookup: {

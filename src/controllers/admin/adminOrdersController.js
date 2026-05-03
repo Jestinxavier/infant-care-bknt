@@ -164,7 +164,7 @@ const getAllOrders = async (req, res) => {
             phone: order.userId.phone,
           }
         : null,
-      customerName: order.userId?.username || order.userId?.email || "Guest",
+      customerName: order.userId?.username || order.userId?.email || order.shippingAddress?.fullName || "Guest",
       customerEmail: order.userId?.email,
       customerPhone: order.userId?.phone,
       date: order.placedAt || order.createdAt,

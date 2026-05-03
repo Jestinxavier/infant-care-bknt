@@ -552,7 +552,7 @@ const getVariantById = async (req, res) => {
   }
 };
 
-let _searchIndexCache = null;
+let _searchIndexCache = null; // invalidated on server start; auto-expires after TTL
 let _searchIndexCacheAt = 0;
 const SEARCH_INDEX_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -638,8 +638,8 @@ const getSearchIndex = async (req, res) => {
       return res.status(200).json(_searchIndexCache);
     }
 
-    // Fetch all published products with minimal fields
-    const products = await Product.find({ status: { $ne: "rejected" } })
+    // Fetch only published products with minimal fields
+    const products = await Product.find({ status: "published" })
       .select(
         "title name url_key images pricing price category status sku variants collections badgeCollection filterAttributes"
       )

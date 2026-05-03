@@ -9,6 +9,7 @@ const verifyToken = require("../middlewares/authMiddleware");
 const { optionalVerifyToken } = require("../middlewares/authMiddleware");
 const { guestOrderLookup } = require("../controllers/Order/guestOrderLookup");
 const { guestConvert } = require("../controllers/auth/guestConvert");
+const { guestClaim } = require("../controllers/auth/guestClaim");
 const rateLimit = require("express-rate-limit");
 
 const guestLookupLimiter = rateLimit({
@@ -209,6 +210,9 @@ router.get("/guest-lookup", guestLookupLimiter, guestOrderLookup);
 
 // POST /api/v1/auth/guest-convert — convert guest to account
 router.post("/guest-convert", guestConvert);
+
+// POST /api/v1/orders/guest-claim — link guest order to signed-in account
+router.post("/guest-claim", verifyToken, guestClaim);
 
 // GET /api/v1/orders/:orderId - Get single order (must be after specific routes above)
 router.get("/:orderId", verifyToken, getOrderById);

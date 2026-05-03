@@ -30,8 +30,8 @@ const SHIPPING_COST = {
   SHIPPING_COST: 60,
 };
 
-// Checkout session duration (5 minutes)
-const CHECKOUT_SESSION_MS = 5 * 60 * 1000;
+// Checkout session duration (25 minutes)
+const CHECKOUT_SESSION_MS = 25 * 60 * 1000;
 
 // Stock notification statuses
 const STOCK_NOTIFICATION_STATUS = {

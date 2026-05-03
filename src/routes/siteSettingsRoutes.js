@@ -12,6 +12,9 @@ const {
   getPopularSearches,
   getPopularSearchesAdmin,
   upsertPopularSearches,
+  getSuggestedProducts,
+  getSuggestedProductsAdmin,
+  upsertSuggestedProducts,
 } = require("../controllers/siteSettingsController");
 const { invalidateCartSettings } = require("../controllers/cart/hybridCartController");
 
@@ -109,6 +112,17 @@ router.put(
   requireAdmin,
   upsertPopularSearches
 );
+
+// ─── Suggested Products routes ────────────────────────────────────────────────
+// Public: GET /api/v1/settings/suggested-products
+router.get("/suggested-products", getSuggestedProducts);
+
+// Admin GET: /api/v1/admin/settings/suggested-products/admin
+router.get("/suggested-products/admin", verifyToken, requireAdmin, getSuggestedProductsAdmin);
+
+// Admin PUT: /api/v1/admin/settings/suggested-products
+router.put("/suggested-products", verifyToken, requireAdmin, upsertSuggestedProducts);
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * @swagger

@@ -363,7 +363,7 @@ router.delete(
  *       409:
  *         description: Checkout already in progress or cart ordered
  */
-router.post("/start-checkout", startCheckout);
+router.post("/start-checkout", optionalVerifyToken, startCheckout);
 
 /**
  * @swagger

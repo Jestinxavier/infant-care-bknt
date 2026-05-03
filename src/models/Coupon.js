@@ -26,7 +26,10 @@ const couponSchema = new mongoose.Schema(
         { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
       ],
       triggerMinQty: { type: Number, default: 1, min: 1 },
+      // "product" = item exists in catalog; "custom" = physical promo gift not in catalog
+      giftType: { type: String, enum: ["product", "custom"], default: "product" },
       giftProductId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+      giftLabel: { type: String, trim: true }, // used when giftType === "custom"
       giftQty: { type: Number, default: 1, min: 1 },
     },
     minCartValue: {

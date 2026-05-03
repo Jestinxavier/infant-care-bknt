@@ -29,7 +29,7 @@ const cartItemSchema = new mongoose.Schema(
     },
     imageSnapshot: {
       type: String,
-      required: true,
+      default: "",
     },
     skuSnapshot: {
       type: String,

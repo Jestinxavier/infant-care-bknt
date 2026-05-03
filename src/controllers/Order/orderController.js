@@ -142,6 +142,15 @@ const createOrder = async (req, res) => {
 
     // Check checkout expiry only when set (null/undefined = not yet set, e.g. legacy)
     if (cart.checkoutExpiry != null && cart.checkoutExpiry < new Date()) {
+      // Release the cart back to active so the user can restart checkout seamlessly
+      await Cart.findByIdAndUpdate(cart._id, {
+        $set: {
+          status: "active",
+          checkoutToken: null,
+          checkoutStartedAt: null,
+          checkoutExpiry: null,
+        },
+      }).session(session);
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
@@ -812,16 +821,11 @@ const createOrder = async (req, res) => {
             }
           }
 
-          // 3. DO NOT Revert Cart to Active
-          // We keep the cart in 'checkout' state so the user can retry immediately.
-          // The cart will eventually expire if not used, or be updated on success.
-          /*
+          // 3. Reset cart to active so the user can restart checkout from the cart page.
           await Cart.findByIdAndUpdate(cart._id, {
-            status: "active",
-            orderId: null,
-            completedAt: null,
+            $set: { status: "active", completedAt: null },
+            $unset: { orderId: "" },
           });
-          */
 
           logger.info(`✅ Cleanup successful for order ${order.orderId}`);
         } catch (cleanupError) {

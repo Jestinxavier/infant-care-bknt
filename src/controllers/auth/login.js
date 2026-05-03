@@ -26,13 +26,13 @@ const login = async (req, res) => {
     // Setting both might be confusing but safe if backend checks both.
     // Cookie is set securely. Client will likely use the response body tokens for headers.
 
+    // Refresh token is only in the HttpOnly cookie — never in the response body.
     res.json({
       success: true,
       message: "Login successful",
       accessToken,
-      refreshToken, // Include refreshToken in response for client-side storage
-      accessTokenLifetimeMs: ACCESS_TOKEN_LIFETIME_MS, // For client-side refresh scheduling
-      user, // Include user info in response
+      accessTokenLifetimeMs: ACCESS_TOKEN_LIFETIME_MS,
+      user,
     });
   } catch (err) {
     logger.error("❌ Login error:", err.message);

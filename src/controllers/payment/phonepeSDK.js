@@ -60,27 +60,12 @@ const initiatePayment = async ({ orderId, amount }) => {
     return { redirectUrl: response.redirectUrl };
   } catch (err) {
     if (err instanceof PhonePeException) {
-      const orderDoc = await Order.findOne({ orderId }).lean();
-      if (orderDoc) {
-        await Order.updateOne(
-          { orderId },
-          { $set: { paymentStatus: "failed", orderStatus: "cancelled" } },
-        );
-        await Cart.findOneAndUpdate(
-          { orderId: orderDoc._id },
-          {
-            $set: { status: "active", completedAt: null },
-            $unset: { orderId: "" },
-          },
-        );
-      }
       const errorData = {
         code: err.code,
         httpStatusCode: err.httpStatusCode,
         message: err.message,
         data: err.data,
       };
-      logger.error("PhonePe SDK error", errorData);
       logPhonePeError("PhonePe SDK initiation failed", errorData);
       throw new Error("PHONEPE_INITIATION_FAILED");
     }

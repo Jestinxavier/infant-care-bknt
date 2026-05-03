@@ -68,12 +68,14 @@ const validateCart = async (req, res, next) => {
       return next();
     }
 
-    // If cart belongs to a user but the request is unauthenticated and the
-    // cartId came only from the cookie (not the x-cart-id header), refuse it.
-    // This handles the case where a user logs out but the HttpOnly cart_id
-    // cookie persists — without this check the guest session would see the
-    // previous user's cart.
-    if (cart.userId && !req.user?.id && !cartIdFromHeader) {
+    // If cart belongs to a user but the request is from a different user (or
+    // unauthenticated) and the cartId came only from the cookie (not the
+    // x-cart-id header), refuse it.
+    // Covers two scenarios:
+    //   1. User logs out — cookie persists but request is now unauthenticated.
+    //   2. User B logs in on a device whose cookie still points to user A's
+    //      cart — without this check, user B would read/mutate user A's cart.
+    if (cart.userId && cart.userId.toString() !== req.user?.id?.toString() && !cartIdFromHeader) {
       req.cart = null;
       req.cartId = null;
       res.clearCookie(CART_ID, {

@@ -1,4 +1,5 @@
 const SiteSetting = require("../models/SiteSetting");
+const Product = require("../models/Product");
 const logger = require("../utils/logger");
 const POPULAR_SEARCHES_KEY = "search.popular_terms";
 const POPULAR_SEARCHES_DESCRIPTION =
@@ -400,6 +401,159 @@ const upsertPopularSearches = async (req, res) => {
   }
 };
 
+// ─── Suggested Products ────────────────────────────────────────────────────
+
+const SUGGESTED_PRODUCTS_KEY = "search.suggested_products";
+const SUGGESTED_PRODUCTS_DESCRIPTION =
+  "Featured products shown in the storefront search drawer before the user types.";
+const SUGGESTED_PRODUCTS_MAX = 4;
+const SUGGESTED_VIEW_ALL_MAX_LENGTH = 200;
+
+async function resolveProductSuggestions(productIds = []) {
+  if (!productIds.length) return [];
+  const docs = await Product.find({ _id: { $in: productIds }, status: "published" })
+    .select("_id title url_key images pricing price category")
+    .populate("category", "name")
+    .lean();
+
+  const map = Object.fromEntries(docs.map((p) => [String(p._id), p]));
+  return productIds
+    .map((id) => map[String(id)])
+    .filter(Boolean)
+    .map((p) => {
+      const rawImage = p.images?.[0];
+      const image = typeof rawImage === "string" ? rawImage : "";
+      const price = p.pricing?.price || p.price || 0;
+      return {
+        id: String(p._id),
+        title: p.title || "",
+        url_key: p.url_key || "",
+        price,
+        image,
+        category: p.category?.name || "",
+      };
+    });
+}
+
+/**
+ * GET /api/v1/settings/suggested-products
+ * Public endpoint for storefront suggested products
+ */
+const getSuggestedProducts = async (req, res) => {
+  try {
+    const setting = await SiteSetting.findOne({
+      key: SUGGESTED_PRODUCTS_KEY,
+      isPublic: true,
+    })
+      .select({ _id: 0, value: 1, updatedAt: 1 })
+      .lean();
+
+    const raw = setting?.value || {};
+    const productIds = Array.isArray(raw.productIds) ? raw.productIds : [];
+    const viewAllLink = typeof raw.viewAllLink === "string" ? raw.viewAllLink : "/search";
+
+    const products = await resolveProductSuggestions(productIds);
+
+    res.json({ success: true, products, viewAllLink, updatedAt: setting?.updatedAt || null });
+  } catch (error) {
+    logger.error("Error fetching suggested products:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch suggested products" });
+  }
+};
+
+/**
+ * GET /api/v1/admin/settings/suggested-products/admin
+ * Admin endpoint to read & manage suggested products
+ */
+const getSuggestedProductsAdmin = async (req, res) => {
+  try {
+    const setting = await SiteSetting.findOne({ key: SUGGESTED_PRODUCTS_KEY }).lean();
+    const raw = setting?.value || {};
+    const productIds = Array.isArray(raw.productIds) ? raw.productIds : [];
+    const viewAllLink = typeof raw.viewAllLink === "string" ? raw.viewAllLink : "/search";
+
+    const products = await resolveProductSuggestions(productIds);
+
+    res.json({
+      success: true,
+      setting: {
+        key: SUGGESTED_PRODUCTS_KEY,
+        description: setting?.description || SUGGESTED_PRODUCTS_DESCRIPTION,
+        isPublic: setting?.isPublic ?? true,
+        products,
+        productIds: productIds.map(String),
+        viewAllLink,
+        updatedAt: setting?.updatedAt || null,
+      },
+    });
+  } catch (error) {
+    logger.error("Error fetching admin suggested products:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch suggested products" });
+  }
+};
+
+/**
+ * PUT /api/v1/admin/settings/suggested-products
+ * Upsert suggested products (admin only)
+ */
+const upsertSuggestedProducts = async (req, res) => {
+  try {
+    const { productIds, viewAllLink } = req.body || {};
+
+    if (!Array.isArray(productIds)) {
+      return res.status(400).json({ success: false, message: "productIds must be an array" });
+    }
+
+    if (productIds.length > SUGGESTED_PRODUCTS_MAX) {
+      return res.status(400).json({
+        success: false,
+        message: `Maximum ${SUGGESTED_PRODUCTS_MAX} suggested products allowed`,
+      });
+    }
+
+    const cleanViewAllLink =
+      typeof viewAllLink === "string"
+        ? viewAllLink.trim().slice(0, SUGGESTED_VIEW_ALL_MAX_LENGTH)
+        : "/search";
+
+    const updatedSetting = await SiteSetting.findOneAndUpdate(
+      { key: SUGGESTED_PRODUCTS_KEY },
+      {
+        $set: {
+          value: { productIds, viewAllLink: cleanViewAllLink },
+          type: "json",
+          scope: "product",
+          description: SUGGESTED_PRODUCTS_DESCRIPTION,
+          isPublic: true,
+        },
+      },
+      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+
+    const savedRaw = updatedSetting.value || {};
+    const savedIds = Array.isArray(savedRaw.productIds) ? savedRaw.productIds : [];
+    const products = await resolveProductSuggestions(savedIds);
+
+    res.json({
+      success: true,
+      setting: {
+        key: updatedSetting.key,
+        description: updatedSetting.description,
+        isPublic: updatedSetting.isPublic,
+        products,
+        productIds: savedIds.map(String),
+        viewAllLink: savedRaw.viewAllLink || "/search",
+        updatedAt: updatedSetting.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error("Error updating suggested products:", error);
+    res.status(500).json({ success: false, message: "Failed to update suggested products" });
+  }
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 function normalizePopularSearches(rawSearches = []) {
   const normalized = [];
   const seen = new Set();
@@ -451,4 +605,7 @@ module.exports = {
   getPopularSearches,
   getPopularSearchesAdmin,
   upsertPopularSearches,
+  getSuggestedProducts,
+  getSuggestedProductsAdmin,
+  upsertSuggestedProducts,
 };

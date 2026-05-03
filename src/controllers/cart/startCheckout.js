@@ -1,6 +1,7 @@
 const Cart = require("../../models/Cart");
 const crypto = require("crypto");
 const logger = require("../../utils/logger");
+const { generateCartId } = require("../../utils/cartIdGenerator");
 const {
   CHECKOUT_SESSION_MS,
   CART_ID,
@@ -12,7 +13,10 @@ const {
  */
 const startCheckout = async (req, res) => {
   try {
-    const { userId, cartId: bodyCartId } = req.body;
+    const { cartId: bodyCartId } = req.body;
+    // Resolve userId from JWT (set by optionalVerifyToken middleware).
+    // Never trust userId from the request body — callers cannot self-attest identity.
+    const userId = req.user?.id || null;
     // Get cartId from body or cookies (use CART_ID constant = "cart_id")
     const cartId = bodyCartId || req.cookies?.[CART_ID];
 
@@ -98,7 +102,7 @@ const startCheckout = async (req, res) => {
       );
       cart = await Cart.create({
         userId,
-        cartId: `usr_${userId}_${Date.now()}`, // Generate a unique cartId
+        cartId: generateCartId(),
         items: [],
         status: "active",
       });

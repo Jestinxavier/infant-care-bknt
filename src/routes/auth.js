@@ -434,7 +434,9 @@ router.post("/refresh", refreshToken);
  *                   type: string
  *                   example: Logout successful
  */
-router.post("/logout", verifyToken, logout);
+// No verifyToken — logout must work even when the access token is already
+// expired. The HttpOnly refresh_token cookie is cleared server-side here.
+router.post("/logout", logout);
 
 /**
  * @swagger
