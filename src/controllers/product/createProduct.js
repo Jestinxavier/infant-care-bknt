@@ -676,6 +676,11 @@ const createProduct = async (req, res) => {
           attributesMap,
         );
 
+        // Parse variant-level videos
+        const variantVideos = Array.isArray(v.videos)
+          ? v.videos.filter((vi) => vi && vi.type && vi.url)
+          : [];
+
         processedVariants.push({
           id: v.id || `variant-${crypto.randomUUID()}`,
           name: variantName,
@@ -697,6 +702,7 @@ const createProduct = async (req, res) => {
           },
           _optionsHash: optionsHash,
           images: variantImageUrls,
+          videos: variantVideos,
           attributes: attributesMap, // New format
           options: attributesMap, // Keep for backward compatibility
           weight: v.weight,

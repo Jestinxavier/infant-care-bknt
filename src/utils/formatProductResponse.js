@@ -52,6 +52,7 @@ const formatProductResponse = (product) => {
       sku: variant.sku,
       attributes: attributes,
       images: ensureImageUrls(variant.images || []),
+      videos: variant.videos || [],
       pricing: {
         price: resolvedPricing.price,
         ...(resolvedPricing.discountPrice
@@ -278,6 +279,7 @@ const formatProductResponse = (product) => {
     uiMeta: productObj.uiMeta || {},
     // Quantity-based tier pricing
     quantityRules: productObj.quantityRules || [],
+    videos: productObj.videos || [],
   };
 };
 

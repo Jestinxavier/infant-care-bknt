@@ -26,6 +26,7 @@ const {
 const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
+const { triggerRevalidation } = require("../../services/revalidateService");
 
 const norm = (v) =>
   (v ?? "")
@@ -512,6 +513,7 @@ const updateProduct = async (req, res) => {
               }
               return { type: v.type, url: v.url, publicId: v.publicId || undefined, thumbnail, title: v.title || undefined };
             });
+          product.markModified("videos");
         }
       } catch (err) {
         logger.error("Error parsing product videos:", err);
@@ -747,6 +749,11 @@ const updateProduct = async (req, res) => {
           attributesMap
         );
 
+        // Parse variant-level videos
+        const variantVideos = Array.isArray(v.videos)
+          ? v.videos.filter((vi) => vi && vi.type && vi.url)
+          : [];
+
         processedVariants.push({
           id: v.id || `variant-${crypto.randomUUID()}`,
           name: variantName,
@@ -763,6 +770,7 @@ const updateProduct = async (req, res) => {
             isInStock: isInStock,
           },
           images: variantImages,
+          videos: variantVideos,
           attributes: attributesMap,
           options: attributesMap,
           weight: v.weight,
@@ -921,6 +929,11 @@ const updateProduct = async (req, res) => {
 
     // Legacy variants handling removed - variants are now embedded in Product document
 
+    // Invalidate Next.js ISR cache for this product so the storefront reflects changes immediately
+    if (product.url_key) {
+      triggerRevalidation({ type: "product", resource: product.url_key }).catch(() => {});
+    }
+
     res.status(200).json({
       success: true,
       message: "Product updated successfully",
@@ -938,6 +951,7 @@ const updateProduct = async (req, res) => {
         stockObj: product.stockObj,
         sku: product.sku,
         variants: product.variants,
+        videos: product.videos,
         product_type: product.product_type,
       },
     });
