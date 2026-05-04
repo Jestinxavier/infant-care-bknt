@@ -859,13 +859,11 @@ const createOrder = async (req, res) => {
       createdAt: order.createdAt,
     });
 
-    // Send confirmation email to guest after commit
-    if (isGuest) {
-      const { sendGuestOrderConfirmationEmail } = require("../../services/emailService");
-      sendGuestOrderConfirmationEmail(guestInfo, order).catch((err) =>
-        logger.error("❌ Failed to send guest order confirmation email:", err)
-      );
-    }
+    // Send order confirmation invoice to all customers (guest and registered)
+    const { sendOrderConfirmationEmail } = require("../../services/emailService");
+    sendOrderConfirmationEmail(order).catch((err) =>
+      logger.error("❌ Failed to send order confirmation email:", { message: err.message, stack: err.stack })
+    );
 
     return res.status(201).json({
       success: true,

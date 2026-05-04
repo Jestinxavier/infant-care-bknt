@@ -572,13 +572,24 @@ const updateOrderStatus = async (req, res) => {
       },
     });
 
+    // Resolve the email recipient — works for both registered users and guests
+    const emailRecipient =
+      order.userId ||
+      (order.isGuestOrder && order.guestInfo?.email
+        ? { email: order.guestInfo.email, username: order.guestInfo.name || "Customer" }
+        : null);
+
     // Send shipment email if status changed to shipped
     if (
       status === "shipped" &&
       currentOrder.orderStatus !== "shipped" &&
-      order.userId
+      emailRecipient?.email
     ) {
-      emailService.sendShipmentEmail(order.userId, order);
+      emailService
+        .sendShipmentEmail(emailRecipient, order)
+        .catch((err) =>
+          logger.error("Shipment email failed", { orderId: order._id, error: err.message })
+        );
     }
 
     // Skip cancellation email for:
@@ -595,11 +606,11 @@ const updateOrderStatus = async (req, res) => {
     if (
       status === "cancelled" &&
       currentOrder.orderStatus !== "cancelled" &&
-      order.userId?.email &&
+      emailRecipient?.email &&
       !skipCancelEmail
     ) {
       emailService
-        .sendOrderCancelledEmail(order.userId, order)
+        .sendOrderCancelledEmail(emailRecipient, order)
         .catch((err) =>
           logger.error("Order cancelled email failed", { orderId: order._id, error: err.message })
         );

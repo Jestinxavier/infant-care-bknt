@@ -35,26 +35,52 @@ const getWishlistProducts = async (req, res) => {
         url_key: 1,
         images: 1,
         product_type: 1,
-        "pricing.price": 1,
-        "pricing.discountPrice": 1,
+        price: 1,
+        offerPrice: 1,
+        offerStartAt: 1,
+        offerEndAt: 1,
+        "variants.price": 1,
+        "variants.offerPrice": 1,
+        "variants.offerStartAt": 1,
+        "variants.offerEndAt": 1,
         "stockObj.available": 1,
         badge: 1,
       }
     ).lean();
 
-    const items = products.map((p) => ({
-      productId: p._id.toString(),
-      title: p.title || "",
-      url_key: p.url_key || "",
-      image: Array.isArray(p.images) ? p.images[0] || "" : "",
-      product_type: p.product_type || "SIMPLE",
-      regular_price: p.pricing?.price || 0,
-      offer_price: p.pricing?.discountPrice || null,
-      stock: p.stockObj?.available ?? 0,
-      badgeLabel: p.badge?.label || null,
-      badgeColor: p.badge?.color || null,
-      badgeLabelColor: p.badge?.labelColor || null,
-    }));
+    const now = new Date();
+    const getActiveOfferPrice = (offerPrice, offerStartAt, offerEndAt) => {
+      if (!offerPrice) return null;
+      const afterStart = !offerStartAt || now >= new Date(offerStartAt);
+      const beforeEnd = !offerEndAt || now <= new Date(offerEndAt);
+      return afterStart && beforeEnd ? offerPrice : null;
+    };
+
+    const items = products.map((p) => {
+      let regularPrice = p.price || 0;
+      let offerPrice = getActiveOfferPrice(p.offerPrice, p.offerStartAt, p.offerEndAt);
+
+      // For configurable products that store price on variants rather than root
+      if (!regularPrice && p.product_type === "CONFIGURABLE" && p.variants?.length > 0) {
+        const first = p.variants[0];
+        regularPrice = first.price || 0;
+        offerPrice = getActiveOfferPrice(first.offerPrice, first.offerStartAt, first.offerEndAt);
+      }
+
+      return {
+        productId: p._id.toString(),
+        title: p.title || "",
+        url_key: p.url_key || "",
+        image: Array.isArray(p.images) ? p.images[0] || "" : "",
+        product_type: p.product_type || "SIMPLE",
+        regular_price: regularPrice,
+        offer_price: offerPrice,
+        stock: p.stockObj?.available ?? 0,
+        badgeLabel: p.badge?.label || null,
+        badgeColor: p.badge?.color || null,
+        badgeLabelColor: p.badge?.labelColor || null,
+      };
+    });
 
     res.json({ success: true, items });
   } catch (err) {
