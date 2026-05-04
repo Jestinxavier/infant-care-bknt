@@ -215,6 +215,19 @@ function transformForDashboard(product) {
     : [];
   const badgeCollection = product.badgeCollection || null;
 
+  // Variant-level stock summary for Inventory module
+  let outOfStockVariantsCount = 0;
+  let lowStockVariantsCount = 0;
+  let variantCount = 0;
+  if (hasVariants) {
+    variantCount = product.variants.length;
+    for (const v of product.variants) {
+      const vstatus = getVariantStatus(v);
+      if (vstatus === "out_of_stock") outOfStockVariantsCount++;
+      else if (vstatus === "low_stock") lowStockVariantsCount++;
+    }
+  }
+
   return {
     // Core product data
     _id: product._id?.toString(),
@@ -225,6 +238,11 @@ function transformForDashboard(product) {
 
     // Stock metrics
     stock: totalStock,
+
+    // Variant-level stock summary (for Inventory module)
+    variantCount,
+    outOfStockVariantsCount,
+    lowStockVariantsCount,
 
     // Pricing - regular price, current display price, and offer price when active
     price: minPrice, // Regular price (or min price for variants)

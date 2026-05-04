@@ -847,8 +847,11 @@ const createOrder = async (req, res) => {
 
     // COD or other methods
     const { emitEvent } = require("../../services/socketService");
-    emitEvent("newOrder", {
+    const { createOrderNotification } = require("../admin/notificationController");
+
+    const notificationPayload = {
       orderId: order.orderId,
+      orderDbId: order._id,
       totalAmount: order.totalAmount,
       customerName:
         shippingAddressData?.fullName ||
@@ -857,7 +860,14 @@ const createOrder = async (req, res) => {
         "Customer",
       itemsCount: totalQuantity,
       createdAt: order.createdAt,
-    });
+    };
+
+    emitEvent("newOrder", notificationPayload);
+
+    // Persist notification to DB (fire-and-forget — don't block order response)
+    createOrderNotification(notificationPayload).catch((err) =>
+      logger.error("❌ Failed to persist notification:", err)
+    );
 
     // Send order confirmation invoice to all customers (guest and registered)
     const { sendOrderConfirmationEmail } = require("../../services/emailService");

@@ -52,7 +52,21 @@ const {
   searchProductsForCoupon,
 } = require("../controllers/admin/couponController");
 
+const {
+  getNotifications,
+  markAsRead,
+  markAllAsRead,
+  deleteNotification,
+} = require("../controllers/admin/notificationController");
+
+// ==================== NOTIFICATIONS ====================
+router.get("/notifications", verifyToken, requireAdmin, getNotifications);
+router.patch("/notifications/read-all", verifyToken, requireAdmin, markAllAsRead);
+router.patch("/notifications/:id/read", verifyToken, requireAdmin, markAsRead);
+router.delete("/notifications/:id", verifyToken, requireAdmin, deleteNotification);
+
 // ==================== PRODUCTS ====================
+
 
 /**
  * @swagger
