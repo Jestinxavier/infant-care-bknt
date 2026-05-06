@@ -27,8 +27,7 @@ const getAllAttributes = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch attributes",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -58,8 +57,7 @@ const getAttributeById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch attribute",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -138,8 +136,7 @@ const createAttribute = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to create attribute",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -200,8 +197,7 @@ const updateAttribute = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to update attribute",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -252,8 +248,7 @@ const deleteAttribute = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete attribute",
-      error: error.message,
-    });
+          });
   }
 };
 

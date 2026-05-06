@@ -24,11 +24,12 @@ const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
 
   try {
-    const { userId: rawUserId, guestInfo, items, addressId, newAddress, paymentMethod, cartId } =
+    const { guestInfo, items, addressId, newAddress, paymentMethod, cartId } =
       req.body;
 
-    // Resolve userId — authenticated users send it in body; guests don't
-    const userId = req.user?.id || rawUserId || null;
+    // Authenticated users: always use token identity, never body userId
+    // Guests: force null — never accept a userId from an unauthenticated request
+    const userId = req.user?.id || null;
     const isGuest = !userId;
 
     // === VALIDATION ===
@@ -839,8 +840,7 @@ const createOrder = async (req, res) => {
         return res.status(500).json({
           success: false,
           message: "Failed to initiate payment. Order cancelled.",
-          error: error.message,
-          orderCancelled: true,
+                    orderCancelled: true,
         });
       }
     }
@@ -957,8 +957,7 @@ const createOrder = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Order creation failed",
-      error: error.message,
-    });
+          });
   } finally {
     session.endSession();
   }

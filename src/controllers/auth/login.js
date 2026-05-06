@@ -10,21 +10,10 @@ const login = async (req, res) => {
       req.body
     );
 
-    // Set refresh token as HttpOnly cookie
-    // Check if request is from dashboard
-    const isDashboard =
-      req.headers.origin?.includes("localhost:5173") ||
-      req.headers.origin?.includes("dashboard");
-
-    const cookieName = isDashboard
-      ? "dashboard_refresh_token"
-      : "refresh_token";
-
+    // Identify client from the explicit header, not user-controlled Origin
+    const isDashboard = req.headers["x-client-type"] === "dashboard";
+    const cookieName = isDashboard ? "dashboard_refresh_token" : "refresh_token";
     res.cookie(cookieName, refreshToken, getAuthCookieOptions());
-
-    // Also set standard cookie for compatibility if needed, or stick to one.
-    // Setting both might be confusing but safe if backend checks both.
-    // Cookie is set securely. Client will likely use the response body tokens for headers.
 
     // Refresh token is only in the HttpOnly cookie — never in the response body.
     res.json({

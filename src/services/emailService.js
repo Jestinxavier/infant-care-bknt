@@ -159,7 +159,7 @@ const sendTemplateEmail = async ({
 ===================================================== */
 
 const generateOTP = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+  require("crypto").randomInt(100000, 1000000).toString();
 
 /* =====================================================
    ✅ Email Functions

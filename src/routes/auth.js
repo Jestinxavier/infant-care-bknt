@@ -31,18 +31,26 @@ const router = express.Router();
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 15,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: "Too many requests, please try again later." },
+  handler(req, res, next, options) {
+    logger.warn("429 OTP rate limit hit", { ip: req.ip, path: req.path, method: req.method });
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: "Too many login attempts, please try again later." },
+  handler(req, res, next, options) {
+    logger.warn("429 login rate limit hit", { ip: req.ip, path: req.path, method: req.method });
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 /**
@@ -85,7 +93,7 @@ const loginLimiter = rateLimit({
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post("/check-user", checkUserExists);
+router.post("/check-user", otpLimiter, checkUserExists);
 
 /**
  * @swagger
@@ -308,7 +316,7 @@ router.post("/request-otp", otpLimiter, requestOTP);
  *       400:
  *         description: Invalid OTP, expired OTP, username/email already taken, or too many attempts
  */
-router.post("/verify-otp", verifyOTP);
+router.post("/verify-otp", otpLimiter, verifyOTP);
 
 /**
  * @swagger
@@ -478,7 +486,7 @@ router.post("/logout", logout);
  *       400:
  *         description: Email already verified or no pending registration
  */
-router.post("/resend-otp", resendOTP);
+router.post("/resend-otp", otpLimiter, resendOTP);
 
 /**
  * @swagger

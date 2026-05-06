@@ -3,8 +3,7 @@ const logger = require("../../utils/logger");
 
 const getAddresses = async (req, res) => {
   try {
-    // Read userId from request body (for POST) or params (for backward compatibility)
-    const { userId } = req.body || req.params;
+    const userId = req.user.id;
 
     if (!userId) {
       return res
@@ -26,8 +25,7 @@ const getAddresses = async (req, res) => {
       .json({
         success: false,
         message: "Internal Server Error",
-        error: err.message,
-      });
+              });
   }
 };
 

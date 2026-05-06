@@ -10,14 +10,21 @@ const updateAddress = async (req, res) => {
       return res.status(400).json({ success: false, message: "Address ID is required" });
     }
 
-    // Find the address first to get userId
+    // Find the address first and verify ownership
     const existingAddress = await Address.findById(addressId);
     if (!existingAddress) {
       return res.status(404).json({ success: false, message: "Address not found" });
     }
 
+    if (existingAddress.userId.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
+    }
+
+    // Strip userId from updateData to prevent mass assignment
+    const { userId: _removed, ...safeUpdateData } = updateData;
+
     // If this address is being set as default, unset all other default addresses for this user
-    if (updateData.isDefault === true) {
+    if (safeUpdateData.isDefault === true) {
       await Address.updateMany(
         { userId: existingAddress.userId, _id: { $ne: addressId }, isDefault: true },
         { $set: { isDefault: false } }
@@ -26,8 +33,8 @@ const updateAddress = async (req, res) => {
 
     const updatedAddress = await Address.findByIdAndUpdate(
       addressId,
-      updateData,
-      { new: true } // return the updated document
+      safeUpdateData,
+      { new: true }
     );
 
     res.status(200).json({
@@ -40,8 +47,7 @@ const updateAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message
-    });
+          });
   }
 };
 

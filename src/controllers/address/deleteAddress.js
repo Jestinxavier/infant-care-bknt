@@ -12,13 +12,17 @@ const deleteAddress = async (req, res) => {
       });
     }
 
-    // Find the address first to verify it exists
+    // Find the address and verify ownership
     const existingAddress = await Address.findById(addressId);
     if (!existingAddress) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Address not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Address not found"
       });
+    }
+
+    if (existingAddress.userId.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
     // Delete the address
@@ -33,8 +37,7 @@ const deleteAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message
-    });
+          });
   }
 };
 

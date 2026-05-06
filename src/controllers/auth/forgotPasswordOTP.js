@@ -79,8 +79,7 @@ const requestPasswordResetOTP = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -173,8 +172,7 @@ const verifyPasswordResetOTP = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 

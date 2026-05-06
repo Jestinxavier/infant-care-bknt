@@ -29,6 +29,19 @@ if (missingVars.length) {
   }
 }
 
+const WEAK_SECRETS = ["devsecretkey", "devrefreshkey", "secret", "changeme", "jwt_secret", "mysecret", "password"];
+if (process.env.NODE_ENV === "production") {
+  if (
+    WEAK_SECRETS.includes(process.env.JWT_SECRET) ||
+    WEAK_SECRETS.includes(process.env.JWT_REFRESH_SECRET) ||
+    (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) ||
+    (process.env.JWT_REFRESH_SECRET && process.env.JWT_REFRESH_SECRET.length < 32)
+  ) {
+    logger.error("FATAL: Weak JWT secret detected in production. Set strong secrets and restart.");
+    process.exit(1);
+  }
+}
+
 // MongoDB connection options optimized for Vercel serverless
 const mongooseOptions = {
   maxPoolSize: 10, // Maintain up to 10 socket connections

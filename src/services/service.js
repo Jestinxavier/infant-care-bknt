@@ -65,7 +65,6 @@ exports.verifyOTPAndRegister = async ({
   username,
   password,
   otp,
-  role,
 }) => {
   // Check if email already registered
   const existingUser = await User.findOne({ email });
@@ -100,8 +99,13 @@ exports.verifyOTPAndRegister = async ({
     throw new Error("Too many failed attempts. Please request a new OTP.");
   }
 
-  // Verify OTP
-  if (pendingOTP.otp !== otp) {
+  // Verify OTP — constant-time comparison prevents timing attacks
+  const crypto = require("crypto");
+  const storedBuf = Buffer.from(String(pendingOTP.otp));
+  const providedBuf = Buffer.from(String(otp).padEnd(storedBuf.length, "\0").slice(0, storedBuf.length));
+  const otpMatch = storedBuf.length === Buffer.from(String(otp)).length &&
+    crypto.timingSafeEqual(storedBuf, providedBuf);
+  if (!otpMatch) {
     pendingOTP.attempts += 1;
     await pendingOTP.save();
     throw new Error(
@@ -124,7 +128,7 @@ exports.verifyOTPAndRegister = async ({
     username: finalUsername,
     email,
     password: finalPassword, // Will be hashed by pre-save hook
-    role: role || "user",
+    role: "user",
     isEmailVerified: true, // Email verified via OTP
   });
 

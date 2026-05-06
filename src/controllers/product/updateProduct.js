@@ -989,8 +989,7 @@ const updateProduct = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Duplicate value for ${duplicateField}. This ${duplicateField} already exists.`,
-        error: err.message,
-      });
+              });
     }
 
     res.status(500).json({

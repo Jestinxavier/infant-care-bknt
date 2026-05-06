@@ -29,8 +29,7 @@ const getAllSettings = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch settings",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -60,8 +59,7 @@ const getSetting = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch setting",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -107,8 +105,7 @@ const createSetting = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to create setting",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -181,8 +178,7 @@ const updateSetting = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to update setting",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -212,8 +208,7 @@ const deleteSetting = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete setting",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -254,8 +249,7 @@ const getPublicSettings = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch settings",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -286,8 +280,7 @@ const getPopularSearches = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch popular searches",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -328,8 +321,7 @@ const getPopularSearchesAdmin = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch popular searches",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -396,8 +388,7 @@ const upsertPopularSearches = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to update popular searches",
-      error: error.message,
-    });
+          });
   }
 };
 

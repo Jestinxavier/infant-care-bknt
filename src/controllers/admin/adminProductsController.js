@@ -38,8 +38,8 @@ const getAllProducts = async (req, res) => {
       includeInactive = false,
     } = requestData;
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 200);
     const skip = (pageNum - 1) * limitNum;
 
     // Build filter for admin (can include inactive/draft products)
@@ -111,8 +111,7 @@ const getAllProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -243,8 +242,7 @@ const getProductById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 

@@ -197,8 +197,7 @@ const getAllOrders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -260,8 +259,7 @@ const getOrderById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -620,8 +618,7 @@ const updateOrderStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -694,8 +691,7 @@ const sendOrderInvoice = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -781,7 +777,7 @@ const markOrderAsPaid = async (req, res) => {
     }
   } catch (err) {
     logger.error("❌ Admin Error marking order as paid:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 

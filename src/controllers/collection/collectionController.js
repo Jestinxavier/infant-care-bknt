@@ -56,8 +56,7 @@ const listCollections = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch collections",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -124,8 +123,7 @@ const createCollection = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to create collection",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -227,8 +225,7 @@ const updateCollection = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to update collection",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -263,8 +260,7 @@ const deleteCollection = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to delete collection",
-      error: error.message,
-    });
+          });
   }
 };
 

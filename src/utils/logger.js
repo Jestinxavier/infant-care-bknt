@@ -1,19 +1,43 @@
 // Structured logger — JSON in production, readable in development.
 // Replace all console.log/warn/error calls with this module.
 // Fields: level, message, timestamp, context (arbitrary key-value data).
+// All levels → logs/combined.log; errors → logs/error.log (always, both envs).
+
+const fs = require("fs");
+const path = require("path");
 
 const isProd = process.env.NODE_ENV === "production";
+
+const logsDir = path.resolve(__dirname, "../../logs");
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
+const combinedLogPath = path.join(logsDir, "combined.log");
+const errorLogPath    = path.join(logsDir, "error.log");
 
 function timestamp() {
   return new Date().toISOString();
 }
 
+function writeToFile(filePath, entry) {
+  try {
+    fs.appendFileSync(filePath, entry + "\n", "utf8");
+  } catch {
+    // never crash the app because of a logging failure
+  }
+}
+
 function write(level, message, context = {}) {
+  const entry = JSON.stringify({ level, message, timestamp: timestamp(), ...context });
+
+  // Always persist to files
+  writeToFile(combinedLogPath, entry);
+  if (level === "error") writeToFile(errorLogPath, entry);
+
   if (isProd) {
     // JSON lines — parseable by Datadog, Logtail, CloudWatch, etc.
-    process.stdout.write(
-      JSON.stringify({ level, message, timestamp: timestamp(), ...context }) + "\n"
-    );
+    process.stdout.write(entry + "\n");
   } else {
     const prefix = {
       info:  "ℹ️  [INFO]",

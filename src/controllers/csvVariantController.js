@@ -42,8 +42,7 @@ const exportVariants = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to export variants",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -93,8 +92,7 @@ const importVariants = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to import variants",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -147,8 +145,7 @@ const bulkUpdateStock = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to update stock",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -204,8 +201,7 @@ const bulkUpdatePrice = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to update price",
-      error: error.message,
-    });
+          });
   }
 };
 

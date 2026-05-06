@@ -46,8 +46,7 @@ const getHomepage = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -89,8 +88,7 @@ const getHomepageById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 

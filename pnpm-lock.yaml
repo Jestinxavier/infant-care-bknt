@@ -35,6 +35,9 @@ importers:
       express:
         specifier: ^5.1.0
         version: 5.2.1
+      express-mongo-sanitize:
+        specifier: ^2.2.0
+        version: 2.2.0
       express-rate-limit:
         specifier: ^8.3.2
         version: 8.3.2(express@5.2.1)
@@ -1374,6 +1377,10 @@ packages:
   expect@30.2.0:
     resolution: {integrity: sha512-u/feCi0GPsI+988gU2FLcsHyAHTU0MX1Wg68NhAnN7z/+C5wqG+CY8J53N9ioe8RXgaoz0nBR/TYMf3AycUuPw==}
     engines: {node: ^18.14.0 || ^20.0.0 || ^22.0.0 || >=24.0.0}
+
+  express-mongo-sanitize@2.2.0:
+    resolution: {integrity: sha512-PZBs5nwhD6ek9ZuP+W2xmpvcrHwXZxD5GdieX2dsjPbAbH4azOkrHbycBud2QRU+YQF1CT+pki/lZGedHgo/dQ==}
+    engines: {node: '>=10'}
 
   express-rate-limit@8.3.2:
     resolution: {integrity: sha512-77VmFeJkO0/rvimEDuUC5H30oqUC4EyOhyGccfqoLebB0oiEYfM7nwPrsDsBL1gsTpwfzX8SFy2MT3TDyRq+bg==}
@@ -4142,6 +4149,8 @@ snapshots:
       jest-message-util: 30.2.0
       jest-mock: 30.2.0
       jest-util: 30.2.0
+
+  express-mongo-sanitize@2.2.0: {}
 
   express-rate-limit@8.3.2(express@5.2.1):
     dependencies:

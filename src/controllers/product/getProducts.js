@@ -183,8 +183,7 @@ const getAllProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -438,8 +437,7 @@ const getProductByUrlKey = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -514,8 +512,7 @@ const getProductById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -547,8 +544,7 @@ const getVariantById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 

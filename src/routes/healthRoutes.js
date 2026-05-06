@@ -8,6 +8,8 @@ const {
   getIPInfo,
   getConnectionLogs
 } = require('../controllers/health/healthController');
+const verifyToken = require('../middlewares/authMiddleware');
+const requireAdmin = require('../middlewares/adminMiddleware');
 
 /**
  * @swagger
@@ -43,7 +45,7 @@ const {
  *       503:
  *         description: Database is not connected
  */
-router.get('/database', checkDatabaseHealth);
+router.get('/database', verifyToken, requireAdmin, checkDatabaseHealth);
 
 /**
  * @swagger
@@ -74,7 +76,7 @@ router.get('/database', checkDatabaseHealth);
  *       503:
  *         description: Database ping failed
  */
-router.get('/ping', pingDatabase);
+router.get('/ping', verifyToken, requireAdmin, pingDatabase);
 
 /**
  * @swagger
@@ -103,7 +105,7 @@ router.get('/ping', pingDatabase);
  *       503:
  *         description: System health issue detected
  */
-router.get('/status', getCompleteHealth);
+router.get('/status', verifyToken, requireAdmin, getCompleteHealth);
 
 /**
  * @swagger
@@ -115,7 +117,7 @@ router.get('/status', getCompleteHealth);
  *       200:
  *         description: Environment variables status
  */
-router.get('/env-check', checkEnvironmentVariables);
+router.get('/env-check', verifyToken, requireAdmin, checkEnvironmentVariables);
 
 /**
  * @swagger
@@ -127,7 +129,7 @@ router.get('/env-check', checkEnvironmentVariables);
  *       200:
  *         description: IP address information
  */
-router.get('/ip-info', getIPInfo);
+router.get('/ip-info', verifyToken, requireAdmin, getIPInfo);
 
 /**
  * @swagger
@@ -139,6 +141,6 @@ router.get('/ip-info', getIPInfo);
  *       200:
  *         description: Detailed connection information
  */
-router.get('/connection-logs', getConnectionLogs);
+router.get('/connection-logs', verifyToken, requireAdmin, getConnectionLogs);
 
 module.exports = router;

@@ -3,8 +3,8 @@ const logger = require("../../utils/logger");
 
 const createAddress = async (req, res) => {
   try {
+    const userId = req.user.id;
     const {
-      userId,
       fullName,
       phone,
       houseName,
@@ -106,8 +106,7 @@ const createAddress = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: err.message,
-    });
+          });
   }
 };
 

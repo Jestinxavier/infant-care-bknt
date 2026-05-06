@@ -31,7 +31,7 @@ const updateVariant = async (req, res) => {
     res.status(200).json({ message: "Variant updated successfully", variant: variantResponse });
   } catch (err) {
     logger.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
