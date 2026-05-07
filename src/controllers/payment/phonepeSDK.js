@@ -14,7 +14,8 @@ const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
 const { randomUUID } = require("crypto");
 const emailService = require("../../services/emailService");
-const { logPhonePeError, logPhonePeInfo } = require("../../utils/logger");
+const logger = require("../../utils/logger");
+const { logPhonePeError, logPhonePeInfo } = logger;
 const withTimeout = require("../../utils/withTimeout");
 
 const PHONEPE_TIMEOUT_MS = 15000; // 15s — PhonePe SLA is well under this
@@ -201,7 +202,7 @@ const checkOrderStatus = async (req, res) => {
 
     if (state === "FAILED") {
       await Order.findOneAndUpdate(
-        { orderId },
+        { orderId, paymentStatus: { $ne: "paid" } },
         { $set: { paymentStatus: "failed", paymentMethod: "phonepe" } },
       );
       return res.redirect(
@@ -211,7 +212,7 @@ const checkOrderStatus = async (req, res) => {
 
     if (state === "PENDING") {
       await Order.findOneAndUpdate(
-        { orderId },
+        { orderId, paymentStatus: { $ne: "paid" } },
         { $set: { paymentStatus: "pending", paymentMethod: "phonepe" } },
       );
       return res.redirect(
