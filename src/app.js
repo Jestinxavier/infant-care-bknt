@@ -91,11 +91,24 @@ app.use(cookieParser());
 
 // Webhook route (MUST be defined before global express.json() to capture rawBody)
 const { phonepeWebhook } = require("./controllers/payment/phonepeSDK");
+const { wlog } = require("./utils/webhookLogger");
 app.post(
   "/api/webhooks/phonepe",
+  (req, res, next) => {
+    // Log the raw incoming request BEFORE any processing so we always know if PhonePe hit the endpoint
+    wlog("REQUEST_RECEIVED", {
+      ip: req.ip,
+      hasAuth: !!req.headers["authorization"],
+      authPreview: req.headers["authorization"]?.substring(0, 30) + "...",
+      contentType: req.headers["content-type"],
+      contentLength: req.headers["content-length"],
+    });
+    next();
+  },
   express.json({
     verify: (req, res, buf) => {
       req.rawBody = buf.toString();
+      wlog("BODY_CAPTURED", { bodyLength: buf.length });
     },
   }),
   phonepeWebhook,

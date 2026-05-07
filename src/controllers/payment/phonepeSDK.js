@@ -16,6 +16,7 @@ const { randomUUID } = require("crypto");
 const emailService = require("../../services/emailService");
 const logger = require("../../utils/logger");
 const { logPhonePeError, logPhonePeInfo } = logger;
+const { wlog } = require("../../utils/webhookLogger");
 const withTimeout = require("../../utils/withTimeout");
 
 const PHONEPE_TIMEOUT_MS = 15000; // 15s — PhonePe SLA is well under this
@@ -279,6 +280,11 @@ const manualCheckPaymentStatus = async (req, res) => {
 };
 
 const phonepeWebhook = async (req, res) => {
+  wlog("HANDLER_ENTERED", {
+    hasAuth: !!req.headers["authorization"],
+    hasRawBody: !!req.rawBody,
+    bodyLength: req.rawBody?.length ?? 0,
+  });
   logger.info("📥 PhonePe webhook received", {
     timestamp: new Date().toISOString(),
     hasAuth: !!req.headers["authorization"],
@@ -290,6 +296,10 @@ const phonepeWebhook = async (req, res) => {
     const authorizationHeader = req.headers["authorization"];
 
     if (!authorizationHeader || !req.rawBody) {
+      wlog("REJECTED_MISSING_AUTH_OR_BODY", {
+        hasAuth: !!authorizationHeader,
+        hasBody: !!req.rawBody,
+      });
       logger.error("❌ PhonePe webhook: Missing authorization or body");
       return res.status(400).send("INVALID CALLBACK");
     }
@@ -304,6 +314,7 @@ const phonepeWebhook = async (req, res) => {
         authorizationHeader,
         req.rawBody,
       );
+      wlog("VALIDATION_PASSED");
     } catch (err) {
       if (err instanceof PhonePeException) {
         const errorData = {
@@ -312,6 +323,7 @@ const phonepeWebhook = async (req, res) => {
           message: err.message,
           data: err.data,
         };
+        wlog("VALIDATION_FAILED", errorData);
         logger.error(
           "❌ PhonePe webhook: Invalid callback (validateCallback failed)",
           errorData,
@@ -319,6 +331,7 @@ const phonepeWebhook = async (req, res) => {
         logPhonePeError("Webhook validation failed", errorData);
         return res.status(400).send("INVALID CALLBACK");
       }
+      wlog("VALIDATION_UNEXPECTED_ERROR", { message: err.message });
       logPhonePeError("Unexpected error in webhook validation", err);
       throw err;
     }
@@ -327,6 +340,11 @@ const phonepeWebhook = async (req, res) => {
     const merchantOrderId =
       payload.merchantOrderId ?? payload.originalMerchantOrderId;
 
+    wlog("PAYLOAD_PARSED", {
+      type,
+      merchantOrderId,
+      hasPaymentDetails: !!payload.paymentDetails,
+    });
     logger.info("📋 PhonePe webhook payload", {
       type,
       merchantOrderId,
@@ -334,17 +352,20 @@ const phonepeWebhook = async (req, res) => {
     });
 
     if (!merchantOrderId) {
+      wlog("REJECTED_NO_ORDER_ID");
       logger.warn("⚠️ PhonePe webhook: No merchantOrderId in payload");
       return res.status(200).send("OK");
     }
 
     const order = await Order.findOne({ orderId: merchantOrderId });
     if (!order) {
+      wlog("ORDER_NOT_FOUND", { merchantOrderId });
       logger.warn(`⚠️ PhonePe webhook: Order not found: ${merchantOrderId}`);
       return res.status(200).send("OK");
     }
 
     if (order.paymentStatus === "paid") {
+      wlog("ALREADY_PAID", { merchantOrderId });
       logger.info(`ℹ️ PhonePe webhook: Order already paid: ${merchantOrderId}`);
       return res.status(200).send("OK");
     }
@@ -354,6 +375,7 @@ const phonepeWebhook = async (req, res) => {
       type === "checkout.order.completed";
 
     if (isOrderCompleted) {
+      wlog("PROCESSING_COMPLETED", { merchantOrderId });
       const paymentAttempt =
         Array.isArray(payload.paymentDetails) && payload.paymentDetails.length
           ? payload.paymentDetails[0]
@@ -392,6 +414,12 @@ const phonepeWebhook = async (req, res) => {
         { new: true },
       );
 
+      wlog("ORDER_MARKED_PAID", {
+        merchantOrderId,
+        transactionId,
+        paymentStatus: updatedOrder.paymentStatus,
+        orderStatus: updatedOrder.orderStatus,
+      });
       const successLog = {
           transactionId,
           orderId: updatedOrder._id,
@@ -429,6 +457,7 @@ const phonepeWebhook = async (req, res) => {
       type === "CHECKOUT_ORDER_FAILED" ||
       type === "checkout.order.failed"
     ) {
+      wlog("PROCESSING_FAILED", { merchantOrderId });
       // Update Order
       await Order.updateOne(
         { orderId: merchantOrderId },
@@ -462,10 +491,14 @@ const phonepeWebhook = async (req, res) => {
       );
 
       await restoreOrderStock(order);
+    } else {
+      wlog("UNHANDLED_EVENT_TYPE", { type, merchantOrderId });
     }
 
+    wlog("RESPONDED_OK", { merchantOrderId });
     return res.status(200).send("OK");
   } catch (err) {
+    wlog("CRASHED", { message: err.message });
     logger.error("PhonePe webhook error:", err.message, err.stack);
     logPhonePeError("Webhook processing crashed", { message: err.message, stack: err.stack, body: req.rawBody });
     try {
