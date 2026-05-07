@@ -90,13 +90,14 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 
 // Webhook route (MUST be defined before global express.json() to capture rawBody)
+// Both /api/webhook/phonepe (singular) and /api/webhooks/phonepe (plural) are handled
+// because PhonePe dashboard may be configured with either spelling
 const { phonepeWebhook } = require("./controllers/payment/phonepeSDK");
 const { wlog } = require("./utils/webhookLogger");
-app.post(
-  "/api/webhooks/phonepe",
+const webhookMiddleware = [
   (req, res, next) => {
-    // Log the raw incoming request BEFORE any processing so we always know if PhonePe hit the endpoint
     wlog("REQUEST_RECEIVED", {
+      url: req.originalUrl,
       ip: req.ip,
       hasAuth: !!req.headers["authorization"],
       authPreview: req.headers["authorization"]?.substring(0, 30) + "...",
@@ -112,7 +113,9 @@ app.post(
     },
   }),
   phonepeWebhook,
-);
+];
+app.post("/api/webhooks/phonepe", ...webhookMiddleware);
+app.post("/api/webhook/phonepe", ...webhookMiddleware);
 
 // Middleware
 app.use(express.json({ limit: "1mb" }));
