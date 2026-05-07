@@ -5,7 +5,6 @@ const helmet = require("helmet");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
-const rateLimit = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
 require("dotenv").config();
 
@@ -25,40 +24,6 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(helmet());
-
-// Global rate limit — 600 requests per 15 min per IP across all routes
-// Token refresh is excluded because it is a silent internal call fired by every
-// page load when the access-token cookie is missing (e.g. Instagram in-app browser
-// blocks SameSite=Strict cookies), and has its own tighter per-endpoint limiter.
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 600,
-  skip: (req) => req.path === "/api/v1/auth/refresh",
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: "Too many requests, please try again later." },
-  handler(req, res, next, options) {
-    require("./utils/logger").warn("429 global rate limit hit", { ip: req.ip, path: req.path, method: req.method });
-    res.status(options.statusCode).json(options.message);
-  },
-});
-app.use(globalLimiter);
-
-// Dedicated limiter for token refresh — generous enough for legitimate silent
-// refreshes (Instagram browser fires visibilitychange on every app switch) but
-// tight enough to prevent brute-force refresh-token attacks.
-const refreshLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: "Too many refresh attempts, please try again later." },
-  handler(req, res, next, options) {
-    require("./utils/logger").warn("429 refresh rate limit hit", { ip: req.ip, path: req.path, method: req.method });
-    res.status(options.statusCode).json(options.message);
-  },
-});
-app.use("/api/v1/auth/refresh", refreshLimiter);
 
 // Strip MongoDB operator keys ($gt, $where, etc.) from req.body and req.params
 // req.query is a read-only getter in Express 5 so mongoSanitize() cannot be used directly
