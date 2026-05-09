@@ -65,7 +65,7 @@ class BaseRepository {
 
     const dataStages = [{ $skip: skip }, { $limit: limit }];
     if (select) dataStages.push({ $project: this._selectToProject(select) });
-    else if (usesTextScore) dataStages.push({ $project: { score: 1 } });
+    else if (usesTextScore) dataStages.push({ $project: { score: 0 } });
 
     pipeline.push({
       $facet: {
