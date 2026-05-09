@@ -36,8 +36,8 @@ const initiatePayment = async ({ orderId, amount }) => {
   try {
     const order = await Order.findOne({ orderId }).lean();
     if (!order) throw new Error("INVALID_ORDER");
-    const expectedAmount = order.totalAmount * 100;
-    if (expectedAmount !== amount) throw new Error("AMOUNT_MISMATCH");
+    const expectedAmount = Math.round(order.totalAmount * 100);
+    if (expectedAmount !== amount) throw new Error(`AMOUNT_MISMATCH: expected ${expectedAmount}, got ${amount}`);
 
     const redirectToken = jwt.sign(
       { orderId, purpose: "PHONEPE_REDIRECT" },
@@ -71,7 +71,7 @@ const initiatePayment = async ({ orderId, amount }) => {
       logPhonePeError("PhonePe SDK initiation failed", errorData);
       throw new Error("PHONEPE_INITIATION_FAILED");
     }
-    logPhonePeError("Unexpected error during initiatePayment", err);
+    logPhonePeError("Unexpected error during initiatePayment", { message: err.message, stack: err.stack });
     throw err;
   }
 };
