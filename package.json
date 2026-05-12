@@ -12,7 +12,10 @@
     "test:integration": "cross-env NODE_ENV=test jest tests/integration",
     "create-admin": "node scripts/createAdmin.js",
     "seed-categories": "node scripts/seedCategories.js",
-    "seed:partners": "node scripts/seedDeliveryPartners.js"
+    "seed:partners": "node scripts/seedDeliveryPartners.js",
+    "migrate:media": "node src/scripts/migrate-to-media-server.js",
+    "migrate:media:dry": "node src/scripts/migrate-to-media-server.js --dry-run",
+    "fix:media-url": "node src/scripts/fix-media-base-url.js"
   },
   "keywords": [
     "nodejs",

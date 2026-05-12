@@ -63,7 +63,7 @@ const variantSchema = new mongoose.Schema(
     // Variant-level videos (same structure as product-level videos)
     videos: [
       {
-        type: { type: String, enum: ["cloudinary", "youtube"], required: true },
+        type: { type: String, enum: ["upload", "youtube"], required: true },
         url: { type: String, required: true },
         publicId: { type: String },
         thumbnail: { type: String },
@@ -268,7 +268,7 @@ const productSchema = new mongoose.Schema(
     // Product videos (Cloudinary upload or YouTube embed)
     videos: [
       {
-        type: { type: String, enum: ["cloudinary", "youtube"], required: true },
+        type: { type: String, enum: ["upload", "youtube"], required: true },
         url: { type: String, required: true },
         publicId: { type: String }, // Cloudinary only
         thumbnail: { type: String }, // auto-derived at save

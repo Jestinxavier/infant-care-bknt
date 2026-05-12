@@ -1,20 +1,17 @@
 const crypto = require("crypto");
 const multer = require("multer");
-const { cloudinary } = require("../../config/cloudinary");
+const { uploadToMediaServer } = require("../../config/mediaServer");
 const Asset = require("../../models/Asset");
 const logger = require("../../utils/logger");
 
-const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo"]);
-
-// Use memory storage to access buffer for hashing
-// 100MB limit to accommodate video uploads (images are ~10MB, videos can be larger)
+// 100MB limit kept for future video support; media server currently accepts images only.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
 });
 
 /**
- * Upload asset with hash-based deduplication and full metadata support
+ * Upload asset with hash-based deduplication
  * POST /api/admin/assets/upload
  */
 const uploadAsset = [
@@ -31,7 +28,6 @@ const uploadAsset = [
         });
       }
 
-      // Parse JSON fields if they are strings (Multipart/form-data)
       if (typeof origin === "string") {
         try {
           origin = JSON.parse(origin);
@@ -50,22 +46,16 @@ const uploadAsset = [
         });
       }
 
-      // 1. Generate hash from file buffer for deduplication
+      // Generate hash for deduplication
       const hash = crypto
         .createHash("sha256")
         .update(file.buffer)
         .digest("hex");
 
-      // 2. Check for existing asset with same hash
+      // Return existing asset if hash matches
       const existingAsset = await Asset.findByHash(hash);
-
       if (existingAsset) {
         logger.info(`✅ Asset with hash ${hash} already exists, reusing`);
-        // We can update the usage or just return it
-        // Ideally, we should add to usedBy if we knew the entity, but intendedFor isn't enough
-        // We will return it, and let the frontend use the ID.
-        // Promotion happens later when saving the entity (Product/Category).
-
         return res.status(200).json({
           success: true,
           message: "Asset already exists, reusing existing",
@@ -74,47 +64,32 @@ const uploadAsset = [
         });
       }
 
-      // 3. Upload to Cloudinary (Stream)
-      // No quality/format/transformation options — original file is stored as-is.
-      // Optimization happens only at delivery via frontend URL transforms (cloudinary-transform.ts).
-      const uploadResult = await new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: "assets",
-            public_id: hash,
-            overwrite: false,
-            resource_type: "auto",
-          },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
-          }
-        );
-        uploadStream.end(file.buffer);
+      // Upload to media server using hash as public_id for deduplication
+      const uploadResult = await uploadToMediaServer(file.buffer, {
+        mimeType: file.mimetype,
+        originalName: file.originalname,
+        public_id: hash,
       });
 
-      // 4. Create DB record
       const asset = await Asset.create({
         publicId: uploadResult.public_id,
-        secureUrl: uploadResult.secure_url,
+        secureUrl: uploadResult.url,
         assetId: uploadResult.public_id,
         hash,
         status: "temp",
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         origin: {
           source: origin.source,
           sourceContext: origin.sourceContext,
         },
         intendedFor: intendedFor || null,
         usedBy: [],
-        uploadedBy: req.user?._id || req.user?.id, // Assumes verifyToken middleware runs before
-
-        // Metadata
+        uploadedBy: req.user?._id || req.user?.id,
         width: uploadResult.width,
         height: uploadResult.height,
         format: uploadResult.format,
-        resourceType: uploadResult.resource_type,
-        bytes: uploadResult.bytes,
+        resourceType: file.mimetype.startsWith("video/") ? "video" : "image",
+        bytes: uploadResult.size,
       });
 
       logger.info(`✅ New asset uploaded: ${asset.publicId}`);
@@ -130,7 +105,7 @@ const uploadAsset = [
       res.status(500).json({
         success: false,
         message: "Internal server error",
-              });
+      });
     }
   },
 ];

@@ -1,9 +1,13 @@
 /**
  * Media Finalizer Utility
- * Helper functions to mark images as final when products are saved
+ * Helper functions to mark images as final when products are saved.
+ *
+ * Deletion strategy during migration:
+ *   - URLs from our media server  → deleteFromMediaServer()
+ *   - Legacy Cloudinary URLs      → cloudinary.uploader.destroy() (kept until migration completes)
  */
 
-const { cloudinary } = require("../config/cloudinary");
+const { deleteFromMediaServer, isMediaServerUrl } = require("../config/mediaServer");
 const Asset = require("../models/Asset");
 
 /**
@@ -92,14 +96,7 @@ async function finalizeImages(publicIds, entityType, entityId) {
         results.failed.push({ publicId, error: "Asset not found in DB" });
       }
 
-      // Attempt to remove temp tag from Cloudinary regardless of DB status
-      try {
-        await cloudinary.uploader.remove_tag("temp-upload", [publicId], {
-          resource_type: "image",
-        });
-      } catch (tagError) {
-        // Ignore tag error
-      }
+      // No temp-tag removal needed for media server assets
     } catch (error) {
       console.error(`❌ Failed to finalize ${publicId}:`, error);
       results.failed.push({ publicId, error: error.message });
@@ -196,14 +193,23 @@ const deleteAssets = async (publicIds) => {
         // --- PHASE 2: HARD DELETE (Immediate for Temp or Non-Asset) ---
         // It's either a temp asset, already archived, or not in Asset DB (legacy)
 
-        // Delete from Cloudinary
-        try {
-          await cloudinary.uploader.destroy(publicId, {
-            resource_type: "image",
-          });
-          console.log(`  ✅ Cloudinary delete: ${publicId}`);
-        } catch (cloudError) {
-          console.warn(`  ⚠️ Cloudinary delete failed: ${cloudError.message}`);
+        // Delete from storage: media server (new) or Cloudinary (legacy)
+        const mediaRecord = await Media.findOne({ public_id: publicId });
+        const assetUrl = mediaRecord?.url || asset?.secureUrl || "";
+
+        if (isMediaServerUrl(assetUrl)) {
+          const filename = assetUrl.split("/").pop();
+          const deleted = await deleteFromMediaServer(filename);
+          console.log(deleted ? `  ✅ Media server delete: ${filename}` : `  ⚠️ Media server delete failed: ${filename}`);
+        } else if (assetUrl.includes("cloudinary.com")) {
+          // Legacy Cloudinary asset — lazy-require so cloudinary is optional after migration
+          try {
+            const { cloudinary } = require("../config/cloudinary");
+            await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+            console.log(`  ✅ Cloudinary delete: ${publicId}`);
+          } catch (cloudError) {
+            console.warn(`  ⚠️ Cloudinary delete failed: ${cloudError.message}`);
+          }
         }
 
         // Delete from Asset collection (if exists - e.g. temp)

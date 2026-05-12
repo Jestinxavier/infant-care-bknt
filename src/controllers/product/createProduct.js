@@ -51,10 +51,7 @@ const processVideosInput = (rawVideos) => {
     .map((v) => {
       let thumbnail = v.thumbnail || null;
       if (!thumbnail) {
-        if (v.type === "cloudinary" && v.publicId) {
-          const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-          thumbnail = `https://res.cloudinary.com/${cloudName}/video/upload/so_0,f_jpg,w_320/${v.publicId}.jpg`;
-        } else if (v.type === "youtube") {
+        if (v.type === "youtube") {
           const match = v.url.match(YOUTUBE_ID_RE);
           if (match) thumbnail = `https://img.youtube.com/vi/${match[1]}/mqdefault.jpg`;
         }

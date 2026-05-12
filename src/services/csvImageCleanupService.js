@@ -5,9 +5,26 @@
  */
 
 const cron = require("node-cron");
-const { cloudinary } = require("../config/cloudinary");
+const { deleteFromMediaServer, isMediaServerUrl, filenameFromUrl } = require("../config/mediaServer");
 const CsvTempImage = require("../models/CsvTempImage");
 const logger = require("../utils/logger");
+
+async function deleteCsvImageFile(url, publicId) {
+  if (isMediaServerUrl(url)) {
+    const filename = filenameFromUrl(url);
+    if (filename) await deleteFromMediaServer(filename);
+  } else if (url && url.includes("cloudinary.com")) {
+    try {
+      const { cloudinary } = require("../config/cloudinary");
+      const result = await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+      if (result.result !== "ok" && result.result !== "not found") {
+        throw new Error(`Cloudinary delete failed: ${result.result}`);
+      }
+    } catch (err) {
+      throw err;
+    }
+  }
+}
 
 /**
  * Cleanup stale CSV temp images older than 7 days
@@ -41,19 +58,10 @@ async function cleanupStaleCsvTempImages() {
     // Delete each stale image
     for (const image of staleImages) {
       try {
-        // Delete from Cloudinary
-        const result = await cloudinary.uploader.destroy(image.public_id, {
-          resource_type: "image",
-        });
-
-        if (result.result === "ok" || result.result === "not found") {
-          // Remove from database
-          await CsvTempImage.findByIdAndDelete(image._id);
-          results.deleted.push(image.temp_key);
-          logger.info(`✅ [CSV Cleanup] Deleted: ${image.temp_key}`);
-        } else {
-          throw new Error(`Cloudinary delete failed: ${result.result}`);
-        }
+        await deleteCsvImageFile(image.url, image.public_id);
+        await CsvTempImage.findByIdAndDelete(image._id);
+        results.deleted.push(image.temp_key);
+        logger.info(`✅ [CSV Cleanup] Deleted: ${image.temp_key}`);
       } catch (error) {
         logger.error(
           `❌ [CSV Cleanup] Failed to delete ${image.temp_key}:`,

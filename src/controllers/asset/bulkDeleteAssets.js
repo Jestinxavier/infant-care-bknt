@@ -1,12 +1,25 @@
-const cloudinary = require("../../config/cloudinary");
+const { deleteFromMediaServer, isMediaServerUrl, filenameFromUrl } = require("../../config/mediaServer");
 const Asset = require("../../models/Asset");
 const logger = require("../../utils/logger");
+
+async function deleteAssetFile(secureUrl, publicId) {
+  if (isMediaServerUrl(secureUrl)) {
+    const filename = filenameFromUrl(secureUrl);
+    if (filename) await deleteFromMediaServer(filename);
+  } else if (secureUrl && secureUrl.includes("cloudinary.com")) {
+    try {
+      const { cloudinary } = require("../../config/cloudinary");
+      await cloudinary.uploader.destroy(publicId);
+    } catch (err) {
+      logger.warn(`[bulkDelete] Cloudinary delete failed for ${publicId}:`, err.message);
+    }
+  }
+}
 
 /**
  * Bulk Delete Assets
  * POST /api/admin/assets/bulk-delete
  * Body: { ids: string[], force: boolean }
- * ids can be ObjectIds or publicIds
  */
 const bulkDeleteAssets = async (req, res) => {
   try {
@@ -34,37 +47,33 @@ const bulkDeleteAssets = async (req, res) => {
         let asset = null;
         const mongoose = require("mongoose");
 
-        // Try finding by ObjectId
         if (!id.includes("/") && mongoose.Types.ObjectId.isValid(id)) {
           asset = await Asset.findById(id);
         }
 
-        // If not found by ID, try finding by publicId
         if (!asset) {
           asset = await Asset.findOne({ publicId: id });
         }
 
         if (!asset) {
-          // If asset not in DB, try to force delete from Cloudinary if it looks like a publicId
-          // This handles legacy/untracked assets
-          try {
-            if (id.includes("/")) {
-              // Basic heuristic for publicId
-              await cloudinary.cloudinary.uploader.destroy(id);
+          // Try to delete untracked legacy asset by publicId heuristic
+          if (id.includes("/")) {
+            try {
+              const { cloudinary } = require("../../config/cloudinary");
+              await cloudinary.uploader.destroy(id);
               results.deleted.push({ id, status: "legacy_deleted" });
-            } else {
-              results.failed.push({ id, error: "Asset not found" });
+            } catch (e) {
+              results.failed.push({
+                id,
+                error: "Asset not found and storage delete failed: " + e.message,
+              });
             }
-          } catch (e) {
-            results.failed.push({
-              id,
-              error: "Asset not found and cloudinary failed: " + e.message,
-            });
+          } else {
+            results.failed.push({ id, error: "Asset not found" });
           }
           continue;
         }
 
-        // Handle permanent assets
         if (asset.status === "permanent") {
           if (force) {
             asset.status = "archived";
@@ -81,23 +90,19 @@ const bulkDeleteAssets = async (req, res) => {
           continue;
         }
 
-        // Block if in use
         if (asset.usedBy.length > 0) {
           results.failed.push({ id: asset.publicId, error: "Asset in use" });
           continue;
         }
 
-        // Delete from Cloudinary
         try {
-          await cloudinary.cloudinary.uploader.destroy(asset.publicId);
-        } catch (cloudError) {
+          await deleteAssetFile(asset.secureUrl, asset.publicId);
+        } catch (storageError) {
           logger.warn(
-            `Cloudinary delete failed for ${asset.publicId}: ${cloudError.message}`,
+            `Storage delete failed for ${asset.publicId}: ${storageError.message}`,
           );
-          // Continue to DB delete
         }
 
-        // Delete from DB
         await Asset.findByIdAndDelete(asset._id);
         results.deleted.push(asset.publicId);
       } catch (error) {
@@ -116,7 +121,7 @@ const bulkDeleteAssets = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-          });
+    });
   }
 };
 

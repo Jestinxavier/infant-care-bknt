@@ -6,7 +6,7 @@ const { validate } = require("../../core/middleware/validator");
 const verifyToken = require("../../middlewares/authMiddleware");
 const requireAdmin = require("../../middlewares/adminMiddleware");
 
-const { parser } = require("../../config/cloudinary");
+const { parser, uploadFilesMiddleware } = require("../../config/mediaServer");
 const parseMultipartBody = require("../../middlewares/parseMultipartBody");
 const bulkDeleteProducts = require("../../controllers/product/bulkDeleteProducts");
 
@@ -48,6 +48,7 @@ router.get(
 router.post(
   "/",
   parser.any(),
+  uploadFilesMiddleware,
   parseMultipartBody,
   validate(productValidation.create),
   productAdminController.createProduct,
@@ -91,6 +92,7 @@ router.get(
 router.put(
   "/:id",
   parser.any(),
+  uploadFilesMiddleware,
   parseMultipartBody,
   validate([...productValidation.getById, ...productValidation.update]),
   productAdminController.updateProduct,
