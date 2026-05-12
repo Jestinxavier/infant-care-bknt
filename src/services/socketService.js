@@ -54,6 +54,26 @@ const init = (server) => {
       }
     });
 
+    // Customer joins their own chat room by sessionId (no auth needed)
+    socket.on("chat:join", (sessionId) => {
+      if (sessionId && typeof sessionId === "string") {
+        socket.join(`chat:${sessionId}`);
+        logger.debug("Chat room joined", { sessionId });
+      }
+    });
+
+    // Admin joins a specific chat session room to reply
+    socket.on("chat:join_admin", ({ sessionId, token }) => {
+      try {
+        const jwt = require("jsonwebtoken");
+        jwt.verify(token, process.env.JWT_SECRET);
+        socket.join(`chat:${sessionId}`);
+        logger.debug("Admin joined chat room", { sessionId });
+      } catch {
+        // Invalid token — do not join
+      }
+    });
+
     socket.on("disconnect", () => {
       logger.debug("Socket disconnected", { socketId: socket.id });
     });
