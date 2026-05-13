@@ -80,7 +80,7 @@ exports.getDashboardStats = async (req, res) => {
       { $match: salesMatch },
       {
         $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
           total: { $sum: "$totalAmount" },
         },
       },
@@ -97,24 +97,30 @@ exports.getDashboardStats = async (req, res) => {
       );
 
       for (let i = daysCount - 1; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split("T")[0];
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+        const dateStr = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+        }).format(d);
 
         // Optimize label generation based on period
         let name;
         if (period === "year") {
           name = d.toLocaleDateString("en-US", {
+            timeZone: "Asia/Kolkata",
             month: "short",
             day: "numeric",
           });
         } else if (period === "month") {
           name = d.toLocaleDateString("en-US", {
+            timeZone: "Asia/Kolkata",
             month: "short",
             day: "numeric",
           });
         } else {
-          name = d.toLocaleDateString("en-US", { weekday: "short" });
+          name = d.toLocaleDateString("en-US", {
+            timeZone: "Asia/Kolkata",
+            weekday: "short",
+          });
         }
 
         formattedSales.push({

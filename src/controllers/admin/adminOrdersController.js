@@ -61,19 +61,19 @@ const getAllOrders = async (req, res) => {
     }
 
     // ===== DATE RANGE FILTERING =====
-    // Backend normalization: from (00:00:00.000Z) to (23:59:59.999Z)
+    // Backend normalization: from (00:00:00 IST) to (23:59:59.999 IST)
     if (from || to) {
       filter.createdAt = filter.createdAt || {};
 
       if (from) {
-        const fromDate = new Date(from);
-        fromDate.setUTCHours(0, 0, 0, 0); // Start of day
+        // Construct ISO string with IST offset for start of day
+        const fromDate = new Date(`${from}T00:00:00+05:30`);
         filter.createdAt.$gte = fromDate;
       }
 
       if (to) {
-        const toDate = new Date(to);
-        toDate.setUTCHours(23, 59, 59, 999); // End of day
+        // Construct ISO string with IST offset for end of day
+        const toDate = new Date(`${to}T23:59:59.999+05:30`);
         filter.createdAt.$lte = toDate;
       }
     }

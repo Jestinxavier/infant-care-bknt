@@ -211,9 +211,8 @@ exports.loginUser = async ({ email, password }) => {
 
   // Note: Admin role verification is now handled by route-level middleware
   // No platform header checks needed
-
-  // Remove old refresh tokens (only one active refresh token per user)
-  await Token.deleteMany({ userId: user._id });
+  // We allow multiple active sessions (e.g., frontend and dashboard concurrently)
+  // since the Token model has a 7-day TTL index for automatic cleanup.
 
   const accessToken = generateAccessToken(user._id);
   const refreshToken = generateRefreshToken(user._id);
