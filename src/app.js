@@ -5,6 +5,8 @@ const helmet = require("helmet");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
+const rateLimit = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
 require("dotenv").config();
 
 // Sentry must be initialized before any other require that might throw
@@ -19,7 +21,32 @@ if (process.env.SENTRY_DSN) {
 
 const app = express();
 
+// Trust the first proxy (Render, Vercel, Nginx) so rate-limit sees real client IPs
+app.set("trust proxy", 1);
+
 app.use(helmet());
+
+// Global rate limit — 300 requests per 15 min per IP across all routes
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests, please try again later." },
+  handler(req, res, next, options) {
+    require("./utils/logger").warn("429 global rate limit hit", { ip: req.ip, path: req.path, method: req.method });
+    res.status(options.statusCode).json(options.message);
+  },
+});
+app.use(globalLimiter);
+
+// Strip MongoDB operator keys ($gt, $where, etc.) from req.body and req.params
+// req.query is a read-only getter in Express 5 so mongoSanitize() cannot be used directly
+app.use((req, res, next) => {
+  if (req.body) req.body = mongoSanitize.sanitize(req.body);
+  if (req.params) req.params = mongoSanitize.sanitize(req.params);
+  next();
+});
 
 // CORS setup
 const allowedOrigins = [
@@ -179,15 +206,17 @@ app.use("/api/v1/attributes", attributeRoutes);
 app.use(`/api/v1${ADMIN_PREFIX}/attributes`, attributeRoutes);
 app.use(`/api/v1${ADMIN_PREFIX}/collections`, collectionRoutes);
 
-// Swagger API Documentation
-app.use(
-  "/api-docs",
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    customCss: ".swagger-ui .topbar { display: none }",
-    customSiteTitle: "Online Shopping API Docs",
-  }),
-);
+// Swagger API Documentation — dev only
+if (process.env.NODE_ENV !== "production") {
+  app.use(
+    "/api-docs",
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, {
+      customCss: ".swagger-ui .topbar { display: none }",
+      customSiteTitle: "Online Shopping API Docs",
+    }),
+  );
+}
 
 // Keep your version logic if needed, but make timestamp dynamic
 app.get("/", (req, res) => {
@@ -210,8 +239,10 @@ const {
 } = require("./controllers/payment/phonepeSDK");
 
 app.get("/order-confirmation", checkOrderStatus);
-// Manual payment status check endpoint (for debugging)
-app.get("/api/payments/check/:orderId", manualCheckPaymentStatus);
+// Manual payment status check — admin only
+const verifyToken = require("./middlewares/authMiddleware");
+const requireAdmin = require("./middlewares/adminMiddleware");
+app.get("/api/payments/check/:orderId", verifyToken, requireAdmin, manualCheckPaymentStatus);
 
 const errorMiddleware = require("./core/middleware/errorMiddleware");
 

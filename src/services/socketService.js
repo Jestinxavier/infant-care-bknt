@@ -35,6 +35,25 @@ const init = (server) => {
 
   io.on("connection", (socket) => {
     logger.debug("Socket connected", { socketId: socket.id });
+
+    // Clients must authenticate to receive admin events
+    socket.on("authenticate", (token) => {
+      try {
+        const jwt = require("jsonwebtoken");
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const User = require("../models/user");
+        User.findById(payload.id).select("role").then((user) => {
+          const adminRoles = ["admin", "super-admin", "developer"];
+          if (user && adminRoles.includes(user.role)) {
+            socket.join("admins");
+            socket.emit("authenticated", { success: true });
+          }
+        }).catch(() => {});
+      } catch {
+        // Invalid token — remain unauthenticated, no admin events
+      }
+    });
+
     socket.on("disconnect", () => {
       logger.debug("Socket disconnected", { socketId: socket.id });
     });
@@ -50,7 +69,7 @@ const getIO = () => {
 
 const emitEvent = (event, data) => {
   if (io) {
-    io.emit(event, data);
+    io.to("admins").emit(event, data);
     logger.debug("Socket event emitted", { event });
   }
 };

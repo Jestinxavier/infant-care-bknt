@@ -24,11 +24,12 @@ const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
 
   try {
-    const { userId: rawUserId, guestInfo, items, addressId, newAddress, paymentMethod, cartId } =
+    const { guestInfo, items, addressId, newAddress, paymentMethod, cartId } =
       req.body;
 
-    // Resolve userId — authenticated users send it in body; guests don't
-    const userId = req.user?.id || rawUserId || null;
+    // Authenticated users: always use token identity, never body userId
+    // Guests: force null — never accept a userId from an unauthenticated request
+    const userId = req.user?.id || null;
     const isGuest = !userId;
 
     // === VALIDATION ===
@@ -839,16 +840,18 @@ const createOrder = async (req, res) => {
         return res.status(500).json({
           success: false,
           message: "Failed to initiate payment. Order cancelled.",
-          error: error.message,
-          orderCancelled: true,
+                    orderCancelled: true,
         });
       }
     }
 
     // COD or other methods
     const { emitEvent } = require("../../services/socketService");
-    emitEvent("newOrder", {
+    const { createOrderNotification } = require("../admin/notificationController");
+
+    const notificationPayload = {
       orderId: order.orderId,
+      orderDbId: order._id,
       totalAmount: order.totalAmount,
       customerName:
         shippingAddressData?.fullName ||
@@ -857,15 +860,20 @@ const createOrder = async (req, res) => {
         "Customer",
       itemsCount: totalQuantity,
       createdAt: order.createdAt,
-    });
+    };
 
-    // Send confirmation email to guest after commit
-    if (isGuest) {
-      const { sendGuestOrderConfirmationEmail } = require("../../services/emailService");
-      sendGuestOrderConfirmationEmail(guestInfo, order).catch((err) =>
-        logger.error("❌ Failed to send guest order confirmation email:", err)
-      );
-    }
+    emitEvent("newOrder", notificationPayload);
+
+    // Persist notification to DB (fire-and-forget — don't block order response)
+    createOrderNotification(notificationPayload).catch((err) =>
+      logger.error("❌ Failed to persist notification:", err)
+    );
+
+    // Send order confirmation invoice to all customers (guest and registered)
+    const { sendOrderConfirmationEmail } = require("../../services/emailService");
+    sendOrderConfirmationEmail(order).catch((err) =>
+      logger.error("❌ Failed to send order confirmation email:", { message: err.message, stack: err.stack })
+    );
 
     return res.status(201).json({
       success: true,
@@ -949,8 +957,7 @@ const createOrder = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Order creation failed",
-      error: error.message,
-    });
+          });
   } finally {
     session.endSession();
   }

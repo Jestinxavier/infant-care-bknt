@@ -114,7 +114,7 @@ const checkOrderStatus = async (req, res) => {
         });
       } catch {
         return res.redirect(
-          `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${orderId}&error=invalid_redirect`,
+          `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${encodeURIComponent(orderId)}&error=invalid_redirect`,
         );
       }
     }
@@ -137,7 +137,7 @@ const checkOrderStatus = async (req, res) => {
         };
         logPhonePeError("PhonePe getOrderStatus failed", errorData);
         return res.redirect(
-          `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${orderId}`,
+          `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${encodeURIComponent(orderId)}`,
         );
       }
       logPhonePeError("Unexpected error in checkOrderStatus", { orderId, error: err.message });
@@ -189,10 +189,13 @@ const checkOrderStatus = async (req, res) => {
             { orderId: updatedOrder._id },
             { $set: { status: "ordered", completedAt: new Date() } },
           );
+          emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
+            logger.error("❌ Failed to send order confirmation email (redirect):", { message: err.message, stack: err.stack })
+          );
         }
       }
       return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=success&orderId=${orderId}`,
+        `${process.env.FRONTEND_URL}/order-confirmation?status=success&orderId=${encodeURIComponent(orderId)}`,
       );
     }
 
@@ -202,7 +205,7 @@ const checkOrderStatus = async (req, res) => {
         { $set: { paymentStatus: "failed", paymentMethod: "phonepe" } },
       );
       return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${orderId}`,
+        `${process.env.FRONTEND_URL}/order-confirmation?status=failed&orderId=${encodeURIComponent(orderId)}`,
       );
     }
 
@@ -212,7 +215,7 @@ const checkOrderStatus = async (req, res) => {
         { $set: { paymentStatus: "pending", paymentMethod: "phonepe" } },
       );
       return res.redirect(
-        `${process.env.FRONTEND_URL}/order-confirmation?status=pending&orderId=${orderId}`,
+        `${process.env.FRONTEND_URL}/order-confirmation?status=pending&orderId=${encodeURIComponent(orderId)}`,
       );
     }
 
@@ -270,8 +273,7 @@ const manualCheckPaymentStatus = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: err.message,
-    });
+          });
   }
 };
 
@@ -418,6 +420,10 @@ const phonepeWebhook = async (req, res) => {
         itemsCount: updatedOrder.totalQuantity,
         createdAt: updatedOrder.createdAt,
       });
+
+      emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
+        logger.error("❌ Failed to send order confirmation email (webhook):", { message: err.message, stack: err.stack })
+      );
     } else if (
       type === "CHECKOUT_ORDER_FAILED" ||
       type === "checkout.order.failed"

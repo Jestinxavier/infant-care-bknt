@@ -6,6 +6,7 @@ const {
   updateAddress,
   deleteAddress,
 } = require("../controllers/address");
+const verifyToken = require("../middlewares/authMiddleware");
 
 /**
  * @swagger
@@ -100,7 +101,7 @@ const {
  *       400:
  *         description: Validation error
  */
-router.post("/create", createAddress);
+router.post("/create", verifyToken, createAddress);
 
 /**
  * @swagger
@@ -144,7 +145,7 @@ router.post("/create", createAddress);
  *       404:
  *         description: No addresses found
  */
-router.post("/", getAddresses);
+router.post("/", verifyToken, getAddresses);
 
 /**
  * @swagger
@@ -231,7 +232,7 @@ router.post("/", getAddresses);
  *       404:
  *         description: Address not found
  */
-router.put("/:addressId", updateAddress);
+router.put("/:addressId", verifyToken, updateAddress);
 
 /**
  * @swagger
@@ -268,5 +269,5 @@ router.put("/:addressId", updateAddress);
  *       500:
  *         description: Internal Server Error
  */
-router.delete("/:addressId", deleteAddress);
+router.delete("/:addressId", verifyToken, deleteAddress);
 module.exports = router;

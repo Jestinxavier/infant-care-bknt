@@ -95,17 +95,27 @@ const tempStorage = new CloudinaryStorage({
   },
 });
 
-const parser = multer({ 
+const imageFileFilter = (req, file, cb) => {
+  if (!file.mimetype.startsWith("image/")) {
+    return cb(new Error("Only image files are allowed"), false);
+  }
+  cb(null, true);
+};
+
+const parser = multer({
   storage: productStorage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: imageFileFilter,
 });
-const mediaParser = multer({ 
+const mediaParser = multer({
   storage: mediaStorage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: imageFileFilter,
 });
-const tempParser = multer({ 
+const tempParser = multer({
   storage: tempStorage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: imageFileFilter,
 });
 
 module.exports = {

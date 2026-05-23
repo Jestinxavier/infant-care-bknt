@@ -159,7 +159,7 @@ const sendTemplateEmail = async ({
 ===================================================== */
 
 const generateOTP = () =>
-  Math.floor(100000 + Math.random() * 900000).toString();
+  require("crypto").randomInt(100000, 1000000).toString();
 
 /* =====================================================
    ✅ Email Functions
@@ -245,7 +245,7 @@ const sendShipmentEmail = async (user, order) => {
       : null;
 
   const items = order.items.map((item) => ({
-    productName: item.productId?.name || item.productName,
+    productName: item.name || item.productId?.name || item.productName || "Product",
     quantity: item.quantity,
     price: item.price,
   }));
@@ -444,6 +444,25 @@ const sendGuestOrderConfirmationEmail = async (guestInfo, order) => {
   return sendInvoiceEmail(fakeUser, order);
 };
 
+/**
+ * Send an order confirmation/invoice email for any order — guest or registered.
+ * Works from just the order document (no req.user needed).
+ * Safe to call fire-and-forget with .catch().
+ */
+const sendOrderConfirmationEmail = async (order) => {
+  if (order.isGuestOrder && order.guestInfo?.email) {
+    return sendInvoiceEmail(
+      { username: order.guestInfo.name || "Customer", email: order.guestInfo.email },
+      order,
+    );
+  }
+  if (order.userId) {
+    const User = require("../models/user");
+    const user = await User.findById(order.userId).select("username email").lean();
+    if (user?.email) return sendInvoiceEmail(user, order);
+  }
+};
+
 module.exports = {
   generateOTP,
   sendOTPEmail,
@@ -455,4 +474,5 @@ module.exports = {
   sendInvoiceEmail,
   sendRefundInitiatedEmail,
   sendGuestOrderConfirmationEmail,
+  sendOrderConfirmationEmail,
 };

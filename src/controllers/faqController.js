@@ -38,8 +38,7 @@ exports.getAllFAQs = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -68,8 +67,7 @@ exports.createFAQ = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -107,8 +105,7 @@ exports.updateFAQ = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -137,8 +134,7 @@ exports.deleteFAQ = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -171,7 +167,6 @@ exports.reorderFAQs = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };

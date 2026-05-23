@@ -1,5 +1,6 @@
 const User = require("../models/user");
 const { ADMIN_ROLES } = require("../../resources/constants");
+const logger = require("../utils/logger");
 
 /**
  * Middleware to require admin role for admin routes
@@ -43,11 +44,10 @@ const requireAdmin = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("❌ Admin middleware error:", error);
+    logger.error("Admin middleware error", { error: error.message });
     return res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: error.message,
     });
   }
 };

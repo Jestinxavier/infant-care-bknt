@@ -18,8 +18,7 @@ exports.getAllCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -60,8 +59,7 @@ exports.createCategory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -97,8 +95,7 @@ exports.updateCategory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -136,8 +133,7 @@ exports.deleteCategory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -170,7 +166,6 @@ exports.reorderCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
-    });
+          });
   }
 };

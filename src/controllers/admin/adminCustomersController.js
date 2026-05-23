@@ -54,7 +54,8 @@ const getAllCustomers = async (req, res) => {
 
     const userIds = users.map((u) => u._id);
 
-    // Aggregate order stats per user
+    // Aggregate order stats per user — count all orders, but only sum
+    // spent for confirmed purchases (paid online or COD not cancelled)
     const orderStats =
       userIds.length === 0
         ? []
@@ -63,7 +64,25 @@ const getAllCustomers = async (req, res) => {
             {
               $group: {
                 _id: "$userId",
-                totalSpent: { $sum: "$totalAmount" },
+                totalSpent: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ["$paymentStatus", "paid"] },
+                          {
+                            $and: [
+                              { $eq: ["$paymentMethod", "COD"] },
+                              { $ne: ["$orderStatus", "cancelled"] },
+                            ],
+                          },
+                        ],
+                      },
+                      "$totalAmount",
+                      0,
+                    ],
+                  },
+                },
                 orderCount: { $sum: 1 },
               },
             },
@@ -106,8 +125,7 @@ const getAllCustomers = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -145,8 +163,13 @@ const getCustomerById = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // Calculate stats
-    const totalSpent = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    // Calculate stats — only count real spend (paid online or COD not cancelled)
+    const totalSpent = orders.reduce((sum, order) => {
+      const isPaid = order.paymentStatus === "paid";
+      const isCodCommitted =
+        order.paymentMethod === "COD" && order.orderStatus !== "cancelled";
+      return isPaid || isCodCommitted ? sum + (order.totalAmount || 0) : sum;
+    }, 0);
     const orderCount = orders.length;
 
     res.status(200).json({
@@ -177,8 +200,7 @@ const getCustomerById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 

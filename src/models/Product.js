@@ -60,6 +60,17 @@ const variantSchema = new mongoose.Schema(
       isInStock: { type: Boolean, default: true },
     },
     images: [{ type: String }],
+    // Variant-level videos (same structure as product-level videos)
+    videos: [
+      {
+        type: { type: String, enum: ["cloudinary", "youtube"], required: true },
+        url: { type: String, required: true },
+        publicId: { type: String },
+        thumbnail: { type: String },
+        title: { type: String },
+        _id: false,
+      },
+    ],
     // Support both 'options' and 'attributes' (new format uses attributes)
     options: { type: Map, of: String }, // Legacy: Map of option code to value
     attributes: { type: Map, of: String }, // New: Map of attribute name to value (e.g., {color: "red", size: "6-9"})

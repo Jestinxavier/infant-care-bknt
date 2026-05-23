@@ -16,6 +16,7 @@ const parseMultipartBody = (req, res, next) => {
     "collections",
     "bundle_config", // For bundle products
     "subCategories", // Array of sub-category IDs
+    "videos", // Product-level videos array
   ];
 
   jsonFields.forEach((field) => {

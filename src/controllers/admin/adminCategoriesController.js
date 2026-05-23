@@ -62,8 +62,7 @@ const getAllCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
@@ -115,8 +114,7 @@ const getCategoryById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-      error: error.message,
-    });
+          });
   }
 };
 
