@@ -167,8 +167,10 @@ const verifyLoginOTP = async (req, res) => {
     // Store refresh token
     await Token.create({ userId: user._id, refreshToken });
 
-    // Set refresh token as HttpOnly cookie
-    res.cookie("refresh_token", refreshToken, getAuthCookieOptions());
+    // Set refresh token as HttpOnly cookie (use dashboard-specific name for dashboard clients)
+    const isDashboard = req.headers["x-client-type"] === "dashboard";
+    const cookieName = isDashboard ? "dashboard_refresh_token" : "refresh_token";
+    res.cookie(cookieName, refreshToken, getAuthCookieOptions());
 
     res.status(200).json({
       success: true,
