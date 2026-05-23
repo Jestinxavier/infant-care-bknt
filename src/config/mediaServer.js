@@ -74,7 +74,23 @@ async function uploadToMediaServer(buffer, opts = {}) {
     throw new Error(`Media server upload failed: ${err.error || response.statusText}`);
   }
 
-  return response.json();
+  const result = await response.json();
+  if (result && typeof result.url === 'string' && MEDIA_SERVER_URL) {
+    try {
+      if (result.url.startsWith('/')) {
+        result.url = `${MEDIA_SERVER_URL.replace(/\/+$/, '')}${result.url}`;
+      } else {
+        const parsedUrl = new URL(result.url);
+        const mediaServerParsed = new URL(MEDIA_SERVER_URL);
+        parsedUrl.protocol = mediaServerParsed.protocol;
+        parsedUrl.host = mediaServerParsed.host;
+        result.url = parsedUrl.toString();
+      }
+    } catch (e) {
+      logger.warn(`[MediaServer] Failed to normalize URL ${result.url}: ${e.message}`);
+    }
+  }
+  return result;
 }
 
 /**
