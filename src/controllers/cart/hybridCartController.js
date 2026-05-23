@@ -1,4 +1,5 @@
 // controllers/cart/hybridCartController.js
+const mongoose = require("mongoose");
 const { CART_ID, SHIPPING_COST } = require("../../../resources/constants");
 const Cart = require("../../models/Cart");
 const Product = require("../../models/Product");
@@ -1846,7 +1847,7 @@ const applyCoupon = async (req, res) => {
         message: "Cart modification not allowed during checkout",
       });
     }
-    const { code } = req.body;
+    const { code, selectedGiftProductId } = req.body;
 
     if (!cart) {
       return res.status(404).json({
@@ -2098,6 +2099,7 @@ const applyCoupon = async (req, res) => {
       }
 
       const isCustomGift = fg.giftType === "custom";
+      const isCategoryGift = fg.giftType === "category";
 
       if (isCustomGift) {
         // Custom gift: no cart item injection — admin fulfills it manually during packing
@@ -2106,6 +2108,68 @@ const applyCoupon = async (req, res) => {
           couponId: coupon._id,
           type: "free_gift",
           discountAmount: 0,
+          minCartValue: coupon.minCartValue ?? 0,
+          lineDiscounts: [],
+        });
+      } else if (isCategoryGift) {
+        if (!fg.giftCategoryId) {
+          return res.status(400).json({
+            success: false,
+            message: "This coupon is not configured correctly. Please contact support.",
+          });
+        }
+
+        if (!selectedGiftProductId || !mongoose.Types.ObjectId.isValid(selectedGiftProductId)) {
+          return res.status(400).json({
+            success: false,
+            message: "Choose a free gift product to apply this coupon",
+            errorCode: "GIFT_PRODUCT_REQUIRED",
+          });
+        }
+
+        const giftProduct = await Product.findOne({
+          _id: selectedGiftProductId,
+          status: "published",
+          $or: [
+            { category: fg.giftCategoryId },
+            { subCategories: fg.giftCategoryId },
+          ],
+        }).lean();
+
+        if (!giftProduct) {
+          return res.status(400).json({
+            success: false,
+            message: "Selected gift is not available for this coupon",
+            errorCode: "GIFT_PRODUCT_NOT_IN_CATEGORY",
+          });
+        }
+
+        const giftStock = giftProduct.stockObj?.available ?? giftProduct.stock ?? 0;
+        if (giftStock < fg.giftQty) {
+          return res.status(400).json({
+            success: false,
+            message: "The selected free gift is currently out of stock",
+            errorCode: "GIFT_PRODUCT_OUT_OF_STOCK",
+          });
+        }
+
+        const giftPrice = giftProduct.offerPrice || giftProduct.price || 0;
+        cart.items.push({
+          productId: giftProduct._id,
+          variantId: null,
+          quantity: fg.giftQty,
+          titleSnapshot: giftProduct.title,
+          imageSnapshot: giftProduct.images?.[0] || "",
+          skuSnapshot: giftProduct.sku || null,
+          isFreeGiftCoupon: true,
+          freeGiftCouponCode: coupon.code,
+        });
+
+        cart.coupons.push({
+          code: coupon.code,
+          couponId: coupon._id,
+          type: "free_gift",
+          discountAmount: Math.round(giftPrice * fg.giftQty * 100) / 100,
           minCartValue: coupon.minCartValue ?? 0,
           lineDiscounts: [],
         });
@@ -2380,6 +2444,7 @@ const getAvailableCoupons = async (req, res) => {
       .populate("applicableCategories", "name code")
       .populate("freeGift.triggerProductIds", "title images")
       .populate("freeGift.giftProductId", "title images")
+      .populate("freeGift.giftCategoryId", "name")
       .sort({ endDate: 1 });
 
     // Filter out first-order-only coupons for users who already have paid orders
@@ -2394,8 +2459,11 @@ const getAvailableCoupons = async (req, res) => {
       if (coupon.type === "free_gift" && coupon.freeGift) {
         const fg = coupon.freeGift;
         const isCustomGift = fg.giftType === "custom";
+        const isCategoryGift = fg.giftType === "category";
         const giftTitle = isCustomGift
           ? (fg.giftLabel || "item")
+          : isCategoryGift
+            ? `an item from ${fg.giftCategoryId?.name || "the selected category"}`
           : (fg.giftProductId?.title || "item");
         const triggerQty = fg.triggerMinQty || 1;
         const giftQty = fg.giftQty || 1;
@@ -2409,13 +2477,15 @@ const getAvailableCoupons = async (req, res) => {
           triggerMinQty: triggerQty,
           giftType: fg.giftType || "product",
           giftLabel: isCustomGift ? (fg.giftLabel || null) : null,
-          giftProduct: !isCustomGift && fg.giftProductId
+          giftProduct: !isCustomGift && !isCategoryGift && fg.giftProductId
             ? {
                 _id: fg.giftProductId._id,
                 title: fg.giftProductId.title,
                 image: fg.giftProductId.images?.[0] || null,
               }
             : null,
+          giftCategoryId: isCategoryGift ? (fg.giftCategoryId?._id || null) : null,
+          giftCategoryName: isCategoryGift ? (fg.giftCategoryId?.name || null) : null,
           giftQty,
         };
       } else if (coupon.type === "flat") {

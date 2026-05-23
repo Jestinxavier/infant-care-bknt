@@ -61,8 +61,12 @@ const createCoupon = async (req, res) => {
     const { freeGift } = req.body;
     if (type === "free_gift") {
       const isCustomGift = freeGift?.giftType === "custom";
-      if (!isCustomGift && !freeGift?.giftProductId) {
+      const isCategoryGift = freeGift?.giftType === "category";
+      if (!isCustomGift && !isCategoryGift && !freeGift?.giftProductId) {
         return res.status(400).json({ success: false, message: "Gift product is required for free gift coupons" });
+      }
+      if (isCategoryGift && !freeGift?.giftCategoryId) {
+        return res.status(400).json({ success: false, message: "Gift category is required for category free gifts" });
       }
       if (isCustomGift && !freeGift?.giftLabel?.trim()) {
         return res.status(400).json({ success: false, message: "Gift label is required for custom free gifts" });
@@ -97,7 +101,8 @@ const createCoupon = async (req, res) => {
         triggerProductIds: freeGift.triggerProductIds,
         triggerMinQty: freeGift.triggerMinQty || 1,
         giftType: freeGift.giftType || "product",
-        giftProductId: freeGift.giftType === "custom" ? undefined : freeGift.giftProductId,
+        giftProductId: freeGift.giftType === "product" ? freeGift.giftProductId : undefined,
+        giftCategoryId: freeGift.giftType === "category" ? freeGift.giftCategoryId : undefined,
         giftLabel: freeGift.giftType === "custom" ? freeGift.giftLabel?.trim() : undefined,
         giftQty: freeGift.giftQty || 1,
       } : undefined,
@@ -177,8 +182,12 @@ const updateCoupon = async (req, res) => {
     if (updates.type === "free_gift" || (coupon.type === "free_gift" && updates.freeGift)) {
       const fg = updates.freeGift || coupon.freeGift;
       const isCustomGift = fg?.giftType === "custom";
-      if (!isCustomGift && !fg?.giftProductId) {
+      const isCategoryGift = fg?.giftType === "category";
+      if (!isCustomGift && !isCategoryGift && !fg?.giftProductId) {
         return res.status(400).json({ success: false, message: "Gift product is required for free gift coupons" });
+      }
+      if (isCategoryGift && !fg?.giftCategoryId) {
+        return res.status(400).json({ success: false, message: "Gift category is required for category free gifts" });
       }
       if (isCustomGift && !fg?.giftLabel?.trim()) {
         return res.status(400).json({ success: false, message: "Gift label is required for custom free gifts" });
