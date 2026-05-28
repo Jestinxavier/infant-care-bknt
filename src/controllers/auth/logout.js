@@ -1,13 +1,16 @@
 const authService = require("../../services/service");
 const logger = require("../../utils/logger");
-const { getAuthCookieClearOptions } = require("../../utils/authCookieOptions");
+const {
+  getAuthCookieClearOptions,
+  getAuthCookieName,
+} = require("../../utils/authCookieOptions");
 
 const logout = async (req, res) => {
-  // Clear cookies FIRST - always clear regardless of token deletion result
-  // Options must match the ones used when setting the cookie (e.g. sameSite for production)
   const clearOpts = getAuthCookieClearOptions();
-  res.clearCookie("refresh_token", clearOpts);
-  res.clearCookie("dashboard_refresh_token", clearOpts);
+  res.clearCookie(getAuthCookieName("frontend", "access"), clearOpts);
+  res.clearCookie(getAuthCookieName("frontend", "refresh"), clearOpts);
+  res.clearCookie(getAuthCookieName("dashboard", "access"), clearOpts);
+  res.clearCookie(getAuthCookieName("dashboard", "refresh"), clearOpts);
   // cart_id is set with sameSite: "lax" (not "none"), so clear with matching options
   res.clearCookie("cart_id", {
     httpOnly: true,
@@ -17,8 +20,12 @@ const logout = async (req, res) => {
   });
 
   try {
-    const { token } = req.body;
-    // Try to delete token from DB, but don't fail logout if this errors
+    const cookies = req.cookies || {};
+    const token =
+      cookies.dashboard_refresh_token ||
+      cookies.refresh_token ||
+      req.body?.token;
+
     if (token) {
       await authService.logoutUser(token);
     }

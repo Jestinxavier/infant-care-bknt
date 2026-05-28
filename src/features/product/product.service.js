@@ -497,13 +497,31 @@ class ProductService {
                           $or: [
                             {
                               $eq: [
-                                { $toLower: { $ifNull: ["$$o.code", ""] } },
+                                {
+                                  $toLower: {
+                                    $convert: {
+                                      input: { $ifNull: ["$$o.code", ""] },
+                                      to: "string",
+                                      onError: "",
+                                      onNull: "",
+                                    },
+                                  },
+                                },
                                 "color",
                               ],
                             },
                             {
                               $eq: [
-                                { $toLower: { $ifNull: ["$$o.name", ""] } },
+                                {
+                                  $toLower: {
+                                    $convert: {
+                                      input: { $ifNull: ["$$o.name", ""] },
+                                      to: "string",
+                                      onError: "",
+                                      onNull: "",
+                                    },
+                                  },
+                                },
                                 "color",
                               ],
                             },

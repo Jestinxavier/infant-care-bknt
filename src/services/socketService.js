@@ -1,5 +1,25 @@
 const { Server } = require("socket.io");
 const logger = require("../utils/logger");
+const jwt = require("jsonwebtoken");
+
+const parseCookieHeader = (cookieHeader = "") =>
+  cookieHeader.split(";").reduce((acc, part) => {
+    const [name, ...rest] = part.trim().split("=");
+    if (!name) return acc;
+    acc[name] = decodeURIComponent(rest.join("="));
+    return acc;
+  }, {});
+
+const getAdminUserIdFromCookies = (socket) => {
+  const cookies = parseCookieHeader(socket.handshake.headers.cookie || "");
+  return (
+    cookies.dashboard_access_token ||
+    cookies.access_token ||
+    cookies.dashboard_refresh_token ||
+    cookies.refresh_token ||
+    null
+  );
+};
 
 let io;
 
@@ -36,23 +56,25 @@ const init = (server) => {
   io.on("connection", (socket) => {
     logger.debug("Socket connected", { socketId: socket.id });
 
-    // Clients must authenticate to receive admin events
-    socket.on("authenticate", (token) => {
+    const token = getAdminUserIdFromCookies(socket);
+    if (token) {
       try {
-        const jwt = require("jsonwebtoken");
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const User = require("../models/user");
-        User.findById(payload.id).select("role").then((user) => {
-          const adminRoles = ["admin", "super-admin", "developer"];
-          if (user && adminRoles.includes(user.role)) {
-            socket.join("admins");
-            socket.emit("authenticated", { success: true });
-          }
-        }).catch(() => {});
+        User.findById(payload.id)
+          .select("role")
+          .then((user) => {
+            const adminRoles = ["admin", "super-admin", "developer"];
+            if (user && adminRoles.includes(user.role)) {
+              socket.join("admins");
+              socket.emit("authenticated", { success: true });
+            }
+          })
+          .catch(() => {});
       } catch {
         // Invalid token — remain unauthenticated, no admin events
       }
-    });
+    }
 
     socket.on("disconnect", () => {
       logger.debug("Socket disconnected", { socketId: socket.id });

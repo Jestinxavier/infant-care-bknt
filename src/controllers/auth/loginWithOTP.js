@@ -8,7 +8,11 @@ const {
 } = require("../../utils/token");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
 const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../../resources/constants");
-const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
+const {
+  getAuthCookieName,
+  getAuthCookieOptions,
+  getRefreshCookieOptions,
+} = require("../../utils/authCookieOptions");
 
 /**
  * Request OTP for login (existing user)
@@ -157,8 +161,8 @@ const verifyLoginOTP = async (req, res) => {
     // Delete OTP record
     await PendingUser.deleteOne({ _id: pendingOTP._id });
 
-    // Remove old refresh tokens
-    await Token.deleteMany({ userId: user._id });
+    // Allow multiple concurrent sessions (e.g. storefront and dashboard)
+    // We no longer delete all old refresh tokens on new login.
 
     // Generate tokens
     const accessToken = generateAccessToken(user._id);
@@ -167,14 +171,13 @@ const verifyLoginOTP = async (req, res) => {
     // Store refresh token
     await Token.create({ userId: user._id, refreshToken });
 
-    // Set refresh token as HttpOnly cookie
-    res.cookie("refresh_token", refreshToken, getAuthCookieOptions());
+    const clientType = req.headers["x-client-type"] === "dashboard" ? "dashboard" : "frontend";
+    res.cookie(getAuthCookieName(clientType, "access"), accessToken, getAuthCookieOptions());
+    res.cookie(getAuthCookieName(clientType, "refresh"), refreshToken, getRefreshCookieOptions());
 
     res.status(200).json({
       success: true,
       message: "Login successful!",
-      accessToken,
-      refreshToken, // Include refreshToken in response for client-side storage
       user: {
         id: user._id,
         username: user.username,

@@ -1,19 +1,19 @@
 const authService = require("../../services/service");
 const logger = require("../../utils/logger");
-const { ACCESS_TOKEN_LIFETIME_MS } = require("../../../resources/constants");
+const {
+  getAuthCookieName,
+  getAuthCookieOptions,
+  getRefreshCookieOptions,
+} = require("../../utils/authCookieOptions");
 
 const refreshToken = async (req, res) => {
   try {
-    // Identify client type from header
     const clientType = req.headers["x-client-type"] || "unknown";
-
-    // Collect all cookies from the request
     const allCookies = req.cookies || {};
 
     logger.info(`🔄 Refresh token request from: ${clientType}`);
     logger.info("🍪 Available cookies:", Object.keys(allCookies));
 
-    // Get the appropriate refresh token based on client type
     let token;
     if (clientType === "dashboard") {
       token = allCookies.dashboard_refresh_token;
@@ -24,9 +24,11 @@ const refreshToken = async (req, res) => {
       token = allCookies.dashboard_refresh_token || allCookies.refresh_token;
     }
 
-    // Also accept from body as fallback
     if (!token) {
-      token = req.body?.refreshToken;
+      token =
+        allCookies.refresh_token ||
+        allCookies.dashboard_refresh_token ||
+        req.body?.refreshToken;
     }
 
     if (!token) {
@@ -37,12 +39,23 @@ const refreshToken = async (req, res) => {
     }
 
     logger.info(`✅ Refresh token found for ${clientType}, refreshing...`);
-    const newAccessToken = await authService.refreshAccessToken(token);
+    const { accessToken: newAccessToken, refreshToken: nextRefreshToken } =
+      await authService.refreshAccessToken(token);
+
+    const cookieClientType = clientType === "dashboard" ? "dashboard" : "frontend";
+    res.cookie(
+      getAuthCookieName(cookieClientType, "access"),
+      newAccessToken,
+      getAuthCookieOptions(),
+    );
+    res.cookie(
+      getAuthCookieName(cookieClientType, "refresh"),
+      nextRefreshToken,
+      getRefreshCookieOptions(),
+    );
 
     res.json({
-      accessToken: newAccessToken,
-      accessTokenLifetimeMs: ACCESS_TOKEN_LIFETIME_MS,
-      clientType,
+      success: true,
     });
   } catch (err) {
     logger.error("❌ Refresh token error:", err.message);

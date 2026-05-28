@@ -143,7 +143,19 @@ const calculateTotals = async (items) => {
     }
 
     // Compute pricing using the resolver
-    const pricing = computeCartItemPricing(product, variant, item.quantity);
+    let pricing = computeCartItemPricing(product, variant, item.quantity);
+    if (item.isFreeGiftCoupon) {
+      pricing = {
+        unitPrice: 0,
+        basePrice: 0,
+        originalPrice: 0,
+        lineTotal: 0,
+        appliedRule: null,
+        nextTier: null,
+        savings: 0,
+        isOfferActive: false,
+      };
+    }
 
     // Store for later use in formatCartResponse (guard against null _id/productId)
     const itemId =
@@ -242,7 +254,9 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
         }
       }
       // Trigger still met — keep coupon as-is (discount is fixed gift value)
-      updatedCoupons.push({ ...cartCoupon.toObject ? cartCoupon.toObject() : cartCoupon });
+      const couponObj = cartCoupon.toObject ? cartCoupon.toObject() : { ...cartCoupon };
+      couponObj.discountAmount = 0;
+      updatedCoupons.push(couponObj);
       continue;
     }
 
@@ -912,13 +926,19 @@ const addItem = async (req, res) => {
       const errorType = productData.isBundle
         ? "BUNDLE_INSUFFICIENT_STOCK"
         : "INSUFFICIENT_STOCK";
+      const availableQty = productData.stockObj.available;
+      const stockMessage = productData.isBundle
+        ? availableQty === 0
+          ? "This bundle is out of stock"
+          : `Only ${availableQty} bundle${availableQty === 1 ? "" : "s"} left in stock`
+        : availableQty === 0
+          ? "This item is out of stock"
+          : `Only ${availableQty} item${availableQty === 1 ? "" : "s"} left in stock`;
       return res.status(400).json({
         success: false,
         errorCode: errorType,
-        message: productData.isBundle
-          ? `Only ${productData.stockObj.available} bundles available`
-          : `Only ${productData.stockObj.available} items in stock`,
-        availableQty: productData.stockObj.available,
+        message: stockMessage,
+        availableQty,
         requestedQty,
       });
     }
@@ -1024,6 +1044,14 @@ const updateItem = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Item not found in cart",
+      });
+    }
+
+    const item = cart.items.id(targetItemId);
+    if (item && item.isFreeGiftCoupon) {
+      return res.status(400).json({
+        success: false,
+        message: "Free gift items cannot be modified.",
       });
     }
 
@@ -1202,6 +1230,14 @@ const removeItem = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Item not found in cart",
+      });
+    }
+
+    const item = cart.items.id(targetItemId);
+    if (item && item.isFreeGiftCoupon) {
+      return res.status(400).json({
+        success: false,
+        message: "Free gift items cannot be removed directly. Remove the coupon instead.",
       });
     }
 
@@ -2169,7 +2205,7 @@ const applyCoupon = async (req, res) => {
           code: coupon.code,
           couponId: coupon._id,
           type: "free_gift",
-          discountAmount: Math.round(giftPrice * fg.giftQty * 100) / 100,
+          discountAmount: 0,
           minCartValue: coupon.minCartValue ?? 0,
           lineDiscounts: [],
         });
@@ -2215,7 +2251,7 @@ const applyCoupon = async (req, res) => {
           code: coupon.code,
           couponId: coupon._id,
           type: "free_gift",
-          discountAmount: Math.round(giftPrice * fg.giftQty * 100) / 100,
+          discountAmount: 0,
           minCartValue: coupon.minCartValue ?? 0,
           lineDiscounts: [],
         });

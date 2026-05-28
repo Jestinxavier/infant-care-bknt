@@ -184,6 +184,8 @@ const formatCartResponse = (
       ),
       selectedGiftSku: item.selectedGiftSku || null,
       selectedGift: null, // Default
+      isFreeGiftCoupon: item.isFreeGiftCoupon || false,
+      freeGiftCouponCode: item.freeGiftCouponCode || null,
     };
 
     // Enrich with selected gift details if applicable

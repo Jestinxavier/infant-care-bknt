@@ -1,6 +1,10 @@
 const authService = require("../../services/service");
 const logger = require("../../utils/logger");
-const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
+const {
+  getAuthCookieName,
+  getAuthCookieOptions,
+  getRefreshCookieOptions,
+} = require("../../utils/authCookieOptions");
 
 /**
  * Step 1: Request OTP for registration
@@ -34,16 +38,12 @@ const verifyOTP = async (req, res) => {
   try {
     const result = await authService.verifyOTPAndRegister(req.body);
 
-    // Set refresh token as HttpOnly cookie
-    if (result.refreshToken) {
-      res.cookie("refresh_token", result.refreshToken, getAuthCookieOptions());
+    const clientType = req.headers["x-client-type"] === "dashboard" ? "dashboard" : "frontend";
+    res.cookie(getAuthCookieName(clientType, "access"), result.accessToken, getAuthCookieOptions());
+    res.cookie(getAuthCookieName(clientType, "refresh"), result.refreshToken, getRefreshCookieOptions());
 
-      // Remove refreshToken from response body for security
-      const { refreshToken, ...responseData } = result;
-      res.status(201).json(responseData);
-    } else {
-      res.status(201).json(result);
-    }
+    const { accessToken, refreshToken, ...responseData } = result;
+    res.status(201).json(responseData);
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

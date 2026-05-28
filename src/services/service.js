@@ -212,8 +212,8 @@ exports.loginUser = async ({ email, password }) => {
   // Note: Admin role verification is now handled by route-level middleware
   // No platform header checks needed
 
-  // Remove old refresh tokens (only one active refresh token per user)
-  await Token.deleteMany({ userId: user._id });
+  // Allow multiple concurrent sessions (e.g. storefront and dashboard)
+  // We no longer delete all old refresh tokens on new login.
 
   const accessToken = generateAccessToken(user._id);
   const refreshToken = generateRefreshToken(user._id);
@@ -240,7 +240,17 @@ exports.refreshAccessToken = async (refreshToken) => {
   try {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     const accessToken = generateAccessToken(decoded.id);
-    return accessToken;
+
+    // Rotate the refresh token on every refresh to reduce replay risk.
+    // Deleting only the specific rotated token allows multiple concurrent sessions (tabs/devices) to exist.
+    await Token.deleteOne({ _id: tokenDoc._id });
+    const nextRefreshToken = generateRefreshToken(decoded.id);
+    await Token.create({ userId: decoded.id, refreshToken: nextRefreshToken });
+
+    return {
+      accessToken,
+      refreshToken: nextRefreshToken,
+    };
   } catch (err) {
     throw new Error("Expired or invalid refresh token");
   }

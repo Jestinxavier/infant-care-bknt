@@ -2,9 +2,11 @@ const User = require("../../models/user");
 const Order = require("../../models/Order");
 const Token = require("../../models/token");
 const { generateAccessToken, generateRefreshToken } = require("../../utils/token");
-const { getAuthCookieOptions } = require("../../utils/authCookieOptions");
-
-const ACCESS_TOKEN_LIFETIME_MS = 15 * 60 * 1000; // 15 min — matches token.js default
+const {
+  getAuthCookieName,
+  getAuthCookieOptions,
+  getRefreshCookieOptions,
+} = require("../../utils/authCookieOptions");
 const logger = require("../../utils/logger");
 
 /**
@@ -69,16 +71,15 @@ const guestConvert = async (req, res) => {
     const refreshToken = generateRefreshToken(newUser._id);
     await Token.create({ userId: newUser._id, refreshToken });
 
-    const cookieName = process.env.REFRESH_TOKEN_COOKIE_NAME || "refresh_token";
-    res.cookie(cookieName, refreshToken, getAuthCookieOptions());
+    const clientType = req.headers["x-client-type"] === "dashboard" ? "dashboard" : "frontend";
+    res.cookie(getAuthCookieName(clientType, "access"), accessToken, getAuthCookieOptions());
+    res.cookie(getAuthCookieName(clientType, "refresh"), refreshToken, getRefreshCookieOptions());
 
     logger.info(`✅ Guest converted to account: ${normalizedEmail} (user: ${newUser._id})`);
 
     res.status(201).json({
       success: true,
       message: "Account created successfully",
-      accessToken,
-      accessTokenLifetimeMs: ACCESS_TOKEN_LIFETIME_MS,
       user: {
         id: newUser._id,
         username: newUser.username,

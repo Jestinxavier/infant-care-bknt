@@ -1,11 +1,25 @@
 const jwt = require("jsonwebtoken");
 const ApiError = require("../core/ApiError");
+const { getAuthCookieName } = require("../utils/authCookieOptions");
+
+const getTokenFromRequest = (req, kind = "access") => {
+  const authHeader = req.headers["authorization"];
+  if (authHeader) {
+    const token = authHeader.split(" ")[1];
+    if (token) return token;
+  }
+
+  const clientType = req.headers["x-client-type"] || "frontend";
+  const cookieName = getAuthCookieName(clientType, kind);
+  const cookies = req.cookies || {};
+
+  return cookies[cookieName] || cookies.access_token || cookies.dashboard_access_token || null;
+};
 
 const verifyToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader) return next(ApiError.unauthorized("No token provided"));
+  const token = getTokenFromRequest(req, "access");
+  if (!token) return next(ApiError.unauthorized("No token provided"));
 
-  const token = authHeader.split(" ")[1];
   if (!token) return next(ApiError.unauthorized("Invalid token format"));
 
   try {
@@ -21,12 +35,9 @@ const verifyToken = (req, res, next) => {
  * continues as guest otherwise. Used on cart and public product routes.
  */
 const optionalVerifyToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
   req.user = null;
 
-  if (!authHeader) return next();
-
-  const token = authHeader.split(" ")[1];
+  const token = getTokenFromRequest(req, "access");
   if (!token) return next();
 
   try {

@@ -151,16 +151,16 @@ exports.getDashboardStats = async (req, res) => {
           // Optimize label generation based on period
           let name;
           if (period === "year") {
-            name = d.toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            });
-          } else if (period === "month") {
+            // Year range: show month only to avoid 365 crowded labels
+            name = d.toLocaleDateString("en-US", { month: "short" });
+          } else if (isCustomRange || period === "month") {
+            // Custom range and 30-day preset: show "May 5" style dates
             name = d.toLocaleDateString("en-US", {
               month: "short",
               day: "numeric",
             });
           } else {
+            // Default weekly preset: show weekday short name
             name = d.toLocaleDateString("en-US", { weekday: "short" });
           }
 

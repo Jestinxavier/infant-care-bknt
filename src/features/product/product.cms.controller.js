@@ -138,6 +138,7 @@ class CmsProductController {
           discountPrice,
           image,
           stock,
+          product_type: product.product_type || "SIMPLE",
           collections: Array.isArray(product.collections)
             ? product.collections
             : [],

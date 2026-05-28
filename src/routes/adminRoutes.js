@@ -59,11 +59,22 @@ const {
   deleteNotification,
 } = require("../controllers/admin/notificationController");
 
+const {
+  getErrorLogs,
+  deleteErrorLog,
+  clearAllErrorLogs,
+} = require("../controllers/admin/errorLogController");
+
 // ==================== NOTIFICATIONS ====================
 router.get("/notifications", verifyToken, requireAdmin, getNotifications);
 router.patch("/notifications/read-all", verifyToken, requireAdmin, markAllAsRead);
 router.patch("/notifications/:id/read", verifyToken, requireAdmin, markAsRead);
 router.delete("/notifications/:id", verifyToken, requireAdmin, deleteNotification);
+
+// ==================== ERROR LOGS ====================
+router.get("/error-logs", verifyToken, requireAdmin, getErrorLogs);
+router.delete("/error-logs", verifyToken, requireAdmin, clearAllErrorLogs);
+router.delete("/error-logs/:id", verifyToken, requireAdmin, deleteErrorLog);
 
 // ==================== PRODUCTS ====================
 
