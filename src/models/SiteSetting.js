@@ -21,7 +21,16 @@ const siteSettingSchema = new mongoose.Schema(
     },
     scope: {
       type: String,
-      enum: ["global", "page", "cart", "contact", "seo", "order", "product"],
+      enum: [
+        "global",
+        "page",
+        "cart",
+        "contact",
+        "seo",
+        "order",
+        "product",
+        "search",
+      ],
       default: "global",
       index: true,
     },

@@ -1,10 +1,17 @@
 const SiteSetting = require("../models/SiteSetting");
 const Product = require("../models/Product");
 const logger = require("../utils/logger");
-const POPULAR_SEARCHES_KEY = "search.popular_terms";
+const {
+  SITE_SETTING_KEYS,
+  getSiteSettingDefinition,
+  normalizeSiteSettingKey,
+} = require("../config/siteSettingRegistry");
+const POPULAR_SEARCHES_KEY = SITE_SETTING_KEYS.SEARCH_POPULAR_TERMS;
 const POPULAR_SEARCHES_DESCRIPTION =
+  getSiteSettingDefinition(POPULAR_SEARCHES_KEY)?.description ||
   "Popular search keywords shown in the storefront search drawer.";
-const POPULAR_SEARCHES_SCOPE = "product";
+const POPULAR_SEARCHES_SCOPE =
+  getSiteSettingDefinition(POPULAR_SEARCHES_KEY)?.scope || "search";
 const POPULAR_SEARCHES_MAX_ITEMS = 4;
 const POPULAR_SEARCH_TERM_MIN_LENGTH = 2;
 const POPULAR_SEARCH_TERM_MAX_LENGTH = 50;
@@ -39,7 +46,7 @@ const getAllSettings = async (req, res) => {
  */
 const getSetting = async (req, res) => {
   try {
-    const { key } = req.params;
+    const key = normalizeSiteSettingKey(req.params.key);
 
     const setting = await SiteSetting.findOne({ key });
 
@@ -69,23 +76,32 @@ const getSetting = async (req, res) => {
  */
 const createSetting = async (req, res) => {
   try {
-    const { key, value, type, scope, description, isPublic } = req.body;
+    const { key, value } = req.body;
+    const normalizedKey = normalizeSiteSettingKey(key);
+    const definition = getSiteSettingDefinition(normalizedKey);
 
-    // Validate type matches value
-    if (!validateType(value, type)) {
+    if (!definition) {
       return res.status(400).json({
         success: false,
-        message: `Value type mismatch. Expected ${type}`,
+        message: "This setting key is not registered and cannot be created.",
+      });
+    }
+
+    // Validate type matches value
+    if (!validateType(value, definition.type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Value type mismatch. Expected ${definition.type}`,
       });
     }
 
     const setting = await SiteSetting.create({
-      key,
+      key: definition.key,
       value,
-      type,
-      scope,
-      description,
-      isPublic,
+      type: definition.type,
+      scope: definition.scope,
+      description: definition.description,
+      isPublic: definition.isPublic,
     });
 
     res.status(201).json({
@@ -115,7 +131,7 @@ const createSetting = async (req, res) => {
  */
 const updateSetting = async (req, res) => {
   try {
-    const { key } = req.params;
+    const key = normalizeSiteSettingKey(req.params.key);
     const { value, description, scope } = req.body;
     const userRole = req.user?.role;
 
@@ -188,7 +204,7 @@ const updateSetting = async (req, res) => {
  */
 const deleteSetting = async (req, res) => {
   try {
-    const { key } = req.params;
+    const key = normalizeSiteSettingKey(req.params.key);
 
     const setting = await SiteSetting.findOneAndDelete({ key });
 
@@ -394,8 +410,9 @@ const upsertPopularSearches = async (req, res) => {
 
 // ─── Suggested Products ────────────────────────────────────────────────────
 
-const SUGGESTED_PRODUCTS_KEY = "search.suggested_products";
+const SUGGESTED_PRODUCTS_KEY = SITE_SETTING_KEYS.SEARCH_SUGGESTED_PRODUCTS;
 const SUGGESTED_PRODUCTS_DESCRIPTION =
+  getSiteSettingDefinition(SUGGESTED_PRODUCTS_KEY)?.description ||
   "Featured products shown in the storefront search drawer before the user types.";
 const SUGGESTED_PRODUCTS_MAX = 4;
 const SUGGESTED_VIEW_ALL_MAX_LENGTH = 200;
@@ -513,7 +530,8 @@ const upsertSuggestedProducts = async (req, res) => {
         $set: {
           value: { productIds, viewAllLink: cleanViewAllLink },
           type: "json",
-          scope: "product",
+          scope:
+            getSiteSettingDefinition(SUGGESTED_PRODUCTS_KEY)?.scope || "search",
           description: SUGGESTED_PRODUCTS_DESCRIPTION,
           isPublic: true,
         },

@@ -7,24 +7,44 @@ const {
 
 const logout = async (req, res) => {
   const clearOpts = getAuthCookieClearOptions();
-  res.clearCookie(getAuthCookieName("frontend", "access"), clearOpts);
-  res.clearCookie(getAuthCookieName("frontend", "refresh"), clearOpts);
-  res.clearCookie(getAuthCookieName("dashboard", "access"), clearOpts);
-  res.clearCookie(getAuthCookieName("dashboard", "refresh"), clearOpts);
-  // cart_id is set with sameSite: "lax" (not "none"), so clear with matching options
-  res.clearCookie("cart_id", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-  });
+  const headerClientType = req.headers["x-client-type"];
+  const clientType =
+    headerClientType === "dashboard"
+      ? "dashboard"
+      : headerClientType === "frontend"
+        ? "frontend"
+        : null;
+
+  if (clientType) {
+    // Clear only the caller's auth cookies to keep frontend/dashboard sessions independent.
+    res.clearCookie(getAuthCookieName(clientType, "access"), clearOpts);
+    res.clearCookie(getAuthCookieName(clientType, "refresh"), clearOpts);
+  } else {
+    // Fallback for old clients that don't send X-Client-Type.
+    res.clearCookie(getAuthCookieName("frontend", "access"), clearOpts);
+    res.clearCookie(getAuthCookieName("frontend", "refresh"), clearOpts);
+    res.clearCookie(getAuthCookieName("dashboard", "access"), clearOpts);
+    res.clearCookie(getAuthCookieName("dashboard", "refresh"), clearOpts);
+  }
+
+  if (clientType !== "dashboard") {
+    // cart_id is a storefront concern; keep admin logout from touching it.
+    res.clearCookie("cart_id", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
+  }
 
   try {
     const cookies = req.cookies || {};
     const token =
-      cookies.dashboard_refresh_token ||
-      cookies.refresh_token ||
-      req.body?.token;
+      clientType === "dashboard"
+        ? cookies.dashboard_refresh_token
+        : clientType === "frontend"
+          ? cookies.refresh_token
+          : cookies.dashboard_refresh_token || cookies.refresh_token || req.body?.token;
 
     if (token) {
       await authService.logoutUser(token);

@@ -2,6 +2,7 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const SiteSetting = require("../models/SiteSetting");
+const { SITE_SETTING_KEYS } = require("../config/siteSettingRegistry");
 
 /* =====================================================
    ✅ Template Engine (Variables + Conditionals + Loops)
@@ -294,7 +295,9 @@ const sendOrderCancelledEmail = async (user, order) => {
  * ✅ Send Invoice Email
  */
 const sendInvoiceEmail = async (user, order) => {
-  const fromAddressSetting = await SiteSetting.findOne({ key: "order.from_address" }).lean();
+  const fromAddressSetting = await SiteSetting.findOne({
+    key: SITE_SETTING_KEYS.ORDER_FROM_ADDRESS,
+  }).lean();
   const fromAddress = fromAddressSetting?.value ?? null;
 
   const orderDate = new Date(order.createdAt).toLocaleDateString("en-GB", {

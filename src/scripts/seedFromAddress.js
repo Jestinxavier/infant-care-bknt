@@ -7,6 +7,7 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 const SiteSetting = require("../models/SiteSetting");
+const { SITE_SETTING_KEYS } = require("../config/siteSettingRegistry");
 
 const FROM_ADDRESS = {
   businessName: "Infants Care",
@@ -25,7 +26,9 @@ const FROM_ADDRESS = {
 async function seed() {
   await mongoose.connect(process.env.MONGODB_URI);
 
-  const existing = await SiteSetting.findOne({ key: "order.from_address" });
+  const existing = await SiteSetting.findOne({
+    key: SITE_SETTING_KEYS.ORDER_FROM_ADDRESS,
+  });
 
   if (existing) {
     console.log("Setting already exists. To update it, use the dashboard Settings page.");
@@ -34,7 +37,7 @@ async function seed() {
   }
 
   await SiteSetting.create({
-    key: "order.from_address",
+    key: SITE_SETTING_KEYS.ORDER_FROM_ADDRESS,
     value: FROM_ADDRESS,
     type: "json",
     scope: "order",
@@ -42,7 +45,9 @@ async function seed() {
     isPublic: true,
   });
 
-  console.log("Created order.from_address setting. Edit the values in the dashboard Settings page.");
+  console.log(
+    `Created ${SITE_SETTING_KEYS.ORDER_FROM_ADDRESS} setting. Edit the values in the dashboard Settings page.`,
+  );
   await mongoose.disconnect();
 }
 
