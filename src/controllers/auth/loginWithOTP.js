@@ -7,9 +7,14 @@ const {
   generateRefreshToken,
 } = require("../../utils/token");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
-const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../../resources/constants");
+const {
+  ADMIN_ROLES,
+  TOKEN_EXPIRY,
+  OTP_EXPIRY_MS,
+} = require("../../../resources/constants");
 const {
   getAuthCookieName,
+  getRequestClientType,
   getAuthCookieOptions,
   getRefreshCookieOptions,
 } = require("../../utils/authCookieOptions");
@@ -171,7 +176,15 @@ const verifyLoginOTP = async (req, res) => {
     // Store refresh token
     await Token.create({ userId: user._id, refreshToken });
 
-    const clientType = req.headers["x-client-type"] === "dashboard" ? "dashboard" : "frontend";
+    const clientType = getRequestClientType(req);
+    if (clientType === "dashboard" && !ADMIN_ROLES.includes(user.role)) {
+      await Token.deleteOne({ refreshToken });
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin role required.",
+      });
+    }
+
     res.cookie(getAuthCookieName(clientType, "access"), accessToken, getAuthCookieOptions());
     res.cookie(getAuthCookieName(clientType, "refresh"), refreshToken, getRefreshCookieOptions());
 

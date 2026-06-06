@@ -771,7 +771,7 @@ const createOrder = async (req, res) => {
           throw new Error("Redirect URL missing from SDK response");
         }
       } catch (error) {
-        logger.error("❌ Error initiating PhonePe payment:", error);
+        logger.error("❌ Error initiating PhonePe payment:", { message: error.message, stack: error.stack });
 
         // === CLEANUP LONE ORDER (Case 3: Payment Init Failed) ===
         // Since transaction is already committed, we must manually undo changes.

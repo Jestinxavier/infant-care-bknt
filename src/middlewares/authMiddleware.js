@@ -1,6 +1,9 @@
 const jwt = require("jsonwebtoken");
 const ApiError = require("../core/ApiError");
-const { getAuthCookieName } = require("../utils/authCookieOptions");
+const {
+  getAuthCookieName,
+  getRequestClientType,
+} = require("../utils/authCookieOptions");
 
 const getTokenFromRequest = (req, kind = "access") => {
   const authHeader = req.headers["authorization"];
@@ -9,11 +12,11 @@ const getTokenFromRequest = (req, kind = "access") => {
     if (token) return token;
   }
 
-  const clientType = req.headers["x-client-type"] || "frontend";
+  const clientType = getRequestClientType(req);
   const cookieName = getAuthCookieName(clientType, kind);
   const cookies = req.cookies || {};
 
-  return cookies[cookieName] || cookies.access_token || cookies.dashboard_access_token || null;
+  return cookies[cookieName] || null;
 };
 
 const verifyToken = (req, res, next) => {

@@ -3,29 +3,16 @@ const logger = require("../../utils/logger");
 const {
   getAuthCookieClearOptions,
   getAuthCookieName,
+  getRequestClientType,
 } = require("../../utils/authCookieOptions");
 
 const logout = async (req, res) => {
   const clearOpts = getAuthCookieClearOptions();
-  const headerClientType = req.headers["x-client-type"];
-  const clientType =
-    headerClientType === "dashboard"
-      ? "dashboard"
-      : headerClientType === "frontend"
-        ? "frontend"
-        : null;
+  const clientType = getRequestClientType(req);
 
-  if (clientType) {
-    // Clear only the caller's auth cookies to keep frontend/dashboard sessions independent.
-    res.clearCookie(getAuthCookieName(clientType, "access"), clearOpts);
-    res.clearCookie(getAuthCookieName(clientType, "refresh"), clearOpts);
-  } else {
-    // Fallback for old clients that don't send X-Client-Type.
-    res.clearCookie(getAuthCookieName("frontend", "access"), clearOpts);
-    res.clearCookie(getAuthCookieName("frontend", "refresh"), clearOpts);
-    res.clearCookie(getAuthCookieName("dashboard", "access"), clearOpts);
-    res.clearCookie(getAuthCookieName("dashboard", "refresh"), clearOpts);
-  }
+  // Clear only the caller's auth cookies to keep frontend/dashboard sessions independent.
+  res.clearCookie(getAuthCookieName(clientType, "access"), clearOpts);
+  res.clearCookie(getAuthCookieName(clientType, "refresh"), clearOpts);
 
   if (clientType !== "dashboard") {
     // cart_id is a storefront concern; keep admin logout from touching it.
@@ -42,9 +29,7 @@ const logout = async (req, res) => {
     const token =
       clientType === "dashboard"
         ? cookies.dashboard_refresh_token
-        : clientType === "frontend"
-          ? cookies.refresh_token
-          : cookies.dashboard_refresh_token || cookies.refresh_token || req.body?.token;
+        : cookies.refresh_token;
 
     if (token) {
       await authService.logoutUser(token);

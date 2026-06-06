@@ -12,13 +12,7 @@ const parseCookieHeader = (cookieHeader = "") =>
 
 const getAdminUserIdFromCookies = (socket) => {
   const cookies = parseCookieHeader(socket.handshake.headers.cookie || "");
-  return (
-    cookies.dashboard_access_token ||
-    cookies.access_token ||
-    cookies.dashboard_refresh_token ||
-    cookies.refresh_token ||
-    null
-  );
+  return cookies.dashboard_access_token || cookies.dashboard_refresh_token || null;
 };
 
 let io;

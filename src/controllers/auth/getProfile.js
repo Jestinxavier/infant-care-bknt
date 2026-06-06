@@ -1,5 +1,11 @@
 const User = require("../../models/user");
 const logger = require("../../utils/logger");
+const { ADMIN_ROLES } = require("../../../resources/constants");
+const {
+  getAuthCookieClearOptions,
+  getAuthCookieName,
+  getRequestClientType,
+} = require("../../utils/authCookieOptions");
 
 const getProfile = async (req, res) => {
   try {
@@ -13,6 +19,17 @@ const getProfile = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "User not found"
+      });
+    }
+
+    const clientType = getRequestClientType(req);
+    if (clientType === "dashboard" && !ADMIN_ROLES.includes(user.role)) {
+      const clearOpts = getAuthCookieClearOptions();
+      res.clearCookie(getAuthCookieName("dashboard", "access"), clearOpts);
+      res.clearCookie(getAuthCookieName("dashboard", "refresh"), clearOpts);
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin role required.",
       });
     }
 

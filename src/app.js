@@ -5,7 +5,6 @@ const helmet = require("helmet");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
-const rateLimit = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
 require("dotenv").config();
 
@@ -25,20 +24,6 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(helmet());
-
-// Global rate limit — 300 requests per 15 min per IP across all routes
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: "Too many requests, please try again later." },
-  handler(req, res, next, options) {
-    require("./utils/logger").warn("429 global rate limit hit", { ip: req.ip, path: req.path, method: req.method });
-    res.status(options.statusCode).json(options.message);
-  },
-});
-app.use(globalLimiter);
 
 // Strip MongoDB operator keys ($gt, $where, etc.) from req.body and req.params
 // req.query is a read-only getter in Express 5 so mongoSanitize() cannot be used directly
@@ -105,16 +90,32 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 
 // Webhook route (MUST be defined before global express.json() to capture rawBody)
+// Both /api/webhook/phonepe (singular) and /api/webhooks/phonepe (plural) are handled
+// because PhonePe dashboard may be configured with either spelling
 const { phonepeWebhook } = require("./controllers/payment/phonepeSDK");
-app.post(
-  "/api/webhooks/phonepe",
+const { wlog } = require("./utils/webhookLogger");
+const webhookMiddleware = [
+  (req, res, next) => {
+    wlog("REQUEST_RECEIVED", {
+      url: req.originalUrl,
+      ip: req.ip,
+      hasAuth: !!req.headers["authorization"],
+      authPreview: req.headers["authorization"]?.substring(0, 30) + "...",
+      contentType: req.headers["content-type"],
+      contentLength: req.headers["content-length"],
+    });
+    next();
+  },
   express.json({
     verify: (req, res, buf) => {
       req.rawBody = buf.toString();
+      wlog("BODY_CAPTURED", { bodyLength: buf.length });
     },
   }),
   phonepeWebhook,
-);
+];
+app.post("/api/webhooks/phonepe", ...webhookMiddleware);
+app.post("/api/webhook/phonepe", ...webhookMiddleware);
 
 // Middleware
 app.use(express.json({ limit: "1mb" }));

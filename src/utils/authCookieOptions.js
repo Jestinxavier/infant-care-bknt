@@ -18,6 +18,10 @@ function getAuthCookieName(clientType, kind) {
     : `${prefix}${REFRESH_TOKEN}`;
 }
 
+function getRequestClientType(req, fallback = "frontend") {
+  return req.headers["x-client-type"] === "dashboard" ? "dashboard" : fallback;
+}
+
 function getAuthCookieOptions() {
   const isProduction = process.env.NODE_ENV === "production";
   return {
@@ -53,6 +57,7 @@ function getAuthCookieClearOptions() {
 
 module.exports = {
   getAuthCookieName,
+  getRequestClientType,
   getAuthCookieOptions,
   getRefreshCookieOptions,
   getAuthCookieClearOptions,
