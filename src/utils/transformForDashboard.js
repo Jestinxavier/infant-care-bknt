@@ -125,7 +125,7 @@ function getVariantStatus(variant) {
       : variant.stock || 0;
 
   if (stock === 0) return "out_of_stock";
-  if (stock < 10) return "low_stock";
+  if (stock <= 10) return "low_stock";
   return "in_stock";
 }
 
