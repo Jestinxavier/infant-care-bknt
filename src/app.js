@@ -141,6 +141,7 @@ const footerRoutes = require("./routes/footerRoutes");
 const faqRoutes = require("./routes/faqRoutes");
 const faqCategoryRoutes = require("./routes/faqCategoryRoutes");
 const siteSettingsRoutes = require("./routes/siteSettingsRoutes");
+const chatRoutes = require("./routes/chatRoutes");
 
 // New feature-based CMS routes
 const cmsAdminRoutes = require("./features/cms/cms.admin.routes");
@@ -173,6 +174,7 @@ app.use("/api/v1/footer", footerRoutes);
 app.use("/api/v1/faqs", faqRoutes);
 app.use("/api/v1/stock-notify", require("./routes/stockNotificationRoutes"));
 app.use("/api/v1/settings", siteSettingsRoutes); // Public settings endpoint
+app.use("/api/v1/chat", chatRoutes);
 // CMS product routes (lightweight for widgets) - Must be before general /cms route
 app.use("/api/v1/cms/products", cmsProductRoutes);
 // Public CMS routes (for frontend)

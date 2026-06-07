@@ -1,7 +1,17 @@
 const cron = require("node-cron");
 const Asset = require("../models/Asset");
-const cloudinary = require("../config/cloudinary");
+const { deleteFromMediaServer, isMediaServerUrl, filenameFromUrl } = require("../config/mediaServer");
 const logger = require("../utils/logger");
+
+async function deleteAssetFile(secureUrl, publicId, resourceType) {
+  if (isMediaServerUrl(secureUrl)) {
+    const filename = filenameFromUrl(secureUrl);
+    if (filename) await deleteFromMediaServer(filename);
+  } else if (secureUrl && secureUrl.includes("cloudinary.com")) {
+    const { cloudinary } = require("../config/cloudinary");
+    await cloudinary.cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  }
+}
 
 /**
  * Cleanup expired temporary assets
@@ -77,11 +87,8 @@ const executeCleanup = async (options = {}) => {
     // Process deletions
     for (const asset of allAssetsToDelete) {
       try {
-        // Physical Delete from Cloudinary (use asset's resourceType when stored)
         const resourceType = asset.resourceType || "image";
-        await cloudinary.cloudinary.uploader.destroy(asset.publicId, {
-          resource_type: resourceType,
-        });
+        await deleteAssetFile(asset.secureUrl, asset.publicId, resourceType);
 
         // Delete from DB
         await Asset.findByIdAndDelete(asset._id);

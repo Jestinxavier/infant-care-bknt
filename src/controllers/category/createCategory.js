@@ -1,6 +1,5 @@
 const Category = require("../../models/Category");
 const logger = require("../../utils/logger");
-const { cloudinary } = require("../../config/cloudinary");
 const { cacheDel } = require("../../utils/redisCache");
 
 const createCategory = async (req, res) => {

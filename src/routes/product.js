@@ -5,7 +5,7 @@
  * (features/product/product.routes.js is NOT mounted in app.js – legacy.)
  */
 const express = require("express");
-const { parser } = require("../config/cloudinary");
+const { parser, uploadFilesMiddleware } = require("../config/mediaServer");
 const {
   createProduct,
   updateProduct,
@@ -221,11 +221,11 @@ router.post(
   (req, res, next) => {
     parser.any()(req, res, function (err) {
       if (err) {
-        logger.error("❌ Multer/Cloudinary Error:", err);
+        logger.error("❌ Multer Error:", err);
         return res.status(400).json({ message: "Upload error", error: err });
       }
       logger.info("✅ Multer parsing done");
-      next();
+      uploadFilesMiddleware(req, res, next);
     });
   },
   createProduct
@@ -294,7 +294,10 @@ router.post(
 router.put(
   "/update",
   verifyToken,
-  (req, res, next) => parser.any()(req, res, next),
+  (req, res, next) => parser.any()(req, res, function (err) {
+    if (err) return next(err);
+    uploadFilesMiddleware(req, res, next);
+  }),
   updateProduct
 );
 

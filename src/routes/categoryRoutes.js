@@ -12,6 +12,7 @@ const {
 const verifyToken = require("../middlewares/authMiddleware");
 const logger = require("../utils/logger");
 const { categoryImageUploader } = require("../config/categoryImageUpload");
+const { uploadFilesMiddleware } = require("../config/mediaServer");
 
 /**
  * @swagger
@@ -184,7 +185,7 @@ router.post(
           .status(400)
           .json({ success: false, message: err.message, error: err });
       }
-      next();
+      uploadFilesMiddleware(req, res, next);
     });
   },
   createCategory
@@ -250,7 +251,7 @@ router.put(
           .status(400)
           .json({ success: false, message: err.message, error: err });
       }
-      next();
+      uploadFilesMiddleware(req, res, next);
     });
   },
   updateCategory

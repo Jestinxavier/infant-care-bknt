@@ -1,7 +1,6 @@
 const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Review = require("../../models/Review");
-const { cloudinary } = require("../../config/cloudinary");
 const { extractImagePublicIds } = require("../../utils/mediaFinalizer");
 const Media = require("../../models/Media");
 const logger = require("../../utils/logger");

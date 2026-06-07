@@ -140,11 +140,6 @@ const getProductById = async (req, res) => {
       });
     }
 
-    // Debug: Log raw product details from database
-    if (product.details) {
-      logger.info("[getProductById] Raw product details from DB:", JSON.stringify(product.details, null, 2));
-    }
-
     // Format product for admin
     const productObj = { ...product };
     productObj._id = productObj._id?.toString();

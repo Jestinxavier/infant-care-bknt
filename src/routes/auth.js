@@ -622,7 +622,8 @@ router.put(
           error: err.message,
         });
       }
-      next();
+      const { uploadFilesMiddleware } = require("../config/mediaServer");
+      uploadFilesMiddleware(req, res, next);
     });
   },
   updateProfile

@@ -1,5 +1,5 @@
 // controllers/csvImage.controller.js
-const { cloudinary, tempParser } = require("../config/cloudinary");
+const { tempParser, uploadToMediaServer, deleteFromMediaServer, filenameFromUrl } = require("../config/mediaServer");
 const ApiResponse = require("../core/ApiResponse");
 const asyncHandler = require("../core/middleware/asyncHandler");
 const Asset = require("../models/Asset");
@@ -9,18 +9,16 @@ const logger = require("../utils/logger");
 /**
  * CSV Image Controller (Unified Asset System)
  * Handles temporary image upload for CSV import workflow
- * Now uses the central Asset model and 'assets' folder
+ * Now uses the central Asset model and media server for storage.
  */
 class CsvImageController {
   /**
    * List all temp CSV images for current user
    * GET /api/v1/admin/csv-images
-   * Filters Assets where origin.source = 'csv' and status = 'temp'
    */
   listTempImages = asyncHandler(async (req, res) => {
     const userId = req.user?.id || req.user?._id;
 
-    // Query params for filtering
     const { limit = 50, skip = 0 } = req.query;
 
     const query = {
@@ -41,10 +39,9 @@ class CsvImageController {
       Asset.countDocuments(query),
     ]);
 
-    // Map Asset to legacy response format if needed by frontend
     const mappedImages = assets.map((asset) => ({
       _id: asset._id,
-      temp_key: asset.publicId, // Use publicId as temp_key
+      temp_key: asset.publicId,
       public_id: asset.publicId,
       url: asset.secureUrl,
       width: asset.width,
@@ -68,10 +65,9 @@ class CsvImageController {
   /**
    * Upload a temp CSV image
    * POST /api/v1/admin/csv-images/upload
-   * Uses Asset model to upload to 'assets' folder
    */
   uploadTempImage = [
-    tempParser.single("file"), // Maintains same multer config (memory storage or temp file)
+    tempParser.single("file"),
     asyncHandler(async (req, res) => {
       if (!req.file) {
         return res
@@ -83,38 +79,23 @@ class CsvImageController {
         const file = req.file;
         const userId = req.user?.id || req.user?._id || null;
 
-        // 1. Generate hash for deduplication
-        // Note: verify if tempParser provides buffer. If diskStorage, read file.
-        // Assuming simple upload for now.
-        // For consistency with uploadAsset, ideally we deduplicate.
-        // But for CSV temp uploads, we'll simpler logic first or mimic uploadAsset.
-        const fileBuffer = file.buffer; // Assuming memory storage from config?
-        // If config uses disk storage, we'd need fs.readFileSync(file.path)
-        // Let's assume standard Asset upload flow logic here.
+        const uploadResult = await uploadToMediaServer(file.buffer, {
+          mimeType: file.mimetype,
+          originalName: file.originalname,
+        });
 
-        // We will upload to 'assets' folder directly.
-        // Use filename or random ID if no buffer dedupe available conveniently.
-        const publicId = `assets/csv_${Date.now()}_${Math.random()
-          .toString(36)
-          .substring(7)}`;
+        const hash = crypto
+          .createHash("md5")
+          .update(file.buffer)
+          .digest("hex");
 
-        const uploadResult = await cloudinary.uploader.upload(
-          file.path || file.url, // Use path if disk storage
-          {
-            folder: "assets",
-            public_id: publicId.split("/").pop(), // Cloudinary adds folder
-            resource_type: "auto",
-          }
-        );
-
-        // 2. Create Asset Record
         const asset = await Asset.create({
           publicId: uploadResult.public_id,
-          secureUrl: uploadResult.secure_url,
+          secureUrl: uploadResult.url,
           assetId: uploadResult.public_id,
-          hash: uploadResult.etag || "csv_upload_no_hash", // Fallback
+          hash,
           status: "temp",
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           origin: {
             source: "csv",
             sourceContext: file.originalname || "csv-upload",
@@ -125,15 +106,15 @@ class CsvImageController {
           width: uploadResult.width,
           height: uploadResult.height,
           format: uploadResult.format,
-          resourceType: uploadResult.resource_type,
-          bytes: uploadResult.bytes,
+          resourceType: "image",
+          bytes: uploadResult.size,
         });
 
         logger.info(`✅ [CSV Image] Asset uploaded: ${asset.publicId}`);
 
         res.status(200).json(
           ApiResponse.success("Temp image uploaded", {
-            temp_key: asset.publicId, // Mapping publicId to temp_key
+            temp_key: asset.publicId,
             public_id: asset.publicId,
             url: asset.secureUrl,
             width: asset.width,
@@ -159,7 +140,7 @@ class CsvImageController {
    * DELETE /api/v1/admin/csv-images/:temp_key
    */
   deleteTempImage = asyncHandler(async (req, res) => {
-    const { temp_key } = req.params; // In new system, this is publicId
+    const { temp_key } = req.params;
 
     if (!temp_key) {
       return res
@@ -178,7 +159,6 @@ class CsvImageController {
           .json(ApiResponse.error("Image not found", 404).toJSON());
       }
 
-      // Determine if deletable (only if temp and unused)
       if (asset.status !== "temp" || asset.usedBy.length > 0) {
         return res
           .status(400)
@@ -190,10 +170,9 @@ class CsvImageController {
           );
       }
 
-      // Delete from Cloudinary
-      await cloudinary.uploader.destroy(asset.publicId);
+      const filename = filenameFromUrl(asset.secureUrl);
+      if (filename) await deleteFromMediaServer(filename);
 
-      // Delete from DB
       await Asset.deleteOne({ _id: asset._id });
 
       logger.info("✅ [CSV Image] Deleted asset:", temp_key);
@@ -222,7 +201,6 @@ class CsvImageController {
         .json(ApiResponse.error("temp_keys array is required", 400).toJSON());
     }
 
-    // Find all matching assets
     const foundAssets = await Asset.find({
       publicId: { $in: temp_keys },
     }).lean();
@@ -247,7 +225,6 @@ class CsvImageController {
   /**
    * Convert temp images to permanent
    * POST /api/v1/admin/csv-images/convert
-   * Now simply promotes the Assets to 'permanent' status.
    */
   convertToPermanent = asyncHandler(async (req, res) => {
     const { temp_keys } = req.body;
@@ -260,26 +237,8 @@ class CsvImageController {
 
     const { finalizeImages } = require("../utils/mediaFinalizer");
 
-    // Use our finalizeImages result which handles promotion
-    // Since we might not have the entity ID here (it might be done before import?),
-    // finalizeImages supports fallback to just marking permanent if entityId is null.
-    // However, usually import happens together.
-    // If strict entity tracking is required, the Import variants step should do it.
-    // Here we'll just mark them permanent to prevent cleanup.
-
     const result = await finalizeImages(temp_keys, null, null);
 
-    // Map result to match expected frontend structure (converted/failed)
-    const converted = result.success.map((id) => ({
-      temp_key: id,
-      old_public_id: id,
-      new_public_id: id, // No change in ID/Folder
-      url: "", // Provide if possible, or frontend might not need it if ID logic holds
-    }));
-
-    // We need URLs for the response? Let's fetch them if needed or skip.
-    // The previous controller returned URLs.
-    // Let's quickly re-fetch the assets to get URLs for the response.
     const promotedAssets = await Asset.find({
       publicId: { $in: result.success },
     }).lean();
@@ -307,22 +266,16 @@ class CsvImageController {
   });
 
   /**
-   * Manual cleanup
-   * Note: Standard Asset cleanup job now handles this.
-   * This method can trigger that job or manual deletion.
+   * Manual cleanup — restricted to CSV source assets older than maxAgeHours.
    */
   manualCleanup = asyncHandler(async (req, res) => {
-    // Trigger standard cleanup logic or re-implement for specific scope
-    // For safety, we'll leave this implementing the Asset deletion logic
-    // but restricted to CSV source assets.
-
     const { maxAgeHours = 24 } = req.body;
     const cutoffDate = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
 
     const oldAssets = await Asset.find({
       "origin.source": "csv",
       status: "temp",
-      createdAt: { $lt: cutoffDate }, // uploadedAt equivalent
+      createdAt: { $lt: cutoffDate },
       usedBy: { $size: 0 },
     });
 
@@ -330,7 +283,8 @@ class CsvImageController {
 
     for (const asset of oldAssets) {
       try {
-        await cloudinary.uploader.destroy(asset.publicId);
+        const filename = filenameFromUrl(asset.secureUrl);
+        if (filename) await deleteFromMediaServer(filename);
         await Asset.findByIdAndDelete(asset._id);
         results.deleted.push(asset.publicId);
       } catch (err) {

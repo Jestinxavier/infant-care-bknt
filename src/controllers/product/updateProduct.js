@@ -498,20 +498,18 @@ const updateProduct = async (req, res) => {
           : req.body.videos;
         if (Array.isArray(videosRaw)) {
           const YOUTUBE_ID_RE = /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-          const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
           product.videos = videosRaw
             .filter((v) => v && v.type && v.url)
             .map((v) => {
               let thumbnail = v.thumbnail || null;
               if (!thumbnail) {
-                if (v.type === "cloudinary" && v.publicId) {
-                  thumbnail = `https://res.cloudinary.com/${cloudName}/video/upload/so_0,f_jpg,w_320/${v.publicId}.jpg`;
-                } else if (v.type === "youtube") {
+                if (v.type === "youtube") {
                   const m = v.url.match(YOUTUBE_ID_RE);
                   if (m) thumbnail = `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg`;
                 }
+                // Media server videos: leave thumbnail as null — frontend renders <video> element
               }
-              return { type: v.type, url: v.url, publicId: v.publicId || undefined, thumbnail, title: v.title || undefined };
+              return { type: v.type, url: v.url, publicId: v.publicId || undefined, thumbnail: thumbnail || undefined, title: v.title || undefined };
             });
           product.markModified("videos");
         }

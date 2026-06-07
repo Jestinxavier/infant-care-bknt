@@ -1,6 +1,20 @@
-const cloudinary = require("../../config/cloudinary");
+const { deleteFromMediaServer, isMediaServerUrl, filenameFromUrl } = require("../../config/mediaServer");
 const Asset = require("../../models/Asset");
 const logger = require("../../utils/logger");
+
+async function deleteAssetFile(secureUrl, publicId) {
+  if (isMediaServerUrl(secureUrl)) {
+    const filename = filenameFromUrl(secureUrl);
+    if (filename) await deleteFromMediaServer(filename);
+  } else if (secureUrl && secureUrl.includes("cloudinary.com")) {
+    try {
+      const { cloudinary } = require("../../config/cloudinary");
+      await cloudinary.uploader.destroy(publicId);
+    } catch (err) {
+      logger.warn(`[deleteAsset] Cloudinary delete failed for ${publicId}:`, err.message);
+    }
+  }
+}
 
 /**
  * Delete asset (only if temp and not in use)
@@ -16,18 +30,14 @@ const deleteAsset = async (req, res) => {
 
     let asset = null;
 
-    // Try finding by ObjectId first (wrapped in try-catch for invalid IDs)
-    // Also skip if ID contains slashes (likely a publicId with folder)
     if (!id.includes("/") && mongoose.Types.ObjectId.isValid(id)) {
       try {
         asset = await Asset.findById(id);
       } catch (error) {
-        // If findById fails (e.g., id looks valid but causes cast error), try publicId
         logger.info(`ID ${id} is not a valid ObjectId, trying publicId`);
       }
     }
 
-    // If not found by ID, try finding by publicId
     if (!asset) {
       asset = await Asset.findOne({ publicId: id });
     }
@@ -39,18 +49,14 @@ const deleteAsset = async (req, res) => {
       });
     }
 
-    // Handle permanent assets
     if (asset.status === "permanent") {
-      // If force flag is set, archive the asset for delayed deletion
       if (force === "true") {
         asset.status = "archived";
         asset.archivedAt = new Date();
-        asset.usedBy = []; // Clear usage references
+        asset.usedBy = [];
         await asset.save();
 
-        logger.info(
-          `📦 Asset archived for delayed deletion: ${asset.publicId}`
-        );
+        logger.info(`📦 Asset archived for delayed deletion: ${asset.publicId}`);
 
         return res.status(200).json({
           success: true,
@@ -63,7 +69,6 @@ const deleteAsset = async (req, res) => {
         });
       }
 
-      // Without force flag, block deletion
       return res.status(403).json({
         success: false,
         message:
@@ -71,7 +76,6 @@ const deleteAsset = async (req, res) => {
       });
     }
 
-    // Block deletion if in use
     if (asset.usedBy.length > 0) {
       return res.status(403).json({
         success: false,
@@ -80,7 +84,6 @@ const deleteAsset = async (req, res) => {
       });
     }
 
-    // Alternative: use helper method
     if (!asset.isDeletable()) {
       return res.status(403).json({
         success: false,
@@ -90,18 +93,14 @@ const deleteAsset = async (req, res) => {
 
     logger.info(`🗑️ Deleting asset: ${asset.publicId}`);
 
-    // Delete from Cloudinary
     try {
-      await cloudinary.cloudinary.uploader.destroy(asset.publicId);
-      logger.info(`✅ Deleted from Cloudinary: ${asset.publicId}`);
-    } catch (cloudinaryError) {
-      logger.error("❌ Cloudinary deletion error:", cloudinaryError);
-      // Continue with DB deletion even if Cloudinary fails
+      await deleteAssetFile(asset.secureUrl, asset.publicId);
+      logger.info(`✅ Deleted from storage: ${asset.publicId}`);
+    } catch (storageError) {
+      logger.error("❌ Storage deletion error:", storageError);
     }
 
-    // Delete from database - use asset._id (ObjectId) not the raw param (which might be string)
     await Asset.findByIdAndDelete(asset._id);
-
     logger.info(`✅ Deleted from DB: ${asset.publicId}`);
 
     res.status(200).json({
@@ -117,7 +116,7 @@ const deleteAsset = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal server error",
-          });
+    });
   }
 };
 

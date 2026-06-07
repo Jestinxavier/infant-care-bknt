@@ -18,7 +18,7 @@ const refreshToken = async (req, res) => {
     const token = allCookies[getAuthCookieName(clientType, "refresh")];
 
     if (!token) {
-      logger.info(`❌ No refresh token found for ${clientType}`);
+      logger.debug(`No refresh token found for ${clientType}`);
       return res.status(401).json({
         message: "No refresh token provided",
       });

@@ -21,7 +21,21 @@ pnpm test:integration  # tests/integration/ only
 pnpm create-admin      # seed an admin user
 pnpm seed-categories   # seed product categories
 pnpm seed:partners     # seed delivery partners
+
+# Media migration (Cloudinary → self-hosted media server)
+pnpm migrate:media         # migrate all Cloudinary URLs to media server (live)
+pnpm migrate:media:dry     # dry run — preview what would be migrated, no writes
+pnpm migrate:media -- --collection <name>  # migrate a single collection only
+
+# After changing media server BASE_URL (e.g. localhost → production domain)
+pnpm fix:media-url -- --from http://localhost:5003 --to https://media.infantscare.in
+pnpm fix:media-url -- --from http://localhost:5003 --to https://media.infantscare.in --dry-run
 ```
+
+Collections covered by both scripts: `products`, `categories`, `users`, `orders`, `carts`, `assets`, `medias`, `headerData`, `homepage`, `about`, `footerData`.
+
+Re-running `migrate:media` is safe — already-migrated URLs are skipped automatically.
+Run `fix:media-url` once on the VPS after deploying, to replace all `localhost:5003` URLs with the production domain.
 
 Tests use Jest with `mongodb-memory-server`. Config: `jest.config.js`. Pattern: `**/tests/**/*.test.js`.
 

@@ -6,7 +6,6 @@ const Category = require("../../models/Category");
 const Collection = require("../../models/Collection");
 const CsvTempImage = require("../../models/CsvTempImage");
 const Asset = require("../../models/Asset");
-const { cloudinary } = require("../../config/cloudinary");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
 const logger = require("../../utils/logger");
@@ -649,15 +648,19 @@ class BulkImportController {
       0
     );
 
-    // Validate all temp images exist
+    // Validate all temp images exist (check Asset model, fall back to legacy CsvTempImage)
     const tempKeysArray = Array.from(tempImagesNeeded);
     let missingImages = [];
 
     if (tempKeysArray.length > 0) {
-      const foundImages = await CsvTempImage.find({
-        temp_key: { $in: tempKeysArray },
-      }).lean();
-      const foundKeys = new Set(foundImages.map((img) => img.temp_key));
+      const [foundAssets, foundCsvImages] = await Promise.all([
+        Asset.find({ publicId: { $in: tempKeysArray } }).select("publicId").lean(),
+        CsvTempImage.find({ temp_key: { $in: tempKeysArray } }).select("temp_key").lean(),
+      ]);
+      const foundKeys = new Set([
+        ...foundAssets.map((a) => a.publicId),
+        ...foundCsvImages.map((img) => img.temp_key),
+      ]);
       missingImages = tempKeysArray.filter((key) => !foundKeys.has(key));
 
       if (missingImages.length > 0) {
@@ -846,54 +849,35 @@ class BulkImportController {
 
       if (tempKeysArray.length > 0) {
         logger.info(
-          `📷 [Bulk Import] Converting ${tempKeysArray.length} temp images...`
+          `📷 [Bulk Import] Resolving ${tempKeysArray.length} temp images...`
         );
 
-        let tempImagesQuery = CsvTempImage.find({
-          temp_key: { $in: tempKeysArray },
-        });
-        if (isTransactionStarted) {
-          tempImagesQuery = tempImagesQuery.session(session);
+        // Look up in Asset model first (new media-server uploads), then legacy CsvTempImage
+        const [assetImages, legacyCsvImages] = await Promise.all([
+          Asset.find({ publicId: { $in: tempKeysArray } }).lean(),
+          CsvTempImage.find({ temp_key: { $in: tempKeysArray } }).lean(),
+        ]);
+
+        for (const asset of assetImages) {
+          imageMapping.set(asset.publicId, {
+            new_public_id: asset.publicId,
+            url: asset.secureUrl,
+            old_public_id: asset.publicId,
+          });
+          tempKeysUsed.push(asset.publicId);
+          logger.info(`  ✅ Resolved (Asset): ${asset.publicId}`);
         }
-        const tempImages = await tempImagesQuery;
 
-        for (const tempImage of tempImages) {
-          try {
-            // Generate new public_id in assets folder (for CSV imported images)
-            const newPublicId = `${PERMANENT_FOLDER}/${Date.now()}_${Math.random()
-              .toString(36)
-              .substring(2, 8)}`;
-
-            // Move image in Cloudinary
-            const moveResult = await cloudinary.uploader.rename(
-              tempImage.public_id,
-              newPublicId,
-              { resource_type: "image" }
-            );
-
+        // Legacy: CsvTempImage records (Cloudinary). Rename is a no-op — use URL as-is.
+        for (const tempImage of legacyCsvImages) {
+          if (!imageMapping.has(tempImage.temp_key)) {
             imageMapping.set(tempImage.temp_key, {
-              new_public_id: newPublicId,
-              url: moveResult.secure_url || moveResult.url,
+              new_public_id: tempImage.public_id,
+              url: tempImage.url || tempImage.secure_url,
               old_public_id: tempImage.public_id,
-            });
-
-            convertedImages.push({
-              old_public_id: tempImage.public_id,
-              new_public_id: newPublicId,
             });
             tempKeysUsed.push(tempImage.temp_key);
-
-            logger.info(
-              `  ✅ Converted: ${tempImage.temp_key} → ${newPublicId}`
-            );
-          } catch (error) {
-            logger.error(
-              `  ❌ Failed to convert ${tempImage.temp_key}:`,
-              error.message
-            );
-            throw new Error(
-              `Failed to convert image ${tempImage.temp_key}: ${error.message}`
-            );
+            logger.info(`  ✅ Resolved (CsvTempImage): ${tempImage.temp_key}`);
           }
         }
       }
@@ -1548,26 +1532,7 @@ class BulkImportController {
         }
       }
 
-      // Manual rollback: Revert converted images (move back to temp folder)
-      for (const img of convertedImages) {
-        try {
-          await cloudinary.uploader.rename(
-            img.new_public_id,
-            img.old_public_id,
-            {
-              resource_type: "image",
-            }
-          );
-          logger.info(
-            `🔄 [Rollback] Reverted image: ${img.new_public_id} → ${img.old_public_id}`
-          );
-        } catch (rollbackError) {
-          logger.error(
-            `❌ [Rollback] Failed to revert image:`,
-            rollbackError.message
-          );
-        }
-      }
+      // Images are stored permanently in the media server — no revert needed.
 
       // Handle duplicate key errors specifically
       if (error.code === 11000) {

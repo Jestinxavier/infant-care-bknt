@@ -12,7 +12,10 @@
     "test:integration": "cross-env NODE_ENV=test jest tests/integration",
     "create-admin": "node scripts/createAdmin.js",
     "seed-categories": "node scripts/seedCategories.js",
-    "seed:partners": "node scripts/seedDeliveryPartners.js"
+    "seed:partners": "node scripts/seedDeliveryPartners.js",
+    "migrate:media": "node src/scripts/migrate-to-media-server.js",
+    "migrate:media:dry": "node src/scripts/migrate-to-media-server.js --dry-run",
+    "fix:media-url": "node src/scripts/fix-media-base-url.js"
   },
   "keywords": [
     "nodejs",
@@ -24,6 +27,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
+    "@google/genai": "^2.0.1",
     "@sentry/node": "^10.50.0",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
@@ -36,6 +41,7 @@
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^8.3.2",
     "express-validator": "^7.2.1",
+    "groq-sdk": "^1.1.2",
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
     "json2csv": "^6.0.0-alpha.2",
@@ -51,7 +57,8 @@
     "pg-sdk-node": "^2.0.2",
     "socket.io": "^4.8.3",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

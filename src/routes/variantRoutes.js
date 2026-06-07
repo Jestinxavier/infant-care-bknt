@@ -1,5 +1,5 @@
 const express = require("express");
-const { parser } = require("../config/cloudinary");
+const { parser, uploadFilesMiddleware } = require("../config/mediaServer");
 const verifyToken = require("../middlewares/authMiddleware");
 const {
   updateVariant,
@@ -281,7 +281,10 @@ router.get("/:slug", getVariantsByCategory);
 router.put(
   "/update",
   verifyToken,
-  (req, res, next) => parser.any()(req, res, next),
+  (req, res, next) => parser.any()(req, res, function (err) {
+    if (err) return next(err);
+    uploadFilesMiddleware(req, res, next);
+  }),
   updateVariant
 );
 
