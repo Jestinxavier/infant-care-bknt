@@ -402,13 +402,12 @@ const getDemoResponse = async (userMessage) => {
 };
 
 // ── Groq JSON-mode loop (no formal tool calling — more reliable) ──────
-const runGroqWithTools = async (history, userMessage, extraSystemContext = "") => {
+const runGroqWithTools = async (history, userMessage, extraSystemContext = "", sessionId = null) => {
   const catalogContext = await buildCatalogContext();
 
   const systemPrompt =
     SYSTEM_PROMPT +
     catalogContext +
-    extraSystemContext +
     `
 
 ## How to respond:
@@ -431,16 +430,27 @@ Critical rules for "search_for":
 
   let response;
   try {
-    response = await groq.chat.completions.create({
+    let finalUserMessage = userMessage;
+    if (extraSystemContext?.trim()) {
+      finalUserMessage = `Context:\n${extraSystemContext}\n\nUser message: ${userMessage}`;
+    }
+
+    const options = {
       model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
-        { role: "user", content: userMessage },
+        { role: "user", content: finalUserMessage },
       ],
       max_tokens: 1024,
       response_format: { type: "json_object" },
-    });
+    };
+
+    if (sessionId) {
+      options.user = String(sessionId);
+    }
+
+    response = await groq.chat.completions.create(options);
   } catch (apiErr) {
     const errMsg = String(apiErr?.message ?? "").toLowerCase();
     const isQuotaError =
@@ -459,11 +469,27 @@ Critical rules for "search_for":
     throw apiErr;
   }
 
+  const choice = response?.choices?.[0]?.message;
+  if (!choice) {
+    throw new Error("No response message returned from Groq API");
+  }
+
+  if (choice.refusal) {
+    logger.warn("Groq API model refusal", { refusal: choice.refusal });
+    const categories = await fetchParentCategories();
+    return {
+      text: "I'm sorry, I cannot assist with that request. How else can I help you find baby products?",
+      products: [],
+      escalated: false,
+      options: categories.map((c) => c.name),
+    };
+  }
+
   let parsed;
   try {
-    parsed = JSON.parse(response.choices[0].message.content ?? "{}");
+    parsed = JSON.parse(choice.content ?? "{}");
   } catch {
-    parsed = { reply: response.choices[0].message.content ?? "", search_for: null, escalate: false };
+    parsed = { reply: choice.content ?? "", search_for: null, escalate: false };
   }
 
   let products = [];
@@ -511,12 +537,24 @@ const toGroqHistory = (messages) =>
 
 // ── CUSTOMER CONTROLLERS ─────────────────────────────────────────────
 
+const sanitizeUserMessage = (msg) => {
+  if (typeof msg !== "string") return "";
+  // Trim and limit length to 1000 characters to prevent prompt injection and DOS
+  let sanitized = msg.trim().slice(0, 1000);
+  // Remove control characters except newlines/tabs
+  sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  return sanitized;
+};
+
 // POST /api/v1/chat/message
 const sendMessage = async (req, res) => {
   try {
     const { sessionId, message } = req.body;
     if (!message?.trim()) return res.status(400).json({ success: false, message: "Message is required" });
     if (!sessionId) return res.status(400).json({ success: false, message: "sessionId is required" });
+
+    const cleanMessage = sanitizeUserMessage(message);
+    if (!cleanMessage) return res.status(400).json({ success: false, message: "Invalid message content" });
 
     let session = await ChatSession.findOne({ sessionId });
     if (!session) {
@@ -530,24 +568,24 @@ const sendMessage = async (req, res) => {
 
     // If already escalated — save message and notify dashboard via socket
     if (session.status === "escalated") {
-      session.messages.push({ role: "user", content: message.trim() });
+      session.messages.push({ role: "user", content: cleanMessage });
       await session.save();
       emitEvent("chat:escalated_message", {
         sessionId,
         role: "user",
-        content: message.trim(),
+        content: cleanMessage,
         createdAt: new Date().toISOString(),
         customerName: session.customerName,
       });
       return res.status(200).json({ success: true, reply: null, escalated: true, sessionId });
     }
 
-    session.messages.push({ role: "user", content: message.trim() });
+    session.messages.push({ role: "user", content: cleanMessage });
 
     // Build history from all previous messages (excluding the latest user msg)
     const history = toGroqHistory(session.messages);
-    const knowledge = await fetchKnowledge(message.trim()); // KB answers from resolved chats
-    const result = await runGroqWithTools(history, message.trim(), knowledge);
+    const knowledge = await fetchKnowledge(cleanMessage); // KB answers from resolved chats
+    const result = await runGroqWithTools(history, cleanMessage, knowledge, sessionId);
 
     session.messages.push({
       role: "assistant",
@@ -563,7 +601,7 @@ const sendMessage = async (req, res) => {
         customerName: session.customerName,
         customerEmail: session.customerEmail,
         escalationReason: session.escalationReason,
-        lastMessage: message.trim(),
+        lastMessage: cleanMessage,
         createdAt: session.createdAt,
       });
     }
