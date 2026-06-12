@@ -568,7 +568,7 @@ router.post("/resend-otp", otpLimiter, resendOTP);
  *                   type: string
  *                   example: User not found
  */
-router.post("/profile", verifyToken, getProfile);
+router.get("/profile", verifyToken, getProfile);
 
 /**
  * @swagger
