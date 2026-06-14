@@ -119,13 +119,116 @@ exports.getDashboardStats = async (req, res) => {
       // 4. Products Count (All time - current inventory)
       const productsInStock = await Product.countDocuments({});
 
-      // 5. Sales Over Time
+      // 5. Compute trend percentages (current vs previous period)
+      const calcTrend = (current, previous) => {
+        if (!previous || previous === 0) {
+          return current > 0 ? { trend: "+100.0%", up: true } : { trend: "0.0%", up: true };
+        }
+        const diff = ((current - previous) / previous) * 100;
+        const up = diff >= 0;
+        return { trend: (up ? "+" : "") + diff.toFixed(1) + "%", up };
+      };
+
+      let revenueTrendObj = null;
+      let ordersTrendObj = null;
+      let aovTrendObj = null;
+
+      if (isAllTime) {
+        // Split full order history at the temporal midpoint and compare the two halves
+        const earliest = await Order.findOne(
+          { orderStatus: { $nin: ["cancelled", "returned"] }, paymentStatus: "paid" },
+          { createdAt: 1 },
+        ).sort({ createdAt: 1 });
+
+        if (earliest) {
+          const midpoint = new Date(
+            (earliest.createdAt.getTime() + now.getTime()) / 2,
+          );
+
+          const [firstHalfRevRes, secondHalfRevRes] = await Promise.all([
+            Order.aggregate([
+              {
+                $match: {
+                  orderStatus: { $nin: ["cancelled", "returned"] },
+                  paymentStatus: "paid",
+                  createdAt: { $lt: midpoint },
+                },
+              },
+              { $group: { _id: null, total: { $sum: "$totalAmount" }, count: { $sum: 1 } } },
+            ]),
+            Order.aggregate([
+              {
+                $match: {
+                  orderStatus: { $nin: ["cancelled", "returned"] },
+                  paymentStatus: "paid",
+                  createdAt: { $gte: midpoint },
+                },
+              },
+              { $group: { _id: null, total: { $sum: "$totalAmount" }, count: { $sum: 1 } } },
+            ]),
+          ]);
+
+          const firstRev = firstHalfRevRes[0]?.total || 0;
+          const firstOrders = firstHalfRevRes[0]?.count || 0;
+          const secondRev = secondHalfRevRes[0]?.total || 0;
+          const secondOrders = secondHalfRevRes[0]?.count || 0;
+
+          const firstAov = firstOrders > 0 ? firstRev / firstOrders : 0;
+          const secondAov = secondOrders > 0 ? secondRev / secondOrders : 0;
+
+          revenueTrendObj = calcTrend(secondRev, firstRev);
+          ordersTrendObj = calcTrend(secondOrders, firstOrders);
+          aovTrendObj = calcTrend(secondAov, firstAov);
+        }
+      } else {
+        // Build the previous window (same length as current, immediately before it)
+        let prevStartDate = new Date(startDate);
+        if (isCustomRange) {
+          const rangeStart = customDateRange.$gte || startDate;
+          const rangeEnd = customDateRange.$lte || now;
+          const diffMs = rangeEnd.getTime() - rangeStart.getTime();
+          prevStartDate = new Date(rangeStart.getTime() - diffMs);
+        } else {
+          prevStartDate.setDate(prevStartDate.getDate() - daysCount);
+        }
+
+        const prevDateMatch = { createdAt: { $gte: prevStartDate, $lt: startDate } };
+
+        const [prevRevRes, prevOrdersCount] = await Promise.all([
+          Order.aggregate([
+            {
+              $match: {
+                orderStatus: { $nin: ["cancelled", "returned"] },
+                paymentStatus: "paid",
+                ...prevDateMatch,
+              },
+            },
+            { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
+          ]),
+          Order.countDocuments({
+            orderStatus: { $ne: "cancelled" },
+            ...prevDateMatch,
+          }),
+        ]);
+
+        const prevTotalRevenue = prevRevRes[0]?.totalRevenue || 0;
+        const prevNewOrders = prevOrdersCount;
+        const currentAov = newOrders > 0 ? totalRevenue / newOrders : 0;
+        const prevAov = prevNewOrders > 0 ? prevTotalRevenue / prevNewOrders : 0;
+
+        revenueTrendObj = calcTrend(totalRevenue, prevTotalRevenue);
+        ordersTrendObj = calcTrend(newOrders, prevNewOrders);
+        aovTrendObj = calcTrend(currentAov, prevAov);
+      }
+
+      // 6. Sales Over Time (including order counts)
       const salesOverTime = await Order.aggregate([
         { $match: salesMatch },
         {
           $group: {
             _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
             total: { $sum: "$totalAmount" },
+            orders: { $sum: 1 },
           },
         },
         { $sort: { _id: 1 } },
@@ -137,7 +240,7 @@ exports.getDashboardStats = async (req, res) => {
       if (!isAllTime && (!isCustomRange || daysCount <= 93)) {
         // Pre-create a Map for O(1) lookup
         const salesMap = new Map(
-          salesOverTime.map((item) => [item._id, item.total]),
+          salesOverTime.map((item) => [item._id, { total: item.total, orders: item.orders }]),
         );
 
         for (let i = daysCount - 1; i >= 0; i--) {
@@ -164,10 +267,12 @@ exports.getDashboardStats = async (req, res) => {
             name = d.toLocaleDateString("en-US", { weekday: "short" });
           }
 
+          const dayData = salesMap.get(dateStr) || { total: 0, orders: 0 };
           formattedSales.push({
             name,
             date: dateStr,
-            total: salesMap.get(dateStr) || 0,
+            total: dayData.total,
+            orders: dayData.orders,
           });
         }
       } else {
@@ -176,6 +281,7 @@ exports.getDashboardStats = async (req, res) => {
           name: item._id,
           date: item._id,
           total: item.total,
+          orders: item.orders,
         }));
       }
 
@@ -429,6 +535,11 @@ exports.getDashboardStats = async (req, res) => {
         orderStatusDist,
         categorySales,
         monthlySummary,
+        trends: {
+          revenue: revenueTrendObj,
+          orders: ordersTrendObj,
+          aov: aovTrendObj,
+        },
       };
     }); // end cacheGetOrSet
 
