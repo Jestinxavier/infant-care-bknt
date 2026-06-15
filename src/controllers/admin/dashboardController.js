@@ -16,14 +16,14 @@ function parseDateRange(from, to) {
   const range = {};
 
   if (from) {
-    const start = new Date(`${from}T00:00:00.000Z`);
+    const start = new Date(`${from}T00:00:00.000+05:30`);
     if (!Number.isNaN(start.getTime())) {
       range.$gte = start;
     }
   }
 
   if (to) {
-    const end = new Date(`${to}T23:59:59.999Z`);
+    const end = new Date(`${to}T23:59:59.999+05:30`);
     if (!Number.isNaN(end.getTime())) {
       range.$lte = end;
     }
@@ -47,8 +47,13 @@ exports.getDashboardStats = async (req, res) => {
       : `dashboard:${period}`;
 
     const cached = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
-      // Calculate date range based on period
+      // Get current date/time in Asia/Kolkata timezone
       const now = new Date();
+      const kolkataDateStr = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+      }).format(now); // e.g. "2026-06-15"
+      const todayStart = new Date(`${kolkataDateStr}T00:00:00.000+05:30`);
+
       const startDate = new Date();
       let isAllTime = false;
       let isCustomRange = false;
@@ -70,23 +75,23 @@ exports.getDashboardStats = async (req, res) => {
       } else {
         switch (period) {
           case "week":
-            startDate.setDate(now.getDate() - 7);
             daysCount = 7;
+            startDate.setTime(todayStart.getTime() - (daysCount - 1) * 24 * 60 * 60 * 1000);
             break;
           case "month":
-            startDate.setDate(now.getDate() - 30);
             daysCount = 30;
+            startDate.setTime(todayStart.getTime() - (daysCount - 1) * 24 * 60 * 60 * 1000);
             break;
           case "year":
-            startDate.setFullYear(now.getFullYear() - 1);
             daysCount = 365;
+            startDate.setTime(todayStart.getTime() - (daysCount - 1) * 24 * 60 * 60 * 1000);
             break;
           case "all":
             isAllTime = true;
             break;
           default:
-            startDate.setDate(now.getDate() - 7);
             daysCount = 7;
+            startDate.setTime(todayStart.getTime() - (daysCount - 1) * 24 * 60 * 60 * 1000);
         }
       }
 
@@ -226,7 +231,7 @@ exports.getDashboardStats = async (req, res) => {
         { $match: salesMatch },
         {
           $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
             total: { $sum: "$totalAmount" },
             orders: { $sum: 1 },
           },
@@ -255,16 +260,17 @@ exports.getDashboardStats = async (req, res) => {
           let name;
           if (period === "year") {
             // Year range: show month only to avoid 365 crowded labels
-            name = d.toLocaleDateString("en-US", { month: "short" });
+            name = d.toLocaleDateString("en-US", { month: "short", timeZone: "Asia/Kolkata" });
           } else if (isCustomRange || period === "month") {
             // Custom range and 30-day preset: show "May 5" style dates
             name = d.toLocaleDateString("en-US", {
               month: "short",
               day: "numeric",
+              timeZone: "Asia/Kolkata",
             });
           } else {
             // Default weekly preset: show weekday short name
-            name = d.toLocaleDateString("en-US", { weekday: "short" });
+            name = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "Asia/Kolkata" });
           }
 
           const dayData = salesMap.get(dateStr) || { total: 0, orders: 0 };
