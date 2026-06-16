@@ -16,6 +16,7 @@ const {
 const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
 const { cacheGetOrSet, cacheDel, TTL } = require("../../utils/redisCache");
+const { logError } = require("../../utils/errorLogger");
 
 const SiteSetting = require("../../models/SiteSetting");
 const logger = require("../../utils/logger");
@@ -52,7 +53,17 @@ const invalidateCartSettings = () => cacheDel(CART_SETTINGS_CACHE_KEY);
  * - Everything else: 500 with errorType + message
  * Stack traces are included only outside production.
  */
-const sendCartError = (res, error) => {
+const sendCartError = (req, res, error) => {
+  void logError(error, {
+    source: "cart/hybridCartController",
+    req,
+    statusCode: error.statusCode || error.status || 500,
+    metadata: {
+      errorCode: error.errorCode || error.code || null,
+      operation: req.route?.path || req.originalUrl || req.path,
+    },
+  });
+
   if (error.statusCode) {
     return res.status(error.statusCode).json({
       success: false,
@@ -650,7 +661,7 @@ const createCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error creating cart:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -695,7 +706,7 @@ const setCookie = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error setting cookie:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -775,7 +786,7 @@ const getCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting cart:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -986,7 +997,7 @@ const addItem = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error adding item:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1123,7 +1134,7 @@ const updateItem = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error updating item:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1269,7 +1280,7 @@ const removeItem = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error removing item:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1316,7 +1327,7 @@ const clearCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error clearing cart:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1343,7 +1354,7 @@ const getCount = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting count:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1390,7 +1401,7 @@ const getItems = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting items:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1458,7 +1469,7 @@ const getPriceSummary = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting price summary:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1525,7 +1536,7 @@ const getProductData = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting product data:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -1598,7 +1609,7 @@ const getSummary = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting summary:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 /**
@@ -1863,7 +1874,7 @@ const mergeCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error merging cart:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -2347,7 +2358,7 @@ const applyCoupon = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error applying coupon:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -2429,7 +2440,7 @@ const removeCoupon = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error removing coupon:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -2578,7 +2589,7 @@ const getAvailableCoupons = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error getting coupons:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 
@@ -2757,7 +2768,7 @@ const recoverCart = async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Error recovering cart:", error);
-    sendCartError(res, error);
+    sendCartError(req, res, error);
   }
 };
 

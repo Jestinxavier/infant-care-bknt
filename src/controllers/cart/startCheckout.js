@@ -1,6 +1,7 @@
 const Cart = require("../../models/Cart");
 const crypto = require("crypto");
 const logger = require("../../utils/logger");
+const { logError } = require("../../utils/errorLogger");
 const { generateCartId } = require("../../utils/cartIdGenerator");
 const {
   CHECKOUT_SESSION_MS,
@@ -12,16 +13,20 @@ const {
  * POST /cart/start-checkout
  */
 const startCheckout = async (req, res) => {
+  let userId = null;
+  let isGuest = null;
+  let cartId = null;
+
   try {
     const { cartId: bodyCartId } = req.body;
     // Resolve userId from JWT (set by optionalVerifyToken middleware).
     // Never trust userId from the request body — callers cannot self-attest identity.
-    const userId = req.user?.id || null;
+    userId = req.user?.id || null;
     // Get cartId from body or cookies (use CART_ID constant = "cart_id")
-    const cartId = bodyCartId || req.cookies?.[CART_ID];
+    cartId = bodyCartId || req.cookies?.[CART_ID];
 
     // userId is optional — guests have no userId
-    const isGuest = !userId;
+    isGuest = !userId;
 
     if (isGuest && !cartId) {
       return res.status(400).json({
@@ -187,7 +192,17 @@ const startCheckout = async (req, res) => {
       expiresAt: cart.checkoutExpiry,
     });
   } catch (error) {
-    logger.error("❌ Checkout start error:", error);
+    void logError(error, {
+      source: "cart/startCheckout",
+      req,
+      statusCode: error.statusCode || error.status || 500,
+      metadata: {
+        cartId,
+        userId,
+        isGuest,
+        action: "start_checkout",
+      },
+    });
     return res.status(500).json({
       success: false,
       errorCode: "INTERNAL_ERROR",

@@ -12,6 +12,7 @@ const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
 const logger = require("../../utils/logger");
 const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
+const { logError } = require("../../utils/errorLogger");
 
 const generateOrderId = () =>
   crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -22,14 +23,26 @@ const generateOrderId = () =>
  */
 const createOrder = async (req, res) => {
   const session = await mongoose.startSession();
+  let orderId = null;
+  let userId = null;
+  let paymentMethod = null;
+  let cartId = null;
 
   try {
-    const { guestInfo, items, addressId, newAddress, paymentMethod, cartId } =
-      req.body;
+    const {
+      guestInfo,
+      items,
+      addressId,
+      newAddress,
+      paymentMethod: requestedPaymentMethod,
+      cartId: requestedCartId,
+    } = req.body;
+    paymentMethod = requestedPaymentMethod;
+    cartId = requestedCartId;
 
     // Authenticated users: always use token identity, never body userId
     // Guests: force null — never accept a userId from an unauthenticated request
-    const userId = req.user?.id || null;
+    userId = req.user?.id || null;
     const isGuest = !userId;
 
     // === VALIDATION ===
@@ -684,7 +697,7 @@ const createOrder = async (req, res) => {
     }
 
     // Step 3: Create Order
-    const orderId = generateOrderId();
+    orderId = generateOrderId();
 
     const order = new Order({
       userId: userId ? new mongoose.Types.ObjectId(userId) : null,
@@ -771,7 +784,19 @@ const createOrder = async (req, res) => {
           throw new Error("Redirect URL missing from SDK response");
         }
       } catch (error) {
-        logger.error("❌ Error initiating PhonePe payment:", { message: error.message, stack: error.stack });
+        void logError(error, {
+          source: "orders/orderController.createOrder",
+          req,
+          statusCode: 502,
+          metadata: {
+            stage: "phonepe_payment_initiation",
+            orderId,
+            cartId: cart.cartId,
+            paymentMethod,
+            gateway: "phonepe",
+            userId,
+          },
+        });
 
         // === CLEANUP LONE ORDER (Case 3: Payment Init Failed) ===
         // Since transaction is already committed, we must manually undo changes.
@@ -830,10 +855,19 @@ const createOrder = async (req, res) => {
 
           logger.info(`✅ Cleanup successful for order ${order.orderId}`);
         } catch (cleanupError) {
-          logger.error(
-            "🔥 CRITICAL: Failed to cleanup order after payment error:",
-            cleanupError
-          );
+          void logError(cleanupError, {
+            source: "orders/orderController.createOrder",
+            req,
+            statusCode: 500,
+            metadata: {
+              stage: "phonepe_payment_cleanup",
+              orderId,
+              cartId: cart._id?.toString?.() || cart.cartId,
+              paymentMethod,
+              gateway: "phonepe",
+              userId,
+            },
+          });
           // Alert admin/sentry here
         }
 
@@ -885,7 +919,19 @@ const createOrder = async (req, res) => {
     });
   } catch (error) {
     await session.abortTransaction();
-    logger.error("❌ Order creation failed:", error);
+    void logError(error, {
+      source: "orders/orderController.createOrder",
+      req,
+      statusCode: error.statusCode || (error.code ? 400 : 500),
+      metadata: {
+        stage: "order_creation",
+        orderId,
+        cartId: req.body?.cartId || req.cookies?.cart_id || null,
+        paymentMethod: req.body?.paymentMethod || null,
+        userId,
+        errorCode: error.code || error.errorCode || null,
+      },
+    });
 
     // Structured error responses
     if (error.code === "OUT_OF_STOCK") {
