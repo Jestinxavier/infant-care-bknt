@@ -93,6 +93,7 @@ app.use(cookieParser());
 // Both /api/webhook/phonepe (singular) and /api/webhooks/phonepe (plural) are handled
 // because PhonePe dashboard may be configured with either spelling
 const { phonepeWebhook } = require("./controllers/payment/phonepeSDK");
+const { razorpayWebhook } = require("./controllers/payment/razorpaySDK");
 const { wlog } = require("./utils/webhookLogger");
 const webhookMiddleware = [
   (req, res, next) => {
@@ -114,8 +115,17 @@ const webhookMiddleware = [
   }),
   phonepeWebhook,
 ];
+const razorpayWebhookMiddleware = [
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    },
+  }),
+  razorpayWebhook,
+];
 app.post("/api/webhooks/phonepe", ...webhookMiddleware);
 app.post("/api/webhook/phonepe", ...webhookMiddleware);
+app.post("/api/webhooks/razorpay", ...razorpayWebhookMiddleware);
 
 // Middleware
 app.use(express.json({ limit: "1mb" }));
@@ -240,8 +250,12 @@ const {
   checkOrderStatus,
   manualCheckPaymentStatus,
 } = require("./controllers/payment/phonepeSDK");
+const {
+  checkOrderStatus: checkRazorpayOrderStatus,
+} = require("./controllers/payment/razorpaySDK");
 
 app.get("/order-confirmation", checkOrderStatus);
+app.get("/razorpay-confirmation", checkRazorpayOrderStatus);
 // Manual payment status check — admin only
 const verifyToken = require("./middlewares/authMiddleware");
 const requireAdmin = require("./middlewares/adminMiddleware");

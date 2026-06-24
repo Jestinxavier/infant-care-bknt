@@ -10,6 +10,7 @@ const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
 const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
+const razorpaySDK = require("../../controllers/payment/razorpaySDK");
 const logger = require("../../utils/logger");
 const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
 
@@ -642,10 +643,21 @@ const createOrder = async (req, res) => {
     // is checked against what the customer actually pays, not the pre-coupon amount.
     const payableBeforeShipping = totalAfterDiscount - couponDiscount;
     const shippingAmount = payableBeforeShipping >= freeThreshold ? 0 : shippingCost;
-    const totalAmount = payableBeforeShipping + shippingAmount;
+
+    // Fetch COD cost if selected
+    let codCost = 0;
+    if (paymentMethod === PAYMENT_METHODS.COD) {
+      const paymentSetting = await SiteSetting.findOne({ key: "payment_methods" }).session(session);
+      const codMethod = paymentSetting?.value?.methods?.find(m => m.code === "COD");
+      if (codMethod && codMethod.deliveryCodCost) {
+        codCost = Number(codMethod.deliveryCodCost) || 0;
+      }
+    }
+
+    const totalAmount = payableBeforeShipping + shippingAmount + codCost;
 
     logger.info(
-      `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, Total=${totalAmount}`
+      `💰 Order: Subtotal=${subtotal}, ProductDisc=${discountAmount}, CouponDisc=${couponDiscount}, Shipping=${shippingAmount}, CODFee=${codCost}, Total=${totalAmount}`
     );
 
     // Step 6: Handle address
@@ -701,6 +713,7 @@ const createOrder = async (req, res) => {
       totalQuantity,
       subtotal,
       shippingCost: shippingAmount,
+      codCost: codCost,
       discount: discountAmount + couponDiscount,
       coupon: appliedCoupon,
       coupons: appliedCoupons,
@@ -714,6 +727,7 @@ const createOrder = async (req, res) => {
         productDiscount: discountAmount,
         couponDiscount,
         shipping: shippingAmount,
+        codCost: codCost,
         total: totalAmount,
         snapshotAt: new Date(),
       },
@@ -754,6 +768,96 @@ const createOrder = async (req, res) => {
     );
 
     // Step 10: Return response based on payment method
+    if (paymentMethod === PAYMENT_METHODS.RAZORPAY) {
+      try {
+        const response = await razorpaySDK.initiatePayment({
+          orderId,
+          amount: Math.round(totalAmount * 100),
+        });
+        if (response?.razorpayOrderId) {
+          return res.status(200).json({
+            success: true,
+            message: "Razorpay order created successfully",
+            paymentMode: "razorpay",
+            orderId,
+            ...response,
+          });
+        } else {
+          throw new Error("Razorpay Order ID missing from response");
+        }
+      } catch (error) {
+        logger.error("❌ Error initiating Razorpay payment:", { message: error.message, stack: error.stack });
+
+        // === CLEANUP LONE ORDER (Case 3: Payment Init Failed) ===
+        // Since transaction is already committed, we must manually undo changes.
+        try {
+          logger.info(`⚠️ Cleaning up failed order ${order.orderId}...`);
+
+          // 1. Cancel the order
+          await Order.findByIdAndUpdate(order._id, {
+            orderStatus: "cancelled",
+            paymentStatus: "failed",
+            "statusHistory.0.note":
+              "Payment initiation failed - Auto-cancelled",
+          });
+
+          // 2. Release Stock
+          for (const update of stockUpdates) {
+            if (update.type === "BUNDLE_CHILD") {
+              await Product.findOneAndUpdate(
+                { sku: update.sku, product_type: PRODUCT_TYPES.SIMPLE },
+                {
+                  $inc: {
+                    "stockObj.available": update.quantity,
+                    stock: update.quantity,
+                  },
+                }
+              );
+            } else if (update.variantId) {
+              await Product.findOneAndUpdate(
+                { _id: update.productId, "variants.id": update.variantId },
+                {
+                  $inc: {
+                    "variants.$.stockObj.available": update.quantity,
+                    "variants.$.stock": update.quantity,
+                  },
+                }
+              );
+            } else {
+              await Product.findOneAndUpdate(
+                { _id: update.productId },
+                {
+                  $inc: {
+                    "stockObj.available": update.quantity,
+                    stock: update.quantity,
+                  },
+                }
+              );
+            }
+          }
+
+          // 3. Reset cart to active so the user can restart checkout from the cart page.
+          await Cart.findByIdAndUpdate(cart._id, {
+            $set: { status: "active", completedAt: null },
+            $unset: { orderId: "" },
+          });
+
+          logger.info(`✅ Cleanup successful for order ${order.orderId}`);
+        } catch (cleanupError) {
+          logger.error(
+            "🔥 CRITICAL: Failed to cleanup order after Razorpay payment error:",
+            cleanupError
+          );
+        }
+
+        return res.status(500).json({
+          success: false,
+          message: "Failed to initiate payment. Order cancelled.",
+          orderCancelled: true,
+        });
+      }
+    }
+
     if (paymentMethod === PAYMENT_METHODS.PHONEPE) {
       try {
         const response = await phonepeSDK.initiatePayment({

@@ -30,6 +30,7 @@ const siteSettingSchema = new mongoose.Schema(
         "order",
         "product",
         "search",
+        "payment",
       ],
       default: "global",
       index: true,

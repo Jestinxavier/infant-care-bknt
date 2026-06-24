@@ -339,6 +339,9 @@ const sendInvoiceEmail = async (user, order) => {
     };
   });
 
+  const codCost = Number(order.priceObj?.codCost) || Number(order.codCost) || 0;
+  const codCostFormatted = codCost > 0 ? formatMoney(codCost) : "";
+
   // Build discount lines: product discount + each coupon separately
   const discountLines = [];
   const productDiscount = Number(order.priceObj?.productDiscount) || 0;
@@ -380,6 +383,7 @@ const sendInvoiceEmail = async (user, order) => {
 
       subtotalFormatted: formatMoney(order.subtotal || 0),
       shippingFormatted: formatMoney(order.shippingCost || 0),
+      codCostFormatted: codCostFormatted || null,
       totalFormatted: formatMoney(order.totalAmount || order.total || 0),
 
       discountLines,

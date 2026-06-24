@@ -60,8 +60,21 @@ const getPaymentOptions = async (req, res) => {
       });
     }
 
+    // ✅ 4.5. Read Active Gateway Setting
+    const activeGatewaySetting = await SiteSetting.findOne({
+      key: "payment.active_gateway",
+    });
+    const activeGateway = activeGatewaySetting?.value || "phonepe";
+
     // ✅ 5. Filter Enabled Methods
-    const enabledMethods = methods.filter((method) => method.isEnabled);
+    let enabledMethods = methods.filter((method) => method.isEnabled);
+
+    // Filter out the online gateway that is NOT active
+    if (activeGateway === "razorpay") {
+      enabledMethods = enabledMethods.filter((method) => method.code !== "PHONEPE");
+    } else {
+      enabledMethods = enabledMethods.filter((method) => method.code !== "RAZORPAY");
+    }
 
     return res.json({
       success: true,

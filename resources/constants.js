@@ -10,6 +10,7 @@ const REFRESH_TOKEN = "refresh_token";
 const PAYMENT_METHODS = {
   COD: "COD",
   PHONEPE: "PHONEPE",
+  RAZORPAY: "RAZORPAY",
 };
 
 const TOKEN_EXPIRY = {

@@ -169,6 +169,7 @@ const getAllOrders = async (req, res) => {
       total: order.totalAmount,
       subtotal: order.subtotal,
       shippingCost: order.shippingCost,
+      codCost: order.codCost || 0,
       discount: order.discount,
       items: order.items.map((item) => ({
         variantId: item.variantId,
@@ -724,11 +725,11 @@ const markOrderAsPaid = async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    // Guard: only allow for PhonePe + pending payment
-    if (order.paymentMethod !== PAYMENT_METHODS.PHONEPE) {
+    // Guard: only allow for PhonePe/Razorpay + pending payment
+    if (order.paymentMethod !== PAYMENT_METHODS.PHONEPE && order.paymentMethod !== PAYMENT_METHODS.RAZORPAY) {
       return res.status(400).json({
         success: false,
-        message: `This order uses ${order.paymentMethod}. Manual paid marking is only for PhonePe orders.`,
+        message: `This order uses ${order.paymentMethod}. Manual paid marking is only for online (PhonePe/Razorpay) orders.`,
       });
     }
     if (order.paymentStatus === "paid") {
@@ -740,7 +741,7 @@ const markOrderAsPaid = async (req, res) => {
     history.push({
       status: "confirmed",
       timestamp: new Date(),
-      note: `Manually marked as paid by admin. PhonePe Transaction ID: ${phonepeTransactionId.trim()}`,
+      note: `Manually marked as paid by admin. Transaction ID: ${phonepeTransactionId.trim()}`,
       updatedBy: req.user?._id,
     });
 

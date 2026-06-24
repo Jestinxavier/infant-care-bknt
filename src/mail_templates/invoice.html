@@ -244,6 +244,15 @@
                     <td align="right">{{shippingFormatted}}</td>
                   </tr>
 
+                  {{#codCostFormatted}}
+                  <tr>
+                    <td colspan="2" align="right" style="padding: 4px 0; color: #555">
+                      COD Charges
+                    </td>
+                    <td align="right">{{codCostFormatted}}</td>
+                  </tr>
+                  {{/codCostFormatted}}
+
                   {{#discountLines}}
                   <tr>
                     <td colspan="2" align="right" style="padding: 4px 0; color: #16a34a">

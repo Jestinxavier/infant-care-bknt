@@ -103,6 +103,7 @@ const getOrderById = async (req, res) => {
         grandTotal: order?.totalAmount,
         subtotal: order?.subtotal,
         shippingCost: order?.shippingCost,
+        codCost: order?.codCost ?? 0,
         discount: order?.discount,
         couponDiscount: order?.coupon?.discountAmount ?? 0,
         productDiscount:

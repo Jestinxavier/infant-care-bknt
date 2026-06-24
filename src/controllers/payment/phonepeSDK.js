@@ -589,6 +589,85 @@ const initiateRefund = async (req, res) => {
       phonepeTransactionId: order.phonepeTransactionId,
     });
 
+    // ── 2.5. Razorpay delegation ─────────────────────────────────────────────
+    if (order.paymentMethod === "RAZORPAY") {
+      const razorpaySDK = require("./razorpaySDK");
+      const orderAmountPaise = Math.round(order.totalAmount * 100);
+      const amountToRefund = refundAmount
+        ? Math.round(Number(refundAmount))
+        : orderAmountPaise;
+
+      logger.info("[initiateRefund] Delegating refund to Razorpay SDK", { orderId, amountToRefund });
+      const razorpayRefundResult = await razorpaySDK.initiateRefund(orderId, amountToRefund, reason);
+
+      let newOrderStatus = order.orderStatus;
+      let pushToHistory = null;
+      let stockShouldBeRestored = false;
+
+      if (order.orderStatus !== "cancelled" && order.orderStatus !== "returned") {
+        newOrderStatus = "cancelled";
+        stockShouldBeRestored = true;
+        pushToHistory = {
+          status: "cancelled",
+          timestamp: new Date(),
+          note: reason
+            ? `Order cancelled automatically due to refund: ${reason}`
+            : "Order cancelled automatically due to refund initiation",
+        };
+      }
+
+      const updateQuery = {
+        $set: {
+          paymentStatus: "refunded",
+          refundStatus: razorpayRefundResult.state,
+          refundId: razorpayRefundResult.refundId,
+          refundedAt: new Date(),
+          refundReason: reason || null,
+          refundAmountPaise: amountToRefund,
+          orderStatus: newOrderStatus,
+        },
+        $push: {
+          refundAttempts: {
+            merchantRefundId: razorpayRefundResult.refundId,
+            state: razorpayRefundResult.state,
+            amountPaise: amountToRefund,
+            initiatedAt: new Date(),
+          },
+        },
+      };
+
+      if (pushToHistory) {
+        updateQuery.$push.statusHistory = pushToHistory;
+      }
+
+      const updatedOrder = await Order.findOneAndUpdate(
+        { orderId },
+        updateQuery,
+        { new: true }
+      );
+
+      if (updatedOrder && stockShouldBeRestored) {
+        try {
+          await restoreOrderStock(updatedOrder);
+          logger.info("[initiateRefund] Razorpay refund: Stock restored successfully", { orderId });
+        } catch (stockErr) {
+          logger.error("❌ Failed to restore stock after Razorpay cancellation:", stockErr);
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Refund initiated successfully",
+        refund: {
+          refundId: razorpayRefundResult.refundId,
+          state: razorpayRefundResult.state,
+          amount: razorpayRefundResult.amount,
+          merchantRefundId: razorpayRefundResult.refundId,
+          orderId,
+        },
+      });
+    }
+
     // ── 3. Eligibility checks ────────────────────────────────────────────────
     if (order.paymentMethod !== "PHONEPE") {
       logger.warn(
@@ -852,6 +931,54 @@ const getRefundStatus = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "refundId is required" });
+    }
+
+    // ── 1.5. Razorpay delegation check ───────────────────────────────────────
+    const order = await Order.findOne({ refundId });
+    if (order && order.paymentMethod === "RAZORPAY") {
+      const razorpaySDK = require("./razorpaySDK");
+      logger.info("[getRefundStatus] Delegating status check to Razorpay SDK", { refundId });
+      const razorpayRefundResult = await razorpaySDK.getRefundStatus(refundId);
+
+      const state = razorpayRefundResult.state;
+      if (state === "COMPLETED" || state === "FAILED") {
+        const dbUpdate = {
+          $set: { refundStatus: state },
+        };
+
+        if (state === "FAILED") {
+          dbUpdate.$set.paymentStatus = "paid";
+        }
+
+        if (state === "COMPLETED") {
+          dbUpdate.$set.refundedAt = new Date();
+        }
+
+        await Order.updateOne(
+          { refundId, "refundAttempts.merchantRefundId": refundId },
+          {
+            ...dbUpdate,
+            $set: {
+              ...dbUpdate.$set,
+              "refundAttempts.$.state": state,
+              "refundAttempts.$.resolvedAt": new Date(),
+            },
+          }
+        );
+      } else {
+        await Order.updateOne({ refundId }, { $set: { refundStatus: state } });
+      }
+
+      return res.status(200).json({
+        success: true,
+        refundStatus: {
+          merchantId: razorpayRefundResult.merchantId,
+          merchantRefundId: razorpayRefundResult.merchantRefundId,
+          state: razorpayRefundResult.state,
+          amount: razorpayRefundResult.amount,
+          paymentDetails: [],
+        },
+      });
     }
 
     // ── 2. Call PhonePe SDK ──────────────────────────────────────────────────

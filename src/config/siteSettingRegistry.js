@@ -3,6 +3,7 @@ const SITE_SETTING_KEYS = {
   ORDER_FROM_ADDRESS: "order.from_address",
   SEARCH_POPULAR_TERMS: "search.popular_terms",
   SEARCH_SUGGESTED_PRODUCTS: "search.suggested_products",
+  PAYMENT_ACTIVE_GATEWAY: "payment.active_gateway",
 };
 
 const SITE_SETTING_DEFINITIONS = {
@@ -62,6 +63,17 @@ const SITE_SETTING_DEFINITIONS = {
     category: "search",
     aliases: ["search.suggested_products", "suggested-products"],
     defaultValue: { productIds: [], viewAllLink: "/search" },
+  },
+  [SITE_SETTING_KEYS.PAYMENT_ACTIVE_GATEWAY]: {
+    key: SITE_SETTING_KEYS.PAYMENT_ACTIVE_GATEWAY,
+    scope: "payment",
+    type: "string",
+    isPublic: true,
+    label: "Active Payment Gateway",
+    description: "Select which online payment gateway to use (phonepe or razorpay).",
+    category: "payment",
+    aliases: ["payment.active_gateway"],
+    defaultValue: "phonepe",
   },
 };
 
