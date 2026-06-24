@@ -67,14 +67,7 @@ const getPaymentOptions = async (req, res) => {
     const activeGateway = activeGatewaySetting?.value || "phonepe";
 
     // ✅ 5. Filter Enabled Methods
-    let enabledMethods = methods.filter((method) => method.isEnabled);
-
-    // Filter out the online gateway that is NOT active
-    if (activeGateway === "razorpay") {
-      enabledMethods = enabledMethods.filter((method) => method.code !== "PHONEPE");
-    } else {
-      enabledMethods = enabledMethods.filter((method) => method.code !== "RAZORPAY");
-    }
+    const enabledMethods = methods.filter((method) => method.isEnabled);
 
     return res.json({
       success: true,
