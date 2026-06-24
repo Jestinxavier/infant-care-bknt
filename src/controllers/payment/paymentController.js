@@ -1,6 +1,6 @@
 const SiteSetting = require("../../models/SiteSetting");
 const Cart = require("../../models/Cart");
-const logger = require("../../utils/logger");
+const { logError } = require("../../utils/errorLogger");
 
 /**
  * GET /api/v1/payment/options
@@ -81,7 +81,15 @@ const getPaymentOptions = async (req, res) => {
       options: enabledMethods,
     });
   } catch (error) {
-    logger.error("[Payment Options Error]:", error);
+    void logError(error, {
+      source: "payment/paymentController.getPaymentOptions",
+      req,
+      statusCode: error.statusCode || error.status || 500,
+      metadata: {
+        cartId: req.header("x-cart-id") || null,
+        action: "get_payment_options",
+      },
+    });
 
     return res.status(500).json({
       success: false,

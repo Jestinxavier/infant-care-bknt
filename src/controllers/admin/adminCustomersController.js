@@ -21,6 +21,8 @@ const getAllCustomers = async (req, res) => {
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
     const skip = (pageNum - 1) * limitNum;
+    const normalizedSortBy = String(sortBy || "createdAt");
+    const sortDirection = parseInt(sortOrder, 10) === 1 ? 1 : -1;
 
     // Build filter - include only standard users
     const filter = {
@@ -45,12 +47,8 @@ const getAllCustomers = async (req, res) => {
     // Total users count
     const total = await User.countDocuments(filter);
 
-    // Fetch paginated users
-    const users = await User.find(filter)
-      .sort({ [sortBy]: parseInt(sortOrder, 10) || -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+    // Fetch matching users first so we can sort by aggregate fields too.
+    const users = await User.find(filter).lean();
 
     const userIds = users.map((u) => u._id);
 
@@ -84,6 +82,7 @@ const getAllCustomers = async (req, res) => {
                   },
                 },
                 orderCount: { $sum: 1 },
+                lastOrderDate: { $max: "$createdAt" },
               },
             },
           ]);
@@ -96,6 +95,7 @@ const getAllCustomers = async (req, res) => {
       const stats = orderStatsMap.get(String(user._id)) || {
         totalSpent: 0,
         orderCount: 0,
+        lastOrderDate: null,
       };
 
       return {
@@ -107,12 +107,47 @@ const getAllCustomers = async (req, res) => {
         registeredDate: user.createdAt,
         totalSpent: stats.totalSpent || 0,
         orderCount: stats.orderCount || 0,
+        lastOrderDate: stats.lastOrderDate || null,
       };
     });
 
+    const sortValue = (customer) => {
+      switch (normalizedSortBy) {
+        case "username":
+          return customer.name || "";
+        case "email":
+          return customer.email || "";
+        case "orderCount":
+          return customer.orderCount ?? 0;
+        case "totalSpent":
+          return customer.totalSpent ?? 0;
+        case "lastOrderDate":
+          return customer.lastOrderDate ? new Date(customer.lastOrderDate).getTime() : 0;
+        case "createdAt":
+        default:
+          return customer.registeredDate ? new Date(customer.registeredDate).getTime() : 0;
+      }
+    };
+
+    customers.sort((a, b) => {
+      const aValue = sortValue(a);
+      const bValue = sortValue(b);
+
+      if (typeof aValue === "string" || typeof bValue === "string") {
+        return String(aValue).localeCompare(String(bValue), undefined, {
+          sensitivity: "base",
+        }) * sortDirection;
+      }
+
+      if (aValue === bValue) return 0;
+      return (aValue > bValue ? 1 : -1) * sortDirection;
+    });
+
+    const paginatedCustomers = customers.slice(skip, skip + limitNum);
+
     res.status(200).json({
       success: true,
-      customers,
+      customers: paginatedCustomers,
       pagination: {
         page: pageNum,
         limit: limitNum,
