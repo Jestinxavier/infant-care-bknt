@@ -4,6 +4,7 @@ const {
   createOrder,
   getOrders,
   getOrderById,
+  getPaymentStatus,
 } = require("../controllers/Order");
 const verifyToken = require("../middlewares/authMiddleware");
 const { optionalVerifyToken } = require("../middlewares/authMiddleware");
@@ -210,21 +211,7 @@ router.get("/guest-lookup", guestLookupLimiter, guestOrderLookup);
 
 // GET /api/v1/orders/payment-status/:orderId — public, returns only payment+order status
 // Used by the order confirmation page to poll without requiring auth (session may have expired)
-router.get("/payment-status/:orderId", async (req, res) => {
-  try {
-    const Order = require("../models/Order");
-    const order = await Order.findOne(
-      { orderId: req.params.orderId },
-      { paymentStatus: 1, orderStatus: 1, orderId: 1, _id: 0 },
-    ).lean();
-    if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
-    }
-    return res.json({ success: true, paymentStatus: order.paymentStatus, orderStatus: order.orderStatus });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-});
+router.get("/payment-status/:orderId", getPaymentStatus);
 
 // POST /api/v1/auth/guest-convert — convert guest to account
 router.post("/guest-convert", guestConvert);

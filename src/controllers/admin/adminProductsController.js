@@ -241,7 +241,149 @@ const getProductById = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Lightweight product search for bundle child picker
+ */
+const searchProducts = async (req, res) => {
+  try {
+    const { q, product_type = "SIMPLE", limit = 20 } = req.query;
+
+    if (!q || q.trim().length < 2) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        message: "Search term must be at least 2 characters",
+      });
+    }
+
+    const searchRegex = new RegExp(escapeRegex(q.trim()), "i");
+
+    const productTypes = String(product_type)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const productTypeFilter =
+      productTypes.length > 1
+        ? { product_type: { $in: productTypes } }
+        : { product_type: productTypes[0] || "SIMPLE" };
+
+    const products = await Product.find({
+      $or: [{ sku: searchRegex }, { title: searchRegex }],
+      ...productTypeFilter,
+      status: "published",
+    })
+      .select("_id title sku url_key stockObj product_type")
+      .limit(parseInt(limit))
+      .lean();
+
+    const data = products.map((p) => ({
+      _id: p._id,
+      title: p.title,
+      sku: p.sku,
+      url_key: p.url_key,
+      stock: p.stockObj?.available ?? 0,
+      product_type: p.product_type,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    logger.error("Admin product search error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Search failed",
+    });
+  }
+};
+
+/**
+ * Admin: Lookup product/variant by SKU
+ */
+const skuLookup = async (req, res) => {
+  try {
+    const { sku } = req.query;
+    if (!sku || typeof sku !== "string" || !sku.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "sku query param is required",
+      });
+    }
+
+    const trimmedSku = sku.trim();
+
+    let product = await Product.findOne({
+      sku: trimmedSku,
+      status: "published",
+    })
+      .select("title url_key product_type sku stockObj stock")
+      .lean();
+
+    if (product) {
+      const available = product.stockObj?.available ?? product.stock ?? 0;
+      return res.status(200).json({
+        success: true,
+        data: {
+          sku: product.sku,
+          title: product.title,
+          url_key: product.url_key,
+          product_type: product.product_type || "SIMPLE",
+          available,
+        },
+      });
+    }
+
+    product = await Product.findOne({
+      "variants.sku": trimmedSku,
+      status: "published",
+    })
+      .select(
+        "title url_key product_type variants.sku variants.url_key variants.attributes variants.options variants.stockObj variants.stock",
+      )
+      .lean();
+
+    if (product) {
+      const variant = (product.variants || []).find(
+        (v) => v.sku === trimmedSku,
+      );
+      const variantUrlKey = variant?.url_key || product.url_key;
+      const attrs = variant?.attributes || variant?.options;
+      const attrStr =
+        attrs && typeof attrs === "object"
+          ? Object.values(attrs).join(" / ")
+          : "";
+      const title = attrStr ? `${product.title} - ${attrStr}` : product.title;
+      const available = variant?.stockObj?.available ?? variant?.stock ?? 0;
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          sku: trimmedSku,
+          title,
+          url_key: variantUrlKey,
+          product_type: "CONFIGURABLE",
+          available,
+        },
+      });
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: `SKU "${trimmedSku}" not found`,
+    });
+  } catch (error) {
+    logger.error("Admin sku-lookup error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Lookup failed",
+    });
+  }
+};
+
 module.exports = {
   getAllProducts,
   getProductById,
+  searchProducts,
+  skuLookup,
 };

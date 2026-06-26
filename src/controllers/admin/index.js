@@ -25,6 +25,8 @@ module.exports = {
   // Products
   getAllProducts,
   getProductById,
+  searchProducts,
+  skuLookup,
 
   // Orders
   getAllOrders,
