@@ -30,7 +30,7 @@ const loadTemplate = (templateName, data = {}) => {
 
   // Same logo URL for all templates (no attachment, consistent branding)
   const EMAIL_LOGO_URL =
-    "https://res.cloudinary.com/dkosvbrgw/image/upload/v1771013464/assets/55ff283583f31819ce1c8afd4cd9793238fb0cc7872fa46124888a67e43bca7b.png";
+    "https://dashboard.infantscare.in/logo-invoice.png";
   data.emailLogoDataUrl = EMAIL_LOGO_URL;
 
   /**
@@ -120,9 +120,15 @@ const createTransporter = () => {
   });
 };
 
-/* =====================================================
-   ✅ Universal Send Function
-===================================================== */
+const stripHtml = (html) => {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Remove styles
+    .replace(/<[^>]*>/g, "") // Strip HTML tags
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ") // Collapse whitespace
+    .replace(/\s*\n\s*/g, "\n") // Collapse lines
+    .trim();
+};
 
 /**
  * Send email using template
@@ -139,6 +145,7 @@ const sendTemplateEmail = async ({
   const transporter = createTransporter();
 
   const html = loadTemplate(template, data);
+  const text = stripHtml(html);
 
   const mailOptions = {
     from: `"${process.env.EMAIL_FROM_NAME || "Infants Care"}" <${
@@ -147,6 +154,7 @@ const sendTemplateEmail = async ({
     to,
     subject,
     html,
+    text,
   };
   if (attachments && attachments.length > 0) {
     mailOptions.attachments = attachments;
@@ -172,7 +180,7 @@ const generateOTP = () =>
 const sendOTPEmail = async (user, otp) => {
   return sendTemplateEmail({
     to: user.email,
-    subject: "🔐 Your Verification Code - Infants Care",
+    subject: "Your Verification Code - Infants Care",
     template: "otp-verification",
     data: {
       username: user.username || "Customer",
@@ -187,7 +195,7 @@ const sendOTPEmail = async (user, otp) => {
 const sendWelcomeEmail = async (user) => {
   return sendTemplateEmail({
     to: user.email,
-    subject: "🎉 Email Verified Successfully!",
+    subject: "Email Verified Successfully! - Infants Care",
     template: "email-verified",
     data: {
       username: user.username || "Customer",
@@ -205,7 +213,7 @@ const sendPasswordResetEmail = async (user, resetToken) => {
 
   return sendTemplateEmail({
     to: user.email,
-    subject: "🔒 Password Reset Request",
+    subject: "Password Reset Request - Infants Care",
     template: "password-reset",
     data: {
       username: user.username || "Customer",
@@ -253,7 +261,7 @@ const sendShipmentEmail = async (user, order) => {
 
   return sendTemplateEmail({
     to: user.email,
-    subject: `📦 Order #${order.orderId.toUpperCase()} Shipped`,
+    subject: `Order #${order.orderId.toUpperCase()} Shipped - Infants Care`,
     template: "shipment-notification",
     data: {
       username: user.username || "Customer",
@@ -281,7 +289,7 @@ const sendOrderCancelledEmail = async (user, order) => {
 
   return sendTemplateEmail({
     to: user.email,
-    subject: `Order #${(order.orderId || "").toUpperCase()} Cancelled`,
+    subject: `Order #${(order.orderId || "").toUpperCase()} Cancelled - Infants Care`,
     template: "order-cancelled",
     data: {
       username: user.username || "Customer",
@@ -368,7 +376,7 @@ const sendInvoiceEmail = async (user, order) => {
 
   return sendTemplateEmail({
     to: user.email,
-    subject: `🧾 Invoice for Order #${order.orderId.toUpperCase()}`,
+    subject: `Invoice for Order #${order.orderId.toUpperCase()} - Infants Care`,
     template: "invoice",
     data: {
       username: user.username || "Customer",
@@ -417,7 +425,7 @@ const sendRefundInitiatedEmail = async (user, order, refundAmountPaise) => {
 
   return sendTemplateEmail({
     to: user.email,
-    subject: `✅ Refund of ₹${refundAmountRupees} Initiated — Order #${(order.orderId || "").toUpperCase()}`,
+    subject: `Refund of ₹${refundAmountRupees} Initiated — Order #${(order.orderId || "").toUpperCase()} - Infants Care`,
     template: "refund-initiated",
     data: {
       username: user.username || "Customer",
