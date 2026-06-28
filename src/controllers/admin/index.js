@@ -1,4 +1,4 @@
-const { getAllProducts, getProductById } = require("./adminProductsController");
+const { getAllProducts, getProductById, searchProducts, skuLookup } = require("./adminProductsController");
 const {
   getAllOrders,
   getOrderById,
