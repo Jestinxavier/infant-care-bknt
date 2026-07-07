@@ -644,32 +644,46 @@ class ProductService {
             $cond: {
               if: { $ifNull: ["$variants", false] },
               then: {
+                // Configurable product variant check
                 $cond: {
                   if: {
-                    $ifNull: [
-                      "$variants.stockObj.isInStock",
-                      { $gt: ["$variants.stock", 0] },
-                    ],
+                    $cond: {
+                      if: { $ifNull: ["$variants.stockObj", false] },
+                      then: {
+                        $cond: {
+                          if: { $ne: [{ $type: "$variants.stockObj.available" }, "missing"] },
+                          then: { $gt: ["$variants.stockObj.available", 0] },
+                          else: { $eq: ["$variants.stockObj.isInStock", true] }
+                        }
+                      },
+                      else: { $gt: ["$variants.stock", 0] }
+                    }
                   },
                   then: true,
-                  else: false,
-                },
+                  else: false
+                }
               },
               else: {
-                // Simple product: use stockObj.isInStock, stockObj.available, or legacy $stock
+                // Simple product check
                 $cond: {
                   if: {
-                    $or: [
-                      { $eq: ["$stockObj.isInStock", true] },
-                      { $gt: ["$stockObj.available", 0] },
-                      { $gt: ["$stock", 0] },
-                    ],
+                    $cond: {
+                      if: { $ifNull: ["$stockObj", false] },
+                      then: {
+                        $cond: {
+                          if: { $ne: [{ $type: "$stockObj.available" }, "missing"] },
+                          then: { $gt: ["$stockObj.available", 0] },
+                          else: { $eq: ["$stockObj.isInStock", true] }
+                        }
+                      },
+                      else: { $gt: ["$stock", 0] }
+                    }
                   },
                   then: true,
-                  else: false,
-                },
-              },
-            },
+                  else: false
+                }
+              }
+            }
           },
         },
       },

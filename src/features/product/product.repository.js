@@ -55,6 +55,28 @@ class ProductRepository extends BaseRepository {
 
     if (!options.includeNonPublished) {
       filter.status = "published";
+      
+      const stockConditions = {
+        $or: [
+          { "stockObj.available": { $gt: 0 } },
+          { "stockObj.available": { $exists: false }, "stockObj.isInStock": true },
+          { "stockObj": { $exists: false }, "stock": { $gt: 0 } },
+          { "variants.stockObj.available": { $gt: 0 } },
+          { "variants.stockObj.available": { $exists: false }, "variants.stockObj.isInStock": true },
+          { "variants.stockObj": { $exists: false }, "variants.stock": { $gt: 0 } }
+        ]
+      };
+
+      if (filter.$or) {
+        const originalOr = filter.$or;
+        delete filter.$or;
+        filter.$and = [
+          { $or: originalOr },
+          stockConditions
+        ];
+      } else {
+        filter.$or = stockConditions.$or;
+      }
     }
 
     if (options.product_type) {

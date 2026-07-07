@@ -36,7 +36,11 @@ const getAllProducts = async (req, res) => {
       pack = filters.pack,
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
-      inStock = filters.inStock || requestData.inStock,
+      inStock = (filters.inStock !== undefined && filters.inStock !== null && filters.inStock !== "")
+        ? (filters.inStock === "true" || filters.inStock === true)
+        : (requestData.inStock !== undefined && requestData.inStock !== null && requestData.inStock !== "")
+        ? (requestData.inStock === "true" || requestData.inStock === true)
+        : true,
       collection = filters.collection,
     } = { ...requestData, ...filters };
 
@@ -690,8 +694,18 @@ const getSearchIndex = async (req, res) => {
       return res.status(200).json(_searchIndexCache);
     }
 
-    // Fetch only published products with minimal fields
-    const products = await Product.find({ status: "published" })
+    // Fetch only published and in-stock products with minimal fields
+    const products = await Product.find({
+      status: "published",
+      $or: [
+        { "stockObj.available": { $gt: 0 } },
+        { "stockObj.available": { $exists: false }, "stockObj.isInStock": true },
+        { "stockObj": { $exists: false }, "stock": { $gt: 0 } },
+        { "variants.stockObj.available": { $gt: 0 } },
+        { "variants.stockObj.available": { $exists: false }, "variants.stockObj.isInStock": true },
+        { "variants.stockObj": { $exists: false }, "variants.stock": { $gt: 0 } }
+      ]
+    })
       .select(
         "title name url_key images pricing price category status sku variants collections badgeCollection filterAttributes"
       )
