@@ -100,6 +100,23 @@ const formatProductResponse = (product) => {
       _id: productObj.category._id.toString(),
       name: productObj.category.name,
       slug: productObj.category.slug,
+      hasSizeChart: productObj.category.hasSizeChart || false,
+      sizeChartImage: productObj.category.sizeChartImage
+        ? ensureImageUrl(productObj.category.sizeChartImage)
+        : null,
+      parentCategory: productObj.category.parentCategory
+        ? typeof productObj.category.parentCategory === "object"
+          ? {
+              _id: productObj.category.parentCategory._id?.toString(),
+              name: productObj.category.parentCategory.name,
+              slug: productObj.category.parentCategory.slug,
+              hasSizeChart: productObj.category.parentCategory.hasSizeChart || false,
+              sizeChartImage: productObj.category.parentCategory.sizeChartImage
+                ? ensureImageUrl(productObj.category.parentCategory.sizeChartImage)
+                : null,
+            }
+          : productObj.category.parentCategory
+        : null,
     };
   } else {
     // Category not populated - return the slug or name as fallback
@@ -170,6 +187,23 @@ const formatProductResponse = (product) => {
           _id: subCat._id.toString(),
           name: subCat.name,
           slug: subCat.slug,
+          hasSizeChart: subCat.hasSizeChart || false,
+          sizeChartImage: subCat.sizeChartImage
+            ? ensureImageUrl(subCat.sizeChartImage)
+            : null,
+          parentCategory: subCat.parentCategory
+            ? typeof subCat.parentCategory === "object"
+              ? {
+                  _id: subCat.parentCategory._id?.toString(),
+                  name: subCat.parentCategory.name,
+                  slug: subCat.parentCategory.slug,
+                  hasSizeChart: subCat.parentCategory.hasSizeChart || false,
+                  sizeChartImage: subCat.parentCategory.sizeChartImage
+                    ? ensureImageUrl(subCat.parentCategory.sizeChartImage)
+                    : null,
+                }
+              : subCat.parentCategory
+            : null,
         };
       }
       return subCat;

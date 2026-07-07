@@ -23,6 +23,7 @@ const getAllOrders = async (req, res) => {
       limit = 20,
       status,
       paymentStatus,
+      paymentMethod,
       sortBy = "createdAt",
       sortOrder = -1,
       search,
@@ -84,6 +85,10 @@ const getAllOrders = async (req, res) => {
 
     if (paymentStatus) {
       filter.paymentStatus = paymentStatus;
+    }
+
+    if (paymentMethod) {
+      filter.paymentMethod = paymentMethod;
     }
 
     // Advanced Search
@@ -782,10 +787,96 @@ const markOrderAsPaid = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Manually mark a COD order as paid
+ * Sets paymentStatus = "paid", adds entry in statusHistory, sends invoice email if user email is present.
+ */
+const markCodOrderAsPaid = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Order ID is required" });
+    }
+
+    // Resolve order
+    const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
+    let query = mongoose.Types.ObjectId.isValid(orderId)
+      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
+
+    const order = await Order.findOne(query)
+      .populate("userId", "username email phone")
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Guard: only allow for COD + pending payment
+    if (order.paymentMethod !== PAYMENT_METHODS.COD) {
+      return res.status(400).json({
+        success: false,
+        message: `This order uses ${order.paymentMethod}. This endpoint is only for Cash on Delivery (COD) orders.`,
+      });
+    }
+    if (order.paymentStatus === "paid") {
+      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+    }
+
+    // Build status history entry
+    const history = order.statusHistory || [];
+    history.push({
+      status: order.orderStatus, // Keep current status
+      timestamp: new Date(),
+      note: `COD payment marked as PAID by admin.`,
+      updatedBy: req.user?._id,
+    });
+
+    const updated = await Order.findByIdAndUpdate(
+      order._id,
+      {
+        $set: {
+          paymentStatus: "paid",
+          statusHistory: history,
+        },
+      },
+      { new: true }
+    )
+      .populate("userId", "username email phone")
+      .lean();
+
+    if (!updated) {
+      return res.status(500).json({ success: false, message: "Failed to update order" });
+    }
+
+    // Invalidate dashboard stats cache because income has changed
+    const { invalidateDashboardCache } = require("./dashboardController");
+    invalidateDashboardCache();
+
+    res.status(200).json({
+      success: true,
+      message: "COD Order marked as paid successfully.",
+      order: { ...updated, _id: updated._id?.toString() },
+    });
+
+    // Send invoice email asynchronously
+    if (updated.userId?.email) {
+      emailService
+        .sendInvoiceEmail(updated.userId, updated)
+        .catch((err) => logger.error("❌ Invoice email failed after COD mark-paid:", err.message));
+    }
+  } catch (err) {
+    logger.error("❌ Admin Error marking COD order as paid:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
   markOrderAsPaid,
+  markCodOrderAsPaid,
 };

@@ -106,6 +106,12 @@ exports.getDashboardStats = async (req, res) => {
         paymentStatus: "paid",
         ...dateMatch,
       };
+      const codPendingMatch = {
+        paymentMethod: "COD",
+        paymentStatus: "pending",
+        orderStatus: { $nin: ["cancelled", "returned"] },
+        ...dateMatch,
+      };
 
       // 1. Total Revenue - Optimized with single aggregation
       const revenueResult = await Order.aggregate([
@@ -114,6 +120,14 @@ exports.getDashboardStats = async (req, res) => {
       ]);
       const totalRevenue =
         revenueResult.length > 0 ? revenueResult[0].totalRevenue : 0;
+
+      // 1b. Total COD Pending Revenue
+      const codPendingResult = await Order.aggregate([
+        { $match: codPendingMatch },
+        { $group: { _id: null, totalPending: { $sum: "$totalAmount" } } },
+      ]);
+      const codPendingRevenue =
+        codPendingResult.length > 0 ? codPendingResult[0].totalPending : 0;
 
       // 2. New Orders Count
       const newOrders = await Order.countDocuments(baseMatch);
@@ -239,13 +253,30 @@ exports.getDashboardStats = async (req, res) => {
         { $sort: { _id: 1 } },
       ]);
 
+      // 6b. COD Pending Over Time
+      const codPendingOverTime = await Order.aggregate([
+        { $match: codPendingMatch },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
+            total: { $sum: "$totalAmount" },
+            orders: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+
       // Format sales data efficiently
       let formattedSales = [];
+      let formattedCodPending = [];
 
       if (!isAllTime && (!isCustomRange || daysCount <= 93)) {
         // Pre-create a Map for O(1) lookup
         const salesMap = new Map(
           salesOverTime.map((item) => [item._id, { total: item.total, orders: item.orders }]),
+        );
+        const codPendingMap = new Map(
+          codPendingOverTime.map((item) => [item._id, { total: item.total, orders: item.orders }]),
         );
 
         for (let i = daysCount - 1; i >= 0; i--) {
@@ -280,10 +311,24 @@ exports.getDashboardStats = async (req, res) => {
             total: dayData.total,
             orders: dayData.orders,
           });
+
+          const codData = codPendingMap.get(dateStr) || { total: 0, orders: 0 };
+          formattedCodPending.push({
+            name,
+            date: dateStr,
+            total: codData.total,
+            orders: codData.orders,
+          });
         }
       } else {
         // For 'all', return raw data to avoid generating too many empty dates
         formattedSales = salesOverTime.map((item) => ({
+          name: item._id,
+          date: item._id,
+          total: item.total,
+          orders: item.orders,
+        }));
+        formattedCodPending = codPendingOverTime.map((item) => ({
           name: item._id,
           date: item._id,
           total: item.total,
@@ -532,10 +577,12 @@ exports.getDashboardStats = async (req, res) => {
       return {
         success: true,
         totalRevenue,
+        codPendingRevenue,
         newOrders,
         totalCustomers,
         productsInStock,
         salesOverTime: formattedSales,
+        codPendingOverTime: formattedCodPending,
         recentOrders,
         topProducts: topProductsRaw,
         orderStatusDist,

@@ -12,6 +12,7 @@ const {
   updateOrderStatus,
   sendOrderInvoice,
   markOrderAsPaid,
+  markCodOrderAsPaid,
   getAllCategories,
   getCategoryById,
   getAllCustomers,
@@ -960,6 +961,13 @@ router.patch(
   verifyToken,
   requireAdmin,
   markOrderAsPaid,
+);
+
+router.patch(
+  "/orders/mark-cod-paid",
+  verifyToken,
+  requireAdmin,
+  markCodOrderAsPaid,
 );
 
 /**

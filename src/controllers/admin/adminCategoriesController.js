@@ -43,6 +43,9 @@ const getAllCategories = async (req, res) => {
       if (out.image && typeof out.image === "string") {
         out.image = toCloudinaryUrl(out.image) || out.image;
       }
+      if (out.sizeChartImage && typeof out.sizeChartImage === "string") {
+        out.sizeChartImage = toCloudinaryUrl(out.sizeChartImage) || out.sizeChartImage;
+      }
       return out;
     });
 
@@ -103,6 +106,10 @@ const getCategoryById = async (req, res) => {
     if (categoryObj.image && typeof categoryObj.image === "string") {
       categoryObj.image =
         toCloudinaryUrl(categoryObj.image) || categoryObj.image;
+    }
+    if (categoryObj.sizeChartImage && typeof categoryObj.sizeChartImage === "string") {
+      categoryObj.sizeChartImage =
+        toCloudinaryUrl(categoryObj.sizeChartImage) || categoryObj.sizeChartImage;
     }
 
     res.status(200).json({

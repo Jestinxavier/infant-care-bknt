@@ -5,6 +5,7 @@ const {
   updateOrderStatus,
   sendOrderInvoice,
   markOrderAsPaid,
+  markCodOrderAsPaid,
 } = require("./adminOrdersController");
 const {
   getAllCategories,
@@ -34,6 +35,7 @@ module.exports = {
   updateOrderStatus,
   sendOrderInvoice,
   markOrderAsPaid,
+  markCodOrderAsPaid,
 
   // Customers
   getAllCustomers,

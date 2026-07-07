@@ -212,8 +212,22 @@ const getProductByUrlKey = async (req, res) => {
         { "variants.url_key": url_key }, // Variant
       ],
     })
-      .populate("category", "name slug")
-      .populate("subCategories", "name slug");
+      .populate({
+        path: "category",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      })
+      .populate({
+        path: "subCategories",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      });
 
     // Find the specific variant if slug matches a variant url_key
     let variantFromUrl = null;
@@ -227,8 +241,22 @@ const getProductByUrlKey = async (req, res) => {
       // Check if it's a valid ObjectId format
       if (/^[0-9a-fA-F]{24}$/.test(url_key)) {
         product = await Product.findById(url_key)
-          .populate("category", "name slug")
-          .populate("subCategories", "name slug");
+          .populate({
+            path: "category",
+            select: "name slug hasSizeChart sizeChartImage parentCategory",
+            populate: {
+              path: "parentCategory",
+              select: "name slug hasSizeChart sizeChartImage",
+            },
+          })
+          .populate({
+            path: "subCategories",
+            select: "name slug hasSizeChart sizeChartImage parentCategory",
+            populate: {
+              path: "parentCategory",
+              select: "name slug hasSizeChart sizeChartImage",
+            },
+          });
       }
     }
 
@@ -243,8 +271,22 @@ const getProductByUrlKey = async (req, res) => {
           { name: { $regex: new RegExp(`^${safeSlug}`, "i") } },
         ],
       })
-        .populate("category", "name slug")
-        .populate("subCategories", "name slug");
+        .populate({
+          path: "category",
+          select: "name slug hasSizeChart sizeChartImage parentCategory",
+          populate: {
+            path: "parentCategory",
+            select: "name slug hasSizeChart sizeChartImage",
+          },
+        })
+        .populate({
+          path: "subCategories",
+          select: "name slug hasSizeChart sizeChartImage parentCategory",
+          populate: {
+            path: "parentCategory",
+            select: "name slug hasSizeChart sizeChartImage",
+          },
+        });
     }
 
     if (!product) {
@@ -466,8 +508,22 @@ const getProductById = async (req, res) => {
     }
 
     const product = await Product.findById(productId)
-      .populate("category", "name slug")
-      .populate("subCategories", "name slug");
+      .populate({
+        path: "category",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      })
+      .populate({
+        path: "subCategories",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      });
 
     if (!product) {
       return res.status(404).json({
