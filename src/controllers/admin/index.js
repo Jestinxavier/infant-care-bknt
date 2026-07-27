@@ -1,4 +1,10 @@
-const { getAllProducts, getProductById } = require("./adminProductsController");
+const {
+  getAllProducts,
+  getProductById,
+  searchProducts,
+  skuLookup,
+  countFilterValue,
+} = require("./adminProductsController");
 const {
   getAllOrders,
   getOrderById,
@@ -27,6 +33,7 @@ module.exports = {
   getProductById,
   searchProducts,
   skuLookup,
+  countFilterValue,
 
   // Orders
   getAllOrders,

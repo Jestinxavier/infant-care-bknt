@@ -579,6 +579,18 @@ const createProduct = async (req, res) => {
           })
           .filter(Boolean);
 
+        // Dedup: if variant images are identical to product images, store empty array
+        // The storefront falls back to product images when variant.images is empty
+        const productImageUrls = productImages
+          .map((img) => (typeof img === "string" ? img : img?.url))
+          .filter(Boolean);
+        const variantSorted = [...variantImageUrls].sort().join("|");
+        const productSorted = [...productImageUrls].sort().join("|");
+        const dedupedVariantImages =
+          variantSorted && variantSorted === productSorted
+            ? []
+            : variantImageUrls;
+
         // Convert attributes/options object to Map if needed, then normalize to store values (not labels)
         let attributesMap = new Map();
         const attrs = v.attributes || v.options || {};
@@ -698,7 +710,7 @@ const createProduct = async (req, res) => {
             isInStock: isInStock,
           },
           _optionsHash: optionsHash,
-          images: variantImageUrls,
+          images: dedupedVariantImages,
           videos: variantVideos,
           attributes: attributesMap, // New format
           options: attributesMap, // Keep for backward compatibility

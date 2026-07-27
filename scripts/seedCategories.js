@@ -38,9 +38,9 @@ const defaultCategories = [
 
 const seedCategories = async () => {
   try {
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     if (!mongoUri) {
-      throw new Error("MONGODB_URI or MONGO_URI not found in environment variables");
+      throw new Error("MONGODB_URI not found in environment variables");
     }
 
     console.log("🔌 Connecting to MongoDB...");

@@ -14,11 +14,9 @@ const { generateUniqueUrlKey } = require("../src/utils/slugGenerator");
 const generateUrlKeys = async () => {
   try {
     // Connect to MongoDB
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     if (!mongoUri) {
-      console.error(
-        "❌ MONGODB_URI or MONGO_URI is missing. Check your .env file!"
-      );
+      console.error("❌ MONGODB_URI is missing. Check your .env file!");
       process.exit(1);
     }
     await mongoose.connect(mongoUri);

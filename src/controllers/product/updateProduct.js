@@ -649,6 +649,22 @@ const updateProduct = async (req, res) => {
           variantImages = [...variantImages, ...uploadedFiles];
         }
 
+        // Dedup: if variant images are identical to product images, store empty array
+        // The storefront falls back to product images when variant.images is empty
+        const existingProductImages = Array.isArray(product.images)
+          ? product.images
+              .map((img) =>
+                typeof img === "string" ? img : img?.url || ""
+              )
+              .filter(Boolean)
+          : [];
+        const variantSorted = [...variantImages].sort().join("|");
+        const productSorted = [...existingProductImages].sort().join("|");
+        const dedupedVariantImages =
+          variantSorted && variantSorted === productSorted
+            ? []
+            : variantImages;
+
         // Convert attributes/options object to Map if needed, then normalize to store values (not labels)
         let attributesMap = new Map();
         const attrs = v.attributes || v.options || {};
@@ -767,7 +783,7 @@ const updateProduct = async (req, res) => {
             available: stock,
             isInStock: isInStock,
           },
-          images: variantImages,
+          images: dedupedVariantImages,
           videos: variantVideos,
           attributes: attributesMap,
           options: attributesMap,

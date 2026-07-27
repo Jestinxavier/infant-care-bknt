@@ -11,6 +11,9 @@ const {
   createAttribute,
   updateAttribute,
   deleteAttribute,
+  addAllowedValue,
+  updateAllowedValue,
+  removeAllowedValue,
 } = require("../controllers/attributeController");
 
 // Import auth middleware (matching existing patterns in the project)
@@ -39,5 +42,18 @@ router.patch("/:id", verifyToken, requireAdmin, updateAttribute);
 
 // DELETE /api/v1/attributes/:id - Delete attribute (admin only)
 router.delete("/:id", verifyToken, requireAdmin, deleteAttribute);
+
+// ============================================
+// ATTRIBUTE VALUES MANAGEMENT (admin only)
+// ============================================
+
+// POST /api/v1/attributes/:id/values - Add allowed value
+router.post("/:id/values", verifyToken, requireAdmin, addAllowedValue);
+
+// PATCH /api/v1/attributes/:id/values/:valueCode - Update allowed value
+router.patch("/:id/values/:valueCode", verifyToken, requireAdmin, updateAllowedValue);
+
+// DELETE /api/v1/attributes/:id/values/:valueCode - Remove allowed value
+router.delete("/:id/values/:valueCode", verifyToken, requireAdmin, removeAllowedValue);
 
 module.exports = router;

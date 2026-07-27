@@ -7,6 +7,7 @@ const {
   getProductById,
   searchProducts,
   skuLookup,
+  countFilterValue,
   getAllOrders,
   getOrderById,
   updateOrderStatus,
@@ -277,6 +278,13 @@ router.get(
   verifyToken,
   requireAdmin,
   skuLookup,
+);
+
+router.get(
+  "/products/count-filter-value",
+  verifyToken,
+  requireAdmin,
+  countFilterValue,
 );
 
 // Import bulk import controller

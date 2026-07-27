@@ -23,6 +23,7 @@ const getAllOrders = async (req, res) => {
       limit = 20,
       status,
       paymentStatus,
+      paymentMethod,
       sortBy = "createdAt",
       sortOrder = -1,
       search,
@@ -86,6 +87,10 @@ const getAllOrders = async (req, res) => {
       filter.paymentStatus = paymentStatus;
     }
 
+    if (paymentMethod) {
+      filter.paymentMethod = paymentMethod;
+    }
+
     // Advanced Search
     if (search) {
       const safeSearch = escapeRegex(search);
@@ -130,6 +135,13 @@ const getAllOrders = async (req, res) => {
 
     // Get total count
     const total = await Order.countDocuments(filter);
+
+    // Summary: sum of totalAmount across ALL matching orders (not just current page)
+    const summaryResult = await Order.aggregate([
+      { $match: filter },
+      { $group: { _id: null, totalAmount: { $sum: "$totalAmount" } } },
+    ]);
+    const summary = { totalAmount: summaryResult[0]?.totalAmount || 0 };
 
     // Fetch orders with full details
     const orders = await Order.find(filter)
@@ -186,6 +198,7 @@ const getAllOrders = async (req, res) => {
     res.status(200).json({
       success: true,
       orders: formattedOrders,
+      summary,
       pagination: {
         page: pageNum,
         limit: limitNum,

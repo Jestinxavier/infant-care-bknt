@@ -40,9 +40,9 @@ const generateSecurePassword = (length = 12) => {
 const createAdmin = async () => {
   try {
     // Connect to MongoDB
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     if (!mongoUri) {
-      throw new Error("MONGODB_URI or MONGO_URI not found in environment variables");
+      throw new Error("MONGODB_URI not found in environment variables");
     }
 
     console.log("🔌 Connecting to MongoDB...");
@@ -62,9 +62,11 @@ const createAdmin = async () => {
       console.log(`👤 Username: ${existingAdmin.username}`);
       console.log(`🔑 Role: ${existingAdmin.role}`);
       console.log(`✅ Email Verified: ${existingAdmin.isEmailVerified}`);
-      
+
       // Ask if user wants to reset password
-      console.log("\n💡 To reset the password, delete the user first or update manually.");
+      console.log(
+        "\n💡 To reset the password, delete the user first or update manually.",
+      );
       await mongoose.disconnect();
       return;
     }
@@ -90,7 +92,7 @@ const createAdmin = async () => {
           email: adminEmail,
           username: adminUsername,
         },
-        adminPassword
+        adminPassword,
       );
       console.log("✅ Credentials email sent successfully!");
     } catch (emailError) {
@@ -133,4 +135,3 @@ if (require.main === module) {
 }
 
 module.exports = { createAdmin };
-

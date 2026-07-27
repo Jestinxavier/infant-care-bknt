@@ -24,7 +24,7 @@ describe("filterAttributes governance", () => {
       }
     );
 
-    expect(normalized.size).toEqual(["free-size", "0-3m"]);
+    expect(normalized.size).toEqual(["free-size", "0-3-months"]);
     expect(normalized.pattern).toEqual(["solid", "striped"]);
   });
 
@@ -53,7 +53,7 @@ describe("filterAttributes governance", () => {
     );
 
     expect(violations).toEqual([
-      { key: "size", values: ["0-3m", "3-6m"] },
+      { key: "size", values: ["0-3-months", "3-6-months"] },
       { key: "pattern", values: ["solid", "striped"] },
     ]);
   });
@@ -74,7 +74,7 @@ describe("filterAttributes governance", () => {
     });
 
     expect(synced.color).toEqual(["red", "blue"]);
-    expect(synced.size).toEqual(["0-3m", "3-6m"]);
+    expect(synced.size).toEqual(["0-3-months", "3-6-months"]);
     expect(synced.material).toEqual(["cotton"]);
   });
 
@@ -112,6 +112,6 @@ describe("filterAttributes governance", () => {
 
     expect(parsed.material).toEqual(["organic-cotton", "cotton"]);
     expect(parsed.pattern).toEqual(["solid"]);
-    expect(parsed.size).toEqual(["0-3m", "3-6m"]);
+    expect(parsed.size).toEqual(["0-3-months", "3-6-months"]);
   });
 });

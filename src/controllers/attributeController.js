@@ -7,6 +7,8 @@ const AttributeDefinition = require("../models/AttributeDefinition");
 const logger = require("../utils/logger");
 const { normalizeCode, toTitleCase } = require("../utils/normalizeValue");
 
+const ATTRIBUTE_ROLES = new Set(["variant", "metadata", "both"]);
+
 /**
  * GET /api/v1/attributes
  * List all attribute definitions (public)
@@ -67,7 +69,16 @@ const getAttributeById = async (req, res) => {
  */
 const createAttribute = async (req, res) => {
   try {
-    const { code, label, type, uiType, isRequired, position } = req.body;
+    const {
+      code,
+      label,
+      type,
+      uiType,
+      role,
+      isRequired,
+      position,
+      allowedValues,
+    } = req.body;
 
     // Validate required fields
     if (!code) {
@@ -85,7 +96,7 @@ const createAttribute = async (req, res) => {
     }
 
     // Normalize code
-    const normalizedCode = normalizeCode(code);
+    const normalizedCode = normalizeCode(code || label);
 
     // Check if code is valid
     if (!/^[a-z][a-z0-9_]*$/.test(normalizedCode)) {
@@ -102,8 +113,10 @@ const createAttribute = async (req, res) => {
       label: label.trim(),
       type: type || "enum",
       uiType: uiType || "dropdown",
+      role: ATTRIBUTE_ROLES.has(role) ? role : "metadata",
       isRequired: isRequired || false,
       position: position ?? 0,
+      allowedValues: allowedValues || [],
     });
 
     res.status(201).json({
@@ -147,7 +160,15 @@ const createAttribute = async (req, res) => {
 const updateAttribute = async (req, res) => {
   try {
     const { id } = req.params;
-    const { label, type, uiType, isRequired, position } = req.body;
+    const {
+      label,
+      type,
+      uiType,
+      role,
+      isRequired,
+      position,
+      allowedValues,
+    } = req.body;
 
     // Find attribute
     const attribute = await AttributeDefinition.findById(id);
@@ -172,8 +193,18 @@ const updateAttribute = async (req, res) => {
     if (label !== undefined) attribute.label = label.trim();
     if (type !== undefined) attribute.type = type;
     if (uiType !== undefined) attribute.uiType = uiType;
+    if (role !== undefined) {
+      if (!ATTRIBUTE_ROLES.has(role)) {
+        return res.status(400).json({
+          success: false,
+          message: "Role must be one of: variant, metadata, both",
+        });
+      }
+      attribute.role = role;
+    }
     if (isRequired !== undefined) attribute.isRequired = isRequired;
     if (position !== undefined) attribute.position = position;
+    if (allowedValues !== undefined) attribute.allowedValues = allowedValues;
 
     await attribute.save();
 
@@ -252,10 +283,169 @@ const deleteAttribute = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/v1/admin/attributes/:id/values
+ * Add a new allowed value to an attribute
+ */
+const addAllowedValue = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { value, label, hex } = req.body;
+
+    if (!value || !label) {
+      return res.status(400).json({
+        success: false,
+        message: "Value and label are required",
+      });
+    }
+
+    const attribute = await AttributeDefinition.findById(id);
+
+    if (!attribute) {
+      return res.status(404).json({
+        success: false,
+        message: "Attribute not found",
+      });
+    }
+
+    // Check for duplicate value
+    const normalizedValue = value.toLowerCase().trim().replace(/\s+/g, "-");
+    const exists = attribute.allowedValues.some(
+      (v) => v.value === normalizedValue
+    );
+
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: `Value "${normalizedValue}" already exists for this attribute`,
+        errorCode: "DUPLICATE_VALUE",
+      });
+    }
+
+    attribute.allowedValues.push({
+      value: normalizedValue,
+      label: label.trim(),
+      hex: hex || undefined,
+      isActive: true,
+    });
+
+    await attribute.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Value added successfully",
+      attribute,
+    });
+  } catch (error) {
+    logger.error("Error adding allowed value:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to add value",
+    });
+  }
+};
+
+/**
+ * PATCH /api/v1/admin/attributes/:id/values/:valueCode
+ * Update an allowed value (label, hex, isActive)
+ */
+const updateAllowedValue = async (req, res) => {
+  try {
+    const { id, valueCode } = req.params;
+    const { label, hex, isActive } = req.body;
+
+    const attribute = await AttributeDefinition.findById(id);
+
+    if (!attribute) {
+      return res.status(404).json({
+        success: false,
+        message: "Attribute not found",
+      });
+    }
+
+    const valueObj = attribute.allowedValues.find(
+      (v) => v.value === valueCode
+    );
+
+    if (!valueObj) {
+      return res.status(404).json({
+        success: false,
+        message: `Value "${valueCode}" not found`,
+      });
+    }
+
+    if (label !== undefined) valueObj.label = label.trim();
+    if (hex !== undefined) valueObj.hex = hex;
+    if (isActive !== undefined) valueObj.isActive = isActive;
+
+    await attribute.save();
+
+    res.json({
+      success: true,
+      message: "Value updated successfully",
+      attribute,
+    });
+  } catch (error) {
+    logger.error("Error updating allowed value:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update value",
+    });
+  }
+};
+
+/**
+ * DELETE /api/v1/admin/attributes/:id/values/:valueCode
+ * Remove an allowed value from an attribute
+ */
+const removeAllowedValue = async (req, res) => {
+  try {
+    const { id, valueCode } = req.params;
+
+    const attribute = await AttributeDefinition.findById(id);
+
+    if (!attribute) {
+      return res.status(404).json({
+        success: false,
+        message: "Attribute not found",
+      });
+    }
+
+    const valueIndex = attribute.allowedValues.findIndex(
+      (v) => v.value === valueCode
+    );
+
+    if (valueIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: `Value "${valueCode}" not found`,
+      });
+    }
+
+    attribute.allowedValues.splice(valueIndex, 1);
+    await attribute.save();
+
+    res.json({
+      success: true,
+      message: "Value removed successfully",
+      attribute,
+    });
+  } catch (error) {
+    logger.error("Error removing allowed value:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to remove value",
+    });
+  }
+};
+
 module.exports = {
   getAllAttributes,
   getAttributeById,
   createAttribute,
   updateAttribute,
   deleteAttribute,
+  addAllowedValue,
+  updateAllowedValue,
+  removeAllowedValue,
 };

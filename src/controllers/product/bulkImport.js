@@ -542,6 +542,27 @@ class BulkImportController {
                   message: `Unknown attribute: '${key}'. Please create this attribute in Settings > Product Attributes first.`,
                 });
               } else {
+                // Validate value against allowed values if defined
+                const normalizedValue = value.toLowerCase().trim().replace(/\s+/g, "-");
+                if (
+                  attributeDef.allowedValues &&
+                  attributeDef.allowedValues.length > 0
+                ) {
+                  const isAllowed = attributeDef.allowedValues.some(
+                    (av) => av.value === normalizedValue && av.isActive
+                  );
+                  if (!isAllowed) {
+                    const allowedList = attributeDef.allowedValues
+                      .filter((av) => av.isActive)
+                      .map((av) => `"${av.label}"`)
+                      .join(", ");
+                    errors.push({
+                      row: variantRow,
+                      field: `attribute_${key}`,
+                      message: `Invalid value '${value}' for attribute '${key}'. Allowed values: ${allowedList || "None defined"}.`,
+                    });
+                  }
+                }
                 // Track for hash generation
                 sortedAttributes.push(
                   `${attributeDef._id}:${normalizeVariantAttributeValueForHash(
@@ -1096,6 +1117,17 @@ class BulkImportController {
               typeof i === "string" ? i : i.url
             );
 
+            // Dedup: if variant images are identical to product images, store empty array
+            const productImageUrls = images
+              .map((img) => (typeof img === "string" ? img : img?.url))
+              .filter(Boolean);
+            const variantSorted = [...variantImages].sort().join("|");
+            const prodSorted = [...productImageUrls].sort().join("|");
+            const dedupedVariantImages =
+              variantSorted && variantSorted === prodSorted
+                ? []
+                : variantImages;
+
             // ✅ NEW: ID Generation Logic
             let variantId = variantData.csvId;
             // Only generate new ID if it's a temp ID or a new variant
@@ -1256,7 +1288,7 @@ class BulkImportController {
               sku: finalVariantSku,
               price: variantData.price,
               stock: variantData.stock,
-              images: variantImages,
+              images: dedupedVariantImages,
               attributes: resolvedAttributes, // Map<String, String>
               options: resolvedAttributes, // Legacy support
 

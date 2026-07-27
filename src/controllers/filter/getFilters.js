@@ -6,7 +6,7 @@ const {
   FILTER_ATTRIBUTE_KEYS,
   buildFilterAttributesQuery,
 } = require("../../utils/filterAttributes");
-const { normalizeFilterTokenByKey } = require("../../utils/filterAttributeRules");
+const { normalizeFilterTokenByKey, deduplicateFilterValues } = require("../../utils/filterAttributeRules");
 
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MIN_FUZZY_QUERY_LENGTH = 3;
@@ -347,8 +347,9 @@ const getFilters = async (req, res) => {
     }
 
     // Extract filter data only from filterAttributes (denormalized search layer)
-    const filterSets = FILTER_ATTRIBUTE_KEYS.reduce((acc, key) => {
-      acc[key] = new Set();
+    // CountMap tracks how many products have each normalized filter value
+    const filterCountMaps = FILTER_ATTRIBUTE_KEYS.reduce((acc, key) => {
+      acc[key] = new Map();
       return acc;
     }, {});
     const filterColorHexMap = new Map();
@@ -368,7 +369,8 @@ const getFilters = async (req, res) => {
           if (!value) return;
           const normalized = normalizeFilterTokenByKey(key, value);
           if (!normalized) return;
-          filterSets[key].add(normalized);
+          const countMap = filterCountMaps[key];
+          countMap.set(normalized, (countMap.get(normalized) || 0) + 1);
 
           if (key === "color") {
             const colorHexFromUiMeta = getHexFromUiMeta(
@@ -417,17 +419,23 @@ const getFilters = async (req, res) => {
       }
     }
 
-    // Generate raw filter data
+    // Generate raw filter data — deduplicate by normalized slug with counts
+    const buildCountArray = (key) => {
+      const countMap = filterCountMaps[key];
+      const deduped = deduplicateFilterValues(key, Array.from(countMap.keys()));
+      return deduped.map((value) => ({ value, count: countMap.get(value) || 0 }));
+    };
+
     const rawFilters = {
-      color: Array.from(filterSets.color).sort(),
-      size: Array.from(filterSets.size).sort(),
-      material: Array.from(filterSets.material).sort(),
-      season: Array.from(filterSets.season).sort(),
-      gender: Array.from(filterSets.gender).sort(),
-      sleeve: Array.from(filterSets.sleeve).sort(),
-      occasion: Array.from(filterSets.occasion).sort(),
-      pattern: Array.from(filterSets.pattern).sort(),
-      pack: Array.from(filterSets.pack).sort(),
+      color: buildCountArray("color"),
+      size: buildCountArray("size"),
+      material: buildCountArray("material"),
+      season: buildCountArray("season"),
+      gender: buildCountArray("gender"),
+      sleeve: buildCountArray("sleeve"),
+      occasion: buildCountArray("occasion"),
+      pattern: buildCountArray("pattern"),
+      pack: buildCountArray("pack"),
       colorMeta: Object.fromEntries(filterColorHexMap),
       priceRange: {
         min: prices.length > 0 ? Math.min(...prices) : 0,

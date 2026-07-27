@@ -36,6 +36,8 @@ const getAllProducts = async (req, res) => {
       search,
       status,
       includeInactive = false,
+      product_type,
+      stockStatus,
     } = requestData;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -58,6 +60,25 @@ const getAllProducts = async (req, res) => {
     // Admin can filter by status
     if (status) {
       filter.status = status;
+    }
+
+    // Admin can filter by product type
+    if (product_type) {
+      filter.product_type = product_type;
+    }
+
+    // Admin can filter by stock status
+    if (stockStatus) {
+      if (stockStatus === "inStock") {
+        filter.stock = { $gt: 0 };
+      } else if (stockStatus === "outOfStock") {
+        filter.$or = [
+          { stock: { $eq: 0 } },
+          { stock: { $exists: false } },
+        ];
+      } else if (stockStatus === "lowStock") {
+        filter.stock = { $gt: 0, $lte: 10 };
+      }
     }
 
     // Search filter - search by name/title, description, or SKU
@@ -381,9 +402,51 @@ const skuLookup = async (req, res) => {
   }
 };
 
+/**
+ * Count products that use a specific filter attribute value.
+ * Query: ?filter=color&value=red
+ * Returns: { count: N }
+ */
+const countFilterValue = async (req, res) => {
+  try {
+    const { filter, value } = req.query;
+
+    const ALLOWED_FILTER_KEYS = [
+      "color", "size", "material", "season", "gender",
+      "sleeve", "occasion", "pattern", "pack",
+    ];
+
+    if (!filter || !ALLOWED_FILTER_KEYS.includes(filter)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid filter key. Allowed: ${ALLOWED_FILTER_KEYS.join(", ")}`,
+      });
+    }
+    if (!value || typeof value !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "value query parameter is required",
+      });
+    }
+
+    const count = await Product.countDocuments({
+      [`filterAttributes.${filter}`]: value,
+    });
+
+    return res.status(200).json({ success: true, count });
+  } catch (err) {
+    logger.error("Error counting filter value:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   getAllProducts,
   getProductById,
   searchProducts,
   skuLookup,
+  countFilterValue,
 };

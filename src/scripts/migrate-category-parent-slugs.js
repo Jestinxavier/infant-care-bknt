@@ -28,7 +28,7 @@ const CODE_RENAMES = {
 
 async function migrateCategoryParentSlugs() {
   try {
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     if (!mongoUri) {
       throw new Error("MongoDB URI not found in environment variables");
     }

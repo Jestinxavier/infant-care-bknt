@@ -58,6 +58,7 @@ exports.getDashboardStats = async (req, res) => {
       let isAllTime = false;
       let isCustomRange = false;
       let daysCount = 7;
+      let endDateTime = null;
 
       if (customDateRange) {
         isCustomRange = true;
@@ -74,6 +75,15 @@ exports.getDashboardStats = async (req, res) => {
         );
       } else {
         switch (period) {
+          case "today":
+            daysCount = 1;
+            startDate.setTime(todayStart.getTime());
+            break;
+          case "yesterday":
+            daysCount = 1;
+            startDate.setTime(todayStart.getTime() - 1 * 24 * 60 * 60 * 1000);
+            endDateTime = new Date(todayStart.getTime() - 1);
+            break;
           case "week":
             daysCount = 7;
             startDate.setTime(todayStart.getTime() - (daysCount - 1) * 24 * 60 * 60 * 1000);
@@ -99,7 +109,11 @@ exports.getDashboardStats = async (req, res) => {
       // while operational widgets can include non-revenue order states.
       const dateMatch = isAllTime
         ? {}
-        : { createdAt: customDateRange || { $gte: startDate } };
+        : customDateRange
+          ? customDateRange
+          : endDateTime
+            ? { createdAt: { $gte: startDate, $lte: endDateTime } }
+            : { createdAt: { $gte: startDate } };
       const baseMatch = { orderStatus: { $ne: "cancelled" }, ...dateMatch };
       const salesMatch = {
         orderStatus: { $nin: ["cancelled", "returned"] },
@@ -115,8 +129,9 @@ exports.getDashboardStats = async (req, res) => {
       const totalRevenue =
         revenueResult.length > 0 ? revenueResult[0].totalRevenue : 0;
 
-      // 2. New Orders Count
-      const newOrders = await Order.countDocuments(baseMatch);
+      // 2. Completed sales count. Keep this aligned with revenue and salesOverTime
+      // so Total Orders, AOV, trend percentages, and sparkline data tell one story.
+      const newOrders = await Order.countDocuments(salesMatch);
 
       // 3. Total Customers (All time - represents current user base)
       const totalCustomers = await User.countDocuments({ role: "user" });
@@ -211,7 +226,8 @@ exports.getDashboardStats = async (req, res) => {
             { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
           ]),
           Order.countDocuments({
-            orderStatus: { $ne: "cancelled" },
+            orderStatus: { $nin: ["cancelled", "returned"] },
+            paymentStatus: "paid",
             ...prevDateMatch,
           }),
         ]);
@@ -250,7 +266,7 @@ exports.getDashboardStats = async (req, res) => {
 
         for (let i = daysCount - 1; i >= 0; i--) {
           const d = new Date(
-            (customDateRange?.$lte || now).getTime() - i * 24 * 60 * 60 * 1000,
+            (customDateRange?.$lte || endDateTime || now).getTime() - i * 24 * 60 * 60 * 1000,
           );
           const dateStr = new Intl.DateTimeFormat("en-CA", {
             timeZone: "Asia/Kolkata",
@@ -289,6 +305,64 @@ exports.getDashboardStats = async (req, res) => {
           total: item.total,
           orders: item.orders,
         }));
+      }
+
+      // 5b. Previous Period Sales (for comparison line)
+      let previousPeriodSales = [];
+      if (!isAllTime && daysCount > 0) {
+        // Previous period: same length, ending the day before current period starts
+        const prevPeriodEnd = new Date(startDate.getTime() - 1); // 23:59:59.999 of last prev day
+        const prevPeriodStart = new Date(startDate.getTime() - daysCount * 24 * 60 * 60 * 1000); // midnight of first prev day
+
+        const prevPeriodSalesRaw = await Order.aggregate([
+          {
+            $match: {
+              orderStatus: { $nin: ["cancelled", "returned"] },
+              paymentStatus: "paid",
+              createdAt: { $gte: prevPeriodStart, $lte: prevPeriodEnd },
+            },
+          },
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
+              total: { $sum: "$totalAmount" },
+              orders: { $sum: 1 },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ]);
+
+        const prevSalesMap = new Map(
+          prevPeriodSalesRaw.map((item) => [item._id, { total: item.total, orders: item.orders }]),
+        );
+
+        for (let i = daysCount - 1; i >= 0; i--) {
+          const d = new Date(prevPeriodEnd.getTime() - i * 24 * 60 * 60 * 1000);
+          const dateStr = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Kolkata",
+          }).format(d);
+
+          let name;
+          if (period === "year") {
+            name = d.toLocaleDateString("en-US", { month: "short", timeZone: "Asia/Kolkata" });
+          } else if (isCustomRange || period === "month") {
+            name = d.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              timeZone: "Asia/Kolkata",
+            });
+          } else {
+            name = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "Asia/Kolkata" });
+          }
+
+          const dayData = prevSalesMap.get(dateStr) || { total: 0, orders: 0 };
+          previousPeriodSales.push({
+            name,
+            date: dateStr,
+            total: dayData.total,
+            orders: dayData.orders,
+          });
+        }
       }
 
       // Monthly financial summary. This uses paid non-cancelled revenue as
@@ -335,94 +409,16 @@ exports.getDashboardStats = async (req, res) => {
           name: order.userId ? order.userId.username : "Guest",
           email: order.userId ? order.userId.email : "N/A",
         },
-        total: order.totalAmount,
-        status: order.orderStatus,
-        fulfillmentStatus: order.orderStatus,
+        totalAmount: order.totalAmount,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.paymentMethod,
+        createdAt: order.createdAt,
       }));
 
-      // 7. Top Selling Products - Optimized aggregation with period filter
-      const topProductsRaw = await Order.aggregate([
-        { $match: salesMatch },
-        { $unwind: "$items" },
-        {
-          $group: {
-            _id: "$items.productId",
-            variantId: { $first: "$items.variantId" },
-            totalSold: { $sum: "$items.quantity" },
-            revenue: {
-              $sum: { $multiply: ["$items.price", "$items.quantity"] },
-            },
-          },
-        },
-        { $match: { _id: { $ne: null } } },
-        { $sort: { totalSold: -1 } },
-        { $limit: 10 },
-        {
-          $lookup: {
-            from: "products",
-            let: { pid: "$_id" },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $or: [
-                      {
-                        $eq: [
-                          "$_id",
-                          {
-                            $cond: [
-                              {
-                                $regexMatch: {
-                                  input: { $toString: "$$pid" },
-                                  regex: /^[0-9a-fA-F]{24}$/,
-                                },
-                              },
-                              { $toObjectId: "$$pid" },
-                              "$$pid",
-                            ],
-                          },
-                        ],
-                      },
-                      { $eq: ["$url_key", "$$pid"] },
-                      { $in: ["$$pid", "$variants.id"] },
-                    ],
-                  },
-                },
-              },
-            ],
-            as: "productInfo",
-          },
-        },
-        { $unwind: { path: "$productInfo", preserveNullAndEmptyArrays: true } },
-        { $limit: 5 },
-        {
-          $project: {
-            name: {
-              $ifNull: [
-                "$productInfo.title",
-                {
-                  $ifNull: [
-                    "$productInfo.name",
-                    { $ifNull: ["$variantId", "Unknown Product"] },
-                  ],
-                },
-              ],
-            },
-            image: {
-              $ifNull: [
-                { $arrayElemAt: ["$productInfo.images", 0] },
-                "/placeholder.png",
-              ],
-            },
-            totalSold: 1,
-            revenue: 1,
-          },
-        },
-      ]);
-
-      // 8. Order Status Distribution - Include all statuses (including cancelled) for proper metrics
+      // 7. Order Status Distribution
       const orderStatusDistRaw = await Order.aggregate([
-        { $match: dateMatch }, // Apply date filter but include cancelled orders
+        { $match: baseMatch },
         {
           $group: {
             _id: "$orderStatus",
@@ -435,6 +431,39 @@ exports.getDashboardStats = async (req, res) => {
         name: item._id || "Unknown",
         value: item.count,
       }));
+
+      // 8. Fulfillment Rate (% shipped + delivered)
+      const totalOrdersForFulfillment = orderStatusDist.reduce((sum, s) => sum + s.value, 0);
+      const fulfilledOrders = orderStatusDist
+        .filter((s) => ["shipped", "delivered"].includes(s.name))
+        .reduce((sum, s) => sum + s.value, 0);
+      const fulfillmentRate = totalOrdersForFulfillment > 0
+        ? Math.round((fulfilledOrders / totalOrdersForFulfillment) * 100)
+        : 0;
+
+      // 9. Revenue per Day
+      let effectiveDaysCount = daysCount;
+      if (isAllTime) {
+        // For all-time, compute actual day span from first order to now
+        const earliestOrder = await Order.findOne(
+          { orderStatus: { $nin: ["cancelled", "returned"] }, paymentStatus: "paid" },
+          { createdAt: 1 },
+        ).sort({ createdAt: 1 });
+        if (earliestOrder) {
+          effectiveDaysCount = Math.max(1, Math.ceil(
+            (now.getTime() - earliestOrder.createdAt.getTime()) / (24 * 60 * 60 * 1000),
+          ));
+        }
+      }
+      const revenuePerDay = effectiveDaysCount > 0
+        ? Math.round(totalRevenue / effectiveDaysCount)
+        : totalRevenue;
+
+      // 10. Total Products Sold (sum of totalQuantity across orders)
+      const totalProductsSold = monthlySummary.reduce(
+        (sum, m) => sum + (m.items || 0),
+        0,
+      );
 
       // 9. Sales by Category - Optimized with period filter
       const categorySalesRaw = await Order.aggregate([
@@ -529,6 +558,94 @@ exports.getDashboardStats = async (req, res) => {
         count: item.count,
       }));
 
+      // 10. COD Pending - total and over time
+      const codPendingMatch = {
+        paymentMethod: "COD",
+        paymentStatus: "pending",
+        ...dateMatch,
+      };
+
+      const [codPendingRevRes] = await Order.aggregate([
+        { $match: codPendingMatch },
+        { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+      ]);
+      const codPendingRevenue = codPendingRevRes?.total || 0;
+
+      let codPendingTrendObj = null;
+      if (!isAllTime) {
+        let prevStartDate = new Date(startDate);
+        if (isCustomRange) {
+          const rangeStart = customDateRange.$gte || startDate;
+          const rangeEnd = customDateRange.$lte || now;
+          const diffMs = rangeEnd.getTime() - rangeStart.getTime();
+          prevStartDate = new Date(rangeStart.getTime() - diffMs);
+        } else {
+          prevStartDate.setDate(prevStartDate.getDate() - daysCount);
+        }
+
+        const [prevCodPendingRevRes] = await Order.aggregate([
+          {
+            $match: {
+              paymentMethod: "COD",
+              paymentStatus: "pending",
+              createdAt: { $gte: prevStartDate, $lt: startDate },
+            },
+          },
+          { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+        ]);
+
+        codPendingTrendObj = calcTrend(
+          codPendingRevenue,
+          prevCodPendingRevRes?.total || 0,
+        );
+      }
+
+      const codPendingOverTimeRaw = await Order.aggregate([
+        { $match: codPendingMatch },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
+            total: { $sum: "$totalAmount" },
+            orders: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]);
+
+      let codPendingOverTime = [];
+      if (!isAllTime && (!isCustomRange || daysCount <= 93)) {
+        const codMap = new Map(
+          codPendingOverTimeRaw.map((item) => [item._id, { total: item.total, orders: item.orders }]),
+        );
+        for (let i = daysCount - 1; i >= 0; i--) {
+          const d = new Date(
+            (customDateRange?.$lte || endDateTime || now).getTime() - i * 24 * 60 * 60 * 1000,
+          );
+          const dateStr = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Asia/Kolkata",
+          }).format(d);
+
+          let name;
+          if (period === "year") {
+            name = d.toLocaleDateString("en-US", { month: "short", timeZone: "Asia/Kolkata" });
+          } else if (isCustomRange || period === "month") {
+            name = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "Asia/Kolkata" });
+          } else {
+            name = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "Asia/Kolkata" });
+          }
+
+          const dayData = codMap.get(dateStr) || { total: 0, orders: 0 };
+          codPendingOverTime.push({ name, date: dateStr, total: dayData.total, orders: dayData.orders });
+        }
+      } else {
+        codPendingOverTime = codPendingOverTimeRaw.map((item) => ({
+          name: item._id,
+          date: item._id,
+          total: item.total,
+          orders: item.orders,
+        }));
+      }
+
       return {
         success: true,
         totalRevenue,
@@ -536,15 +653,21 @@ exports.getDashboardStats = async (req, res) => {
         totalCustomers,
         productsInStock,
         salesOverTime: formattedSales,
+        codPendingRevenue,
+        codPendingOverTime,
         recentOrders,
-        topProducts: topProductsRaw,
         orderStatusDist,
         categorySales,
         monthlySummary,
+        fulfillmentRate,
+        revenuePerDay,
+        totalProductsSold,
+        previousPeriodSales,
         trends: {
           revenue: revenueTrendObj,
           orders: ordersTrendObj,
           aov: aovTrendObj,
+          codPending: codPendingTrendObj,
         },
       };
     }); // end cacheGetOrSet

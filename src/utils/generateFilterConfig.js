@@ -61,12 +61,13 @@ const generateFilterConfig = (rawFilters) => {
       key: "color",
       label: "Color",
       type: "checkbox",
-      options: rawFilters.color.map((color) => ({
-        value: color, // Keep original value
-        label: formatLabel(color), // Format label for display
+      options: rawFilters.color.map((item) => ({
+        value: item.value,
+        label: formatLabel(item.value),
+        count: item.count,
         hex:
-          colorMeta[color] ||
-          colorMeta[normalizeValue(color)] ||
+          colorMeta[item.value] ||
+          colorMeta[normalizeValue(item.value)] ||
           null,
       })),
     });
@@ -78,9 +79,10 @@ const generateFilterConfig = (rawFilters) => {
       key: "age",
       label: "Size",
       type: "checkbox",
-      options: rawFilters.size.map((size) => ({
-        value: size, // Keep original value
-        label: formatLabel(size), // Format label for display (e.g., "0-3" -> "0 - 3")
+      options: rawFilters.size.map((item) => ({
+        value: item.value,
+        label: formatLabel(item.value),
+        count: item.count,
       })),
     });
   }
@@ -108,9 +110,10 @@ const generateFilterConfig = (rawFilters) => {
       key,
       label,
       type: "checkbox",
-      options: rawFilters[key].map((value) => ({
-        value,
-        label: formatLabel(value),
+      options: rawFilters[key].map((item) => ({
+        value: item.value,
+        label: formatLabel(item.value),
+        count: item.count,
       })),
     });
   });

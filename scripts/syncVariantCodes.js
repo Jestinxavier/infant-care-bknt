@@ -104,7 +104,7 @@ const syncCodes = async () => {
 };
 
 // Run
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+const mongoUri = process.env.MONGODB_URI;
 
 if (!mongoUri) {
   console.error("❌ MONGODB_URI not found");

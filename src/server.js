@@ -1,12 +1,19 @@
-const app = require("./app");
-
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const path = require("path");
 const logger = require("./utils/logger");
 
-// Load .env from project root
+// Load backend env files before importing the app so every module sees the
+// same configuration regardless of the current working directory.
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({
+    path: path.resolve(__dirname, "./config/development.env"),
+    override: false,
+  });
+}
+
+const app = require("./app");
 
 const PORT = process.env.PORT;
 
@@ -58,33 +65,50 @@ const mongoClientOptions = {
   minPoolSize: 1,
 };
 
+const getMongoUriCandidates = () => {
+  return [process.env.MONGODB_URI].filter(Boolean);
+};
+
 // Handle MongoDB connection for both serverless and traditional deployments
 let isConnected = false;
 let mongoClient = null;
 
-const connectDB = async (retryCount = 5) => {
+const connectDB = async ({
+  retryCount = 5,
+  mongoUriCandidates = getMongoUriCandidates(),
+} = {}) => {
   if (isConnected && mongoose.connection.readyState === 1) {
     return Promise.resolve();
   }
 
   try {
-    if (!process.env.MONGODB_URI) {
+    if (!mongoUriCandidates.length) {
       throw new Error("MONGODB_URI is not defined");
     }
 
-    logger.info(`Connecting to MongoDB (Attempt ${6 - retryCount}/5)...`);
+    const mongoUri = mongoUriCandidates[0];
+
+    process.env.MONGODB_URI = mongoUri;
+
+    logger.info(
+      `Connecting to MongoDB (Attempt ${6 - retryCount}/5)...`
+    );
 
     // For local development or non-Vercel deployments
-    const db = await mongoose.connect(process.env.MONGODB_URI, mongooseOptions);
+    const db = await mongoose.connect(mongoUri, mongooseOptions);
     isConnected = db.connections[0].readyState === 1;
     logger.info("MongoDB connected");
     return Promise.resolve();
   } catch (err) {
     logger.error(`MongoDB connection failed: ${err.message}`);
+
     if (retryCount > 1) {
       logger.info("Retrying MongoDB connection in 5 seconds...");
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      return connectDB(retryCount - 1);
+      return connectDB({
+        retryCount: retryCount - 1,
+        mongoUriCandidates,
+      });
     }
     isConnected = false;
     if (process.env.NODE_ENV !== "production") {

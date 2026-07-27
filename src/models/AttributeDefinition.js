@@ -10,6 +10,7 @@
  */
 
 const mongoose = require("mongoose");
+const { normalizeCode } = require("../utils/normalizeValue");
 
 const attributeDefinitionSchema = new mongoose.Schema(
   {
@@ -52,6 +53,24 @@ const attributeDefinitionSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    role: {
+      type: String,
+      enum: {
+        values: ["variant", "metadata", "both"],
+        message: "Role must be one of: variant, metadata, both",
+      },
+      default: "metadata",
+    },
+
+    allowedValues: [
+      {
+        value: { type: String, required: true },
+        label: { type: String, required: true },
+        hex: { type: String },
+        isActive: { type: Boolean, default: true },
+      },
+    ],
+
     isLocked: {
       type: Boolean,
       default: false,
@@ -77,8 +96,24 @@ attributeDefinitionSchema.index({ position: 1 });
 
 // Pre-save middleware to auto-lock when in use
 attributeDefinitionSchema.pre("save", function (next) {
-  if (this.usageCount > 0) {
-    this.isLocked = true;
+  if (this.isModified("code")) {
+    this.code = normalizeCode(this.code);
+  }
+  // Normalize allowed values
+  if (this.isModified("allowedValues") && this.allowedValues?.length) {
+    const seen = new Set();
+    this.allowedValues = this.allowedValues
+      .map((v) => ({
+        value: v.value.toLowerCase().trim().replace(/\s+/g, "-"),
+        label: v.label.trim(),
+        hex: v.hex || undefined,
+        isActive: v.isActive !== false,
+      }))
+      .filter((v) => {
+        if (seen.has(v.value)) return false;
+        seen.add(v.value);
+        return true;
+      });
   }
   next();
 });

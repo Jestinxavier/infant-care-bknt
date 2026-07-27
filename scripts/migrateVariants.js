@@ -306,11 +306,11 @@ const runMigration = async () => {
 
 // Connect to MongoDB and run migration
 if (require.main === module) {
-  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const mongoUri = process.env.MONGODB_URI;
 
   if (!mongoUri) {
     console.error(
-      "❌ MONGODB_URI or MONGO_URI not found in environment variables"
+      "❌ MONGODB_URI not found in environment variables"
     );
     console.error("   Please check your .env file");
     process.exit(1);

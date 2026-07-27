@@ -334,6 +334,16 @@ productSchema.pre("save", function (next) {
     filterAttributes: this.filterAttributes,
   });
 
+  // Deduplicate filter attribute arrays to prevent ["gray", "gray"] storage
+  if (this.filterAttributes && typeof this.filterAttributes === "object") {
+    FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+      const arr = this.filterAttributes[key];
+      if (Array.isArray(arr)) {
+        this.filterAttributes[key] = [...new Set(arr)];
+      }
+    });
+  }
+
   // ✅ VALIDATION: Ensure no duplicate variants based on _optionsHash
   if (this.variants && this.variants.length > 0) {
     const hashes = new Set();

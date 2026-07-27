@@ -36,17 +36,24 @@ const FILTER_ATTRIBUTE_DEFINITIONS = {
     allowMultipleWhenConfigurable: true,
     aliases: {
       "free-size": ["free size", "freesize", "one size", "onesize", "one-size", "free"],
-      newborn: ["new-born", "new born", "nb", "0-1-month", "0-1-months", "0-1-month"],
-      "0-3-months": ["0-3-month", "0-3m", "0-3", "0 3 month", "0 3 months", "03m", "0-3mo"],
-      "3-6-months": ["3-6-month", "3-6m", "3-6", "3 6 month", "3 6 months", "36m", "3-6mo"],
-      "6-9-months": ["6-9-month", "6-9m", "6-9", "6 9 month", "6 9 months", "69m", "6-9mo"],
-      "9-12-months": ["9-12-month", "9-12m", "9-12", "9 12 month", "9 12 months", "912m", "9-12mo"],
-      "12-18-months": ["12-18-month", "12-18m", "12-18", "12 18 month", "12 18 months", "1218m", "12-18mo"],
-      "18-24-months": ["18-24-month", "18-24m", "18-24", "18 24 month", "18 24 months", "1824m", "18-24mo", "2-years", "2yr"],
-      "2-3-years": ["2-3-year", "2-3y", "2-3yr", "2-3yrs", "24-36-months", "24-36-month"],
+      newborn: ["new-born", "new born", "nb", "0-1-month", "0-1-months", "0-1month"],
+      "0-3-months": ["0-3-month", "0-3m", "0-3", "0 3 month", "0 3 months", "03m", "0-3mo", "0-3months"],
+      "0-6-months": ["0-6-month", "0-6m", "0-6", "0 6 month", "0 6 months", "06m", "0-6mo", "0-6months"],
+      "3-6-months": ["3-6-month", "3-6m", "3-6", "3 6 month", "3 6 months", "36m", "3-6mo", "3-6months", "3-6-m"],
+      "6-9-months": ["6-9-month", "6-9m", "6-9", "6 9 month", "6 9 months", "69m", "6-9mo", "6-9months"],
+      "6-12-months": ["6-12-month", "6-12m", "6-12", "6 12 month", "6 12 months", "612m", "6-12mo", "6-12months"],
+      "9-12-months": ["9-12-month", "9-12m", "9-12", "9 12 month", "9 12 months", "912m", "9-12mo", "9-12months"],
+      "12-18-months": ["12-18-month", "12-18m", "12-18", "12 18 month", "12 18 months", "1218m", "12-18mo", "12-18months"],
+      "18-24-months": ["18-24-month", "18-24m", "18-24", "18 24 month", "18 24 months", "1824m", "18-24mo", "18-24months", "2-years", "2yr"],
+      "2-3-years": ["2-3-year", "2-3y", "2-3yr", "2-3yrs", "24-36-months", "24-36-month", "24-36m"],
       "3-4-years": ["3-4-year", "3-4y", "3-4yr", "3-4yrs"],
       "4-5-years": ["4-5-year", "4-5y", "4-5yr", "4-5yrs"],
       "5-6-years": ["5-6-year", "5-6y", "5-6yr", "5-6yrs"],
+      s: ["small", "sm"],
+      m: ["medium", "md"],
+      l: ["large", "lg"],
+      xl: ["extra-large", "xl"],
+      xxl: ["double-xl", "xx-large"],
     },
   },
   material: {
@@ -108,16 +115,28 @@ const FILTER_ATTRIBUTE_DEFINITIONS = {
 };
 
 const normalizeTokenToSlug = (value) => {
-  return String(value ?? "")
+  let slug = String(value ?? "")
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .toLowerCase()
+    .toLowerCase();
+
+  // Normalize dimension sizes: "80 x 80 cm", "80x80-cm", "25x30 inches", "25x30-inches", "25x30" → "25x30inches"
+  const dimMatch = slug.match(/^(\d+)\s*x\s*(\d+)\s*-?\s*(cm|mm|m|inches|inch|in)?$/);
+  if (dimMatch) {
+    let unit = dimMatch[3] || "inches";
+    if (unit === "in" || unit === "inch") unit = "inches";
+    return `${dimMatch[1]}x${dimMatch[2]}${unit}`;
+  }
+
+  slug = slug
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "")
     .replace(/-+/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "");
+
+  return slug;
 };
 
 // Forward lookup: any alias slug → canonical slug
@@ -196,8 +215,17 @@ const normalizeFilterTokenByKey = (key, rawValue) => {
   }
 
   const lookup = aliasLookups[attributeKey];
-  if (lookup && lookup.has(slug)) {
-    return lookup.get(slug);
+  if (lookup) {
+    if (lookup.has(slug)) {
+      return lookup.get(slug);
+    }
+
+    // Fallback: try inserting hyphens before common suffixes
+    // e.g. "0-3months" → try "0-3-months", "0-3years" → try "0-3-years"
+    const withHyphen = slug.replace(/(month|year|day|week)s?$/i, "-$1s");
+    if (withHyphen !== slug && lookup.has(withHyphen)) {
+      return lookup.get(withHyphen);
+    }
   }
 
   return slug;
@@ -221,10 +249,21 @@ const allowsMultipleValues = (key, { productType } = {}) => {
   return false;
 };
 
+const deduplicateFilterValues = (key, values) => {
+  const seen = new Map();
+  for (const v of values) {
+    const slug = normalizeFilterTokenByKey(key, v);
+    if (!slug) continue;
+    if (!seen.has(slug)) seen.set(slug, v);
+  }
+  return Array.from(seen.values()).sort();
+};
+
 module.exports = {
   FILTER_ATTRIBUTE_KEYS,
   FILTER_ATTRIBUTE_DEFINITIONS,
   normalizeFilterTokenByKey,
   expandCanonicalToAliases,
   allowsMultipleValues,
+  deduplicateFilterValues,
 };

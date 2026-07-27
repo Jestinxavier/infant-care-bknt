@@ -111,12 +111,26 @@ const syncFilterAttributes = ({
     return base;
   }
 
+  // For CONFIGURABLE products, strip color/size from admin input —
+  // they are always derived from variants, never stored from form.
+  delete base.color;
+  delete base.size;
+
   const derived = deriveColorAndSizeFromVariants(variants);
-  return {
+  const result = {
     ...base,
     color: derived.color,
     size: derived.size,
   };
+
+  // Deduplicate all filter attribute arrays
+  FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+    if (Array.isArray(result[key])) {
+      result[key] = [...new Set(result[key])];
+    }
+  });
+
+  return result;
 };
 
 const buildFilterAttributesQuery = (filters = {}) => {

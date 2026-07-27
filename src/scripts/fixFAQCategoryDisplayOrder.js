@@ -35,7 +35,7 @@ async function fixCategoryDisplayOrder() {
 
 // Run if called directly
 if (require.main === module) {
-  const dbURI = process.env.MONGO_URI || "mongodb://localhost:27017/infantcare";
+  const dbURI = process.env.MONGODB_URI || "mongodb://localhost:27017/infantcare";
 
   mongoose
     .connect(dbURI)

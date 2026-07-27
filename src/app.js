@@ -6,7 +6,17 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
 const mongoSanitize = require("express-mongo-sanitize");
-require("dotenv").config();
+const dotenv = require("dotenv");
+
+// Load backend env files explicitly so startup does not depend on the
+// current working directory.
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({
+    path: path.resolve(__dirname, "./config/development.env"),
+    override: false,
+  });
+}
 
 // Sentry must be initialized before any other require that might throw
 const Sentry = require("@sentry/node");
