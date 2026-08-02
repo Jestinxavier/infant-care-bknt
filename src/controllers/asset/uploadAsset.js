@@ -4,10 +4,10 @@ const { uploadToMediaServer } = require("../../config/mediaServer");
 const Asset = require("../../models/Asset");
 const logger = require("../../utils/logger");
 
-// 100MB limit kept for future video support; media server currently accepts images only.
+// 50MB limit — matches the dashboard's product video upload limit
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 /**

@@ -1,5 +1,6 @@
 const ApiError = require("../ApiError");
 const ApiResponse = require("../ApiResponse");
+const logger = require("../../utils/logger");
 const { logError } = require("../../utils/errorLogger");
 
 /**
@@ -7,15 +8,25 @@ const { logError } = require("../../utils/errorLogger");
  * Catches all errors and returns standardized responses
  */
 const errorMiddleware = (err, req, res, next) => {
-  void logError(err, {
-    source: "core/middleware/errorMiddleware",
-    req,
-    statusCode: err.statusCode || err.status || 500,
-    metadata: {
+  const statusCode = err.statusCode || err.status || 500;
+
+  if (statusCode >= 500) {
+    void logError(err, {
+      source: "core/middleware/errorMiddleware",
+      req,
+      statusCode,
+      metadata: {
+        path: req.originalUrl || req.path,
+        method: req.method,
+      },
+    });
+  } else {
+    logger.debug(`Client error (${statusCode}): ${err.message || err}`, {
+      source: "core/middleware/errorMiddleware",
       path: req.originalUrl || req.path,
       method: req.method,
-    },
-  });
+    });
+  }
 
   // If response already sent, delegate to default Express error handler
   if (res.headersSent) {

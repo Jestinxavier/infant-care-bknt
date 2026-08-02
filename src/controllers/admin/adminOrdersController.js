@@ -6,6 +6,7 @@ const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { canTransitionStatus } = require("../../features/order/rules/order.rules");
+const { invalidateDashboardCache } = require("./dashboardController");
 const logger = require("../../utils/logger");
 
 const escapeRegex = require("../../utils/escapeRegex");
@@ -383,6 +384,17 @@ const updateOrderStatus = async (req, res) => {
       ) {
         updateFields.paymentStatus = "paid";
       }
+
+      // Returned: money goes back to the customer. Gateway refund is handled
+      // manually outside the admin flow, so here we just record the refund.
+      if (
+        status === "returned" &&
+        currentOrder.orderStatus !== "returned" &&
+        currentOrder.paymentStatus === "paid"
+      ) {
+        updateFields.paymentStatus = "refunded";
+        updateFields.refundedAt = new Date();
+      }
     }
 
     // Tracking & Note & Partner Update Logic
@@ -533,16 +545,16 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // Restore product stock when cancelling order (simple, variant, bundle, gift)
+    // Restore product stock when cancelling or returning an order (simple, variant, bundle, gift)
     if (
-      status === "cancelled" &&
-      currentOrder.orderStatus !== "cancelled" &&
+      (status === "cancelled" || status === "returned") &&
+      currentOrder.orderStatus !== status &&
       currentOrder.items?.length > 0
     ) {
       try {
         await restoreOrderStock(currentOrder);
       } catch (restoreErr) {
-        logger.error("Failed to restore stock on order cancel", { orderId: currentOrder._id, error: restoreErr.message });
+        logger.error("Failed to restore stock on order cancel/return", { orderId: currentOrder._id, error: restoreErr.message });
         return res.status(500).json({
           success: false,
           message:
@@ -583,6 +595,16 @@ const updateOrderStatus = async (req, res) => {
         _id: order._id?.toString(),
       },
     });
+
+    // Returns/cancellations change revenue & profit — flush the dashboard cache
+    if (
+      (status === "cancelled" || status === "returned") &&
+      currentOrder.orderStatus !== status
+    ) {
+      invalidateDashboardCache().catch((err) =>
+        logger.error("Dashboard cache invalidation failed", { error: err.message })
+      );
+    }
 
     // Resolve the email recipient — works for both registered users and guests
     const emailRecipient =

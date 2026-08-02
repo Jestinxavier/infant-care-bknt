@@ -180,12 +180,139 @@ const reverseAliasLookups = FILTER_ATTRIBUTE_KEYS.reduce((acc, key) => {
   return acc;
 }, {});
 
+// ---------------------------------------------------------------------------
+// DB-driven lookups
+//
+// Attribute synonyms live on AttributeDefinition.allowedValues[].synonyms and
+// are managed in the admin (Settings → Product Attributes). The static maps
+// above are a bootstrap fallback; at runtime they are merged with the DB
+// lookups so merchant-managed synonyms work without code changes.
+// ---------------------------------------------------------------------------
+
+let effectiveAliasLookups = null; // { [key]: Map(aliasSlug -> canonicalSlug) }
+let effectiveReverseAliasLookups = null; // { [key]: Map(canonical -> Set(slugs)) }
+
+/**
+ * Build forward + reverse alias lookups from AttributeDefinition documents.
+ * Each allowed value contributes its canonical value and its synonyms.
+ */
+const buildLookupsFromAttributes = (attributes) => {
+  const fwd = {};
+  const rev = {};
+
+  (Array.isArray(attributes) ? attributes : []).forEach((attribute) => {
+    const key = String(attribute.code || "").toLowerCase().trim();
+    if (!key) return;
+
+    const fMap = new Map();
+    const rMap = new Map();
+
+    (Array.isArray(attribute.allowedValues) ? attribute.allowedValues : []).forEach(
+      (av) => {
+        const canonicalSlug = normalizeTokenToSlug(av.value);
+        if (!canonicalSlug) return;
+
+        fMap.set(canonicalSlug, canonicalSlug);
+        if (!rMap.has(canonicalSlug)) {
+          rMap.set(canonicalSlug, new Set([canonicalSlug]));
+        }
+
+        (Array.isArray(av.synonyms) ? av.synonyms : []).forEach((rawSynonym) => {
+          const synonymSlug = normalizeTokenToSlug(rawSynonym);
+          if (!synonymSlug || synonymSlug === canonicalSlug) return;
+          fMap.set(synonymSlug, canonicalSlug);
+          rMap.get(canonicalSlug).add(synonymSlug);
+        });
+      },
+    );
+
+    fwd[key] = fMap;
+    rev[key] = rMap;
+  });
+
+  return { fwd, rev };
+};
+
+/**
+ * Derive reverse lookups (canonical -> alias set) from a forward map.
+ */
+const buildReverseFromForward = (fwd) => {
+  const rev = {};
+  Object.entries(fwd).forEach(([key, fMap]) => {
+    const rMap = new Map();
+    fMap.forEach((canonicalSlug, slug) => {
+      if (!rMap.has(canonicalSlug)) rMap.set(canonicalSlug, new Set());
+      rMap.get(canonicalSlug).add(slug);
+    });
+    rev[key] = rMap;
+  });
+  return rev;
+};
+
+const mergeForwardLookups = (...sources) => {
+  const merged = {};
+  const keys = new Set(sources.flatMap((src) => Object.keys(src || {})));
+  keys.forEach((key) => {
+    const map = new Map();
+    sources.forEach((src) => {
+      if (src && src[key]) src[key].forEach((value, k) => map.set(k, value));
+    });
+    merged[key] = map;
+  });
+  return merged;
+};
+
+/**
+ * (Re)build the effective lookups from attribute definitions.
+ * Pass `attributes` directly (used by tests/scripts) or fetch from the DB.
+ * Falls back to the static maps when the DB is unavailable.
+ */
+const refreshAttributeAliasLookups = async (attributes) => {
+  let dbFwd = {};
+  let dbRev = {};
+  let loadedFromDb = false;
+
+  if (Array.isArray(attributes)) {
+    const built = buildLookupsFromAttributes(attributes);
+    dbFwd = built.fwd;
+    dbRev = built.rev;
+  } else {
+    try {
+      const AttributeDefinition = require("../models/AttributeDefinition");
+      const docs = await AttributeDefinition.find({}).lean().exec();
+      const built = buildLookupsFromAttributes(docs);
+      dbFwd = built.fwd;
+      dbRev = built.rev;
+      loadedFromDb = true;
+    } catch (error) {
+      effectiveAliasLookups = null;
+      effectiveReverseAliasLookups = null;
+      return false;
+    }
+  }
+
+  const mergedFwd = mergeForwardLookups(aliasLookups, dbFwd);
+  effectiveAliasLookups = mergedFwd;
+  effectiveReverseAliasLookups = buildReverseFromForward(mergedFwd);
+  return loadedFromDb || Object.keys(dbFwd).length > 0;
+};
+
+const clearAttributeAliasLookups = () => {
+  effectiveAliasLookups = null;
+  effectiveReverseAliasLookups = null;
+};
+
+const getAliasLookups = () => effectiveAliasLookups || aliasLookups;
+const getReverseAliasLookups = () =>
+  effectiveReverseAliasLookups || reverseAliasLookups;
+
 /**
  * Given a canonical filter value, return it plus all its stored alias slugs.
- * Used in queries so that products with any legacy format are matched.
+ * Used in queries so that products with any variant of the value (e.g.
+ * "0-3-month" vs "0-3-months") all match.
  */
 const expandCanonicalToAliases = (key, canonicalValue) => {
-  const reverseMap = reverseAliasLookups[key];
+  const reverseMap = getReverseAliasLookups()[key];
   if (!reverseMap) return [canonicalValue];
   const aliases = reverseMap.get(canonicalValue);
   return aliases ? Array.from(aliases) : [canonicalValue];
@@ -214,7 +341,7 @@ const normalizeFilterTokenByKey = (key, rawValue) => {
     slug = normalizePackToken(slug);
   }
 
-  const lookup = aliasLookups[attributeKey];
+  const lookup = getAliasLookups()[attributeKey];
   if (lookup) {
     if (lookup.has(slug)) {
       return lookup.get(slug);
@@ -266,4 +393,7 @@ module.exports = {
   expandCanonicalToAliases,
   allowsMultipleValues,
   deduplicateFilterValues,
+  buildLookupsFromAttributes,
+  refreshAttributeAliasLookups,
+  clearAttributeAliasLookups,
 };

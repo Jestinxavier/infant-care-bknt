@@ -15,7 +15,8 @@
     "seed:partners": "node scripts/seedDeliveryPartners.js",
     "migrate:media": "node src/scripts/migrate-to-media-server.js",
     "migrate:media:dry": "node src/scripts/migrate-to-media-server.js --dry-run",
-    "fix:media-url": "node src/scripts/fix-media-base-url.js"
+    "fix:media-url": "node src/scripts/fix-media-base-url.js",
+    "backfill:synonyms": "node scripts/backfill_attribute_synonyms.js"
   },
   "keywords": [
     "nodejs",

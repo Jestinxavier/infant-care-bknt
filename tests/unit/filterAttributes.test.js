@@ -7,6 +7,10 @@ const {
   buildFilterAttributesQuery,
 } = require("../../src/utils/filterAttributes");
 const { parseQueryFilters } = require("../../src/utils/parseQueryFilters");
+const {
+  refreshAttributeAliasLookups,
+  clearAttributeAliasLookups,
+} = require("../../src/utils/filterAttributeRules");
 
 describe("filterAttributes governance", () => {
   it("normalizes aliases to canonical tokens", () => {
@@ -99,8 +103,17 @@ describe("filterAttributes governance", () => {
       color: ["grey", "red"],
     });
 
-    expect(query["filterAttributes.pattern"]).toBe("solid");
-    expect(query["filterAttributes.color"]).toEqual({ $in: ["gray", "red"] });
+    // Single canonical expands to all its known aliases so stored spellings match
+    expect(query["filterAttributes.pattern"]).toEqual(
+      expect.objectContaining({
+        $in: expect.arrayContaining(["solid", "plain", "plane"]),
+      }),
+    );
+    expect(query["filterAttributes.color"]).toEqual(
+      expect.objectContaining({
+        $in: expect.arrayContaining(["gray", "red", "grey"]),
+      }),
+    );
   });
 
   it("parses query params into normalized filter arrays", () => {
@@ -113,5 +126,62 @@ describe("filterAttributes governance", () => {
     expect(parsed.material).toEqual(["organic-cotton", "cotton"]);
     expect(parsed.pattern).toEqual(["solid"]);
     expect(parsed.size).toEqual(["0-3-months", "3-6-months"]);
+  });
+});
+
+describe("DB-driven attribute synonym lookups", () => {
+  afterEach(() => clearAttributeAliasLookups());
+
+  it("normalizes merchant-managed synonyms to canonical values", async () => {
+    await refreshAttributeAliasLookups([
+      {
+        code: "size",
+        allowedValues: [{ value: "0-6-months", synonyms: ["0-6m", "0-6", "6m"] }],
+      },
+    ]);
+
+    expect(normalizeFilterValue("0-6m", "size")).toBe("0-6-months");
+    expect(normalizeFilterValue("0-6", "size")).toBe("0-6-months");
+    expect(normalizeFilterValue("6m", "size")).toBe("0-6-months");
+  });
+
+  it("merges DB synonyms with the static fallback vocabulary", async () => {
+    await refreshAttributeAliasLookups([
+      {
+        code: "color",
+        allowedValues: [{ value: "red", synonyms: ["crimson-ish"] }],
+      },
+    ]);
+
+    expect(normalizeFilterValue("grey", "color")).toBe("gray"); // static still works
+    expect(normalizeFilterValue("crimson-ish", "color")).toBe("red"); // DB works
+  });
+
+  it("expands canonical query values with DB synonyms", async () => {
+    await refreshAttributeAliasLookups([
+      {
+        code: "size",
+        allowedValues: [{ value: "3-6-months", synonyms: ["3-6m"] }],
+      },
+    ]);
+
+    const query = buildFilterAttributesQuery({ size: ["3-6-months"] });
+    expect(query["filterAttributes.size"]).toEqual(
+      expect.objectContaining({
+        $in: expect.arrayContaining(["3-6-months", "3-6m"]),
+      }),
+    );
+  });
+
+  it("lets merchant canonical values override static defaults", async () => {
+    await refreshAttributeAliasLookups([
+      {
+        code: "color",
+        allowedValues: [{ value: "chocolate", synonyms: [] }],
+      },
+    ]);
+
+    // Static map folds "chocolate" -> "brown"; DB definition wins
+    expect(normalizeFilterValue("chocolate", "color")).toBe("chocolate");
   });
 });

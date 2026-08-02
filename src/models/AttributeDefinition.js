@@ -67,6 +67,8 @@ const attributeDefinitionSchema = new mongoose.Schema(
         value: { type: String, required: true },
         label: { type: String, required: true },
         hex: { type: String },
+        // Alternate spellings/labels that collapse to this canonical value
+        synonyms: { type: [String], default: [] },
         isActive: { type: Boolean, default: true },
       },
     ],
@@ -103,12 +105,30 @@ attributeDefinitionSchema.pre("save", function (next) {
   if (this.isModified("allowedValues") && this.allowedValues?.length) {
     const seen = new Set();
     this.allowedValues = this.allowedValues
-      .map((v) => ({
-        value: v.value.toLowerCase().trim().replace(/\s+/g, "-"),
-        label: v.label.trim(),
-        hex: v.hex || undefined,
-        isActive: v.isActive !== false,
-      }))
+      .map((v) => {
+        const value = String(v.value ?? "")
+          .toLowerCase()
+          .trim()
+          .replace(/\s+/g, "-");
+        const synonyms = Array.isArray(v.synonyms)
+          ? [
+              ...new Set(
+                v.synonyms
+                  .map((s) =>
+                    String(s ?? "").toLowerCase().trim().replace(/\s+/g, "-"),
+                  )
+                  .filter((s) => s && s !== value),
+              ),
+            ]
+          : [];
+        return {
+          value,
+          label: v.label.trim(),
+          hex: v.hex || undefined,
+          synonyms,
+          isActive: v.isActive !== false,
+        };
+      })
       .filter((v) => {
         if (seen.has(v.value)) return false;
         seen.add(v.value);

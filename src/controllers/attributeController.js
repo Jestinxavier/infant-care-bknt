@@ -6,8 +6,24 @@
 const AttributeDefinition = require("../models/AttributeDefinition");
 const logger = require("../utils/logger");
 const { normalizeCode, toTitleCase } = require("../utils/normalizeValue");
+const { refreshAttributeAliasLookups } = require("../utils/filterAttributeRules");
 
 const ATTRIBUTE_ROLES = new Set(["variant", "metadata", "both"]);
+
+const normalizeValueToken = (value) =>
+  String(value ?? "").toLowerCase().trim().replace(/\s+/g, "-");
+
+const normalizeSynonyms = (value, synonyms) => {
+  if (!Array.isArray(synonyms)) return [];
+  const canonical = normalizeValueToken(value);
+  return [
+    ...new Set(
+      synonyms
+        .map(normalizeValueToken)
+        .filter((s) => s && s !== canonical),
+    ),
+  ];
+};
 
 /**
  * GET /api/v1/attributes
@@ -119,6 +135,8 @@ const createAttribute = async (req, res) => {
       allowedValues: allowedValues || [],
     });
 
+    refreshAttributeAliasLookups().catch(() => {});
+
     res.status(201).json({
       success: true,
       message: "Attribute created successfully",
@@ -207,6 +225,7 @@ const updateAttribute = async (req, res) => {
     if (allowedValues !== undefined) attribute.allowedValues = allowedValues;
 
     await attribute.save();
+    refreshAttributeAliasLookups().catch(() => {});
 
     res.json({
       success: true,
@@ -260,6 +279,7 @@ const deleteAttribute = async (req, res) => {
     }
 
     await attribute.deleteOne();
+    refreshAttributeAliasLookups().catch(() => {});
 
     res.json({
       success: true,
@@ -290,7 +310,7 @@ const deleteAttribute = async (req, res) => {
 const addAllowedValue = async (req, res) => {
   try {
     const { id } = req.params;
-    const { value, label, hex } = req.body;
+    const { value, label, hex, synonyms } = req.body;
 
     if (!value || !label) {
       return res.status(400).json({
@@ -308,13 +328,20 @@ const addAllowedValue = async (req, res) => {
       });
     }
 
-    // Check for duplicate value
-    const normalizedValue = value.toLowerCase().trim().replace(/\s+/g, "-");
-    const exists = attribute.allowedValues.some(
-      (v) => v.value === normalizedValue
+    // Check for duplicate value (against canonical values AND existing synonyms)
+    const normalizedValue = normalizeValueToken(value);
+    const normalizedSynonyms = normalizeSynonyms(value, synonyms);
+    const duplicate = attribute.allowedValues.some(
+      (v) =>
+        v.value === normalizedValue ||
+        (Array.isArray(v.synonyms) &&
+          v.synonyms.includes(normalizedValue)),
+    );
+    const synonymCollision = normalizedSynonyms.some((synonym) =>
+      attribute.allowedValues.some((v) => v.value === synonym),
     );
 
-    if (exists) {
+    if (duplicate || synonymCollision) {
       return res.status(400).json({
         success: false,
         message: `Value "${normalizedValue}" already exists for this attribute`,
@@ -326,10 +353,12 @@ const addAllowedValue = async (req, res) => {
       value: normalizedValue,
       label: label.trim(),
       hex: hex || undefined,
+      synonyms: normalizedSynonyms,
       isActive: true,
     });
 
     await attribute.save();
+    refreshAttributeAliasLookups().catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -352,7 +381,7 @@ const addAllowedValue = async (req, res) => {
 const updateAllowedValue = async (req, res) => {
   try {
     const { id, valueCode } = req.params;
-    const { label, hex, isActive } = req.body;
+    const { label, hex, synonyms, isActive } = req.body;
 
     const attribute = await AttributeDefinition.findById(id);
 
@@ -377,8 +406,12 @@ const updateAllowedValue = async (req, res) => {
     if (label !== undefined) valueObj.label = label.trim();
     if (hex !== undefined) valueObj.hex = hex;
     if (isActive !== undefined) valueObj.isActive = isActive;
+    if (synonyms !== undefined) {
+      valueObj.synonyms = normalizeSynonyms(valueObj.value, synonyms);
+    }
 
     await attribute.save();
+    refreshAttributeAliasLookups().catch(() => {});
 
     res.json({
       success: true,
@@ -424,6 +457,7 @@ const removeAllowedValue = async (req, res) => {
 
     attribute.allowedValues.splice(valueIndex, 1);
     await attribute.save();
+    refreshAttributeAliasLookups().catch(() => {});
 
     res.json({
       success: true,

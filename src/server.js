@@ -126,6 +126,23 @@ const startServer = async () => {
     logger.info("Database connection established");
 
     try {
+      const SystemErrorLog = require("./models/SystemErrorLog");
+      await SystemErrorLog.syncIndexes();
+    } catch (indexError) {
+      logger.warn("Failed to sync SystemErrorLog indexes", { error: indexError.message });
+    }
+
+    // Warm the attribute alias lookup cache (merchant-managed synonyms)
+    try {
+      const { refreshAttributeAliasLookups } = require("./utils/filterAttributeRules");
+      await refreshAttributeAliasLookups();
+    } catch (lookupError) {
+      logger.warn("Failed to load attribute alias lookups", {
+        error: lookupError.message,
+      });
+    }
+
+    try {
       const { startMediaCleanupCron } = require("./services/mediaCleanupService");
       startMediaCleanupCron();
     } catch (cronError) {
