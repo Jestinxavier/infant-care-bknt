@@ -309,9 +309,6 @@ const productSchema = new mongoose.Schema(
     metaTitle: { type: String },
     metaDescription: { type: String },
 
-    // ✅ NEW: UI Metadata for frontend (e.g. hex codes)
-    uiMeta: { type: Object }, // Flexible object structure for { color: { red: { hex: "#..." } } }
-
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

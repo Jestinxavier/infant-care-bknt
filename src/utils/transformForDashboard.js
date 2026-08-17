@@ -177,9 +177,13 @@ function buildCloudinaryUrl(publicIdOrPath) {
 /**
  * Transform product for admin dashboard listing
  * @param {Object} product - Raw product from database
+ * @param {Object} [options]
+ * @param {boolean} [options.includeVariants=false] - When true, include the full
+ *   variants array (used by CSV export, which needs variant rows).
  * @returns {Object} Transformed product with aggregated metrics
  */
-function transformForDashboard(product) {
+function transformForDashboard(product, options = {}) {
+  const { includeVariants = false } = options;
   const hasVariants = product.variants && product.variants.length > 0;
 
   // Calculate aggregated metrics
@@ -254,13 +258,26 @@ function transformForDashboard(product) {
     product_type:
       product.product_type || (hasVariants ? "CONFIGURABLE" : "SIMPLE"),
 
+    // Filter attributes for CSV export
+    filterAttributes: product.filterAttributes,
+
     // Variants removed from list API - not needed for listing
+    // (included only when explicitly requested, e.g. CSV export)
 
     // Display fields
     thumbnail,
     sku,
     collections,
     badgeCollection,
+
+    // Full variant list (only when requested for CSV export)
+    ...(includeVariants
+      ? {
+          variants: product.variants,
+          variantOptions: product.variantOptions,
+          images: product.images || [],
+        }
+      : {}),
 
     // Timestamps
     createdAt: product.createdAt,

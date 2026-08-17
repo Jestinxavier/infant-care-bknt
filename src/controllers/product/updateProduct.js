@@ -21,9 +21,7 @@ const {
 const {
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
-  normalizeFilterValue,
 } = require("../../utils/filterAttributes");
-const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
 const { triggerRevalidation } = require("../../services/revalidateService");
@@ -91,14 +89,6 @@ const updateProduct = async (req, res) => {
         parsedBody.filterAttributes = {};
       }
     }
-    if (typeof parsedBody.uiMeta === "string") {
-      try {
-        parsedBody.uiMeta = JSON.parse(parsedBody.uiMeta);
-      } catch (e) {
-        logger.error("Error parsing uiMeta JSON in updateProduct:", e);
-        parsedBody.uiMeta = {};
-      }
-    }
 
     const {
       productId: bodyProductId,
@@ -136,8 +126,6 @@ const updateProduct = async (req, res) => {
       // Quantity-based tier pricing
       quantityRules,
       filterAttributes,
-      filterColorHex,
-      uiMeta,
       // Legacy fields
       name,
     } = parsedBody;
@@ -327,10 +315,6 @@ const updateProduct = async (req, res) => {
     }
 
     // Update variantOptions with validation
-    const rawVariantOptionsForUiMeta = Array.isArray(variantOptions)
-      ? variantOptions
-      : undefined;
-
     if (variantOptions !== undefined) {
       // Validate variant option codes are unique
       if (Array.isArray(variantOptions)) {
@@ -367,7 +351,7 @@ const updateProduct = async (req, res) => {
         }
       }
 
-      // Strip hex values from values - uiMeta handles hex separately
+      // Strip hex values from values - hex is sourced from the attribute catalog
       // Also capitalize variant option names and add "M" suffix for size patterns
       const cleanedVariantOptions = processVariantOptions(variantOptions).map(
         (opt) => ({
@@ -377,35 +361,6 @@ const updateProduct = async (req, res) => {
       );
 
       product.variantOptions = cleanedVariantOptions;
-    }
-
-    const shouldSyncColorHexMeta =
-      uiMeta !== undefined ||
-      filterColorHex !== undefined ||
-      variantOptions !== undefined ||
-      filterAttributes !== undefined;
-
-    if (shouldSyncColorHexMeta) {
-      const normalizeColorToken = (value) => normalizeFilterValue(value, "color");
-      const colorAllowList =
-        filterAttributes !== undefined
-          ? sanitizedFilterAttributes?.color
-          : product.filterAttributes?.color;
-
-      const mergedUiMeta = mergeColorHexUiMeta({
-        existingUiMeta: uiMeta !== undefined ? uiMeta : product.uiMeta,
-        variantOptions: rawVariantOptionsForUiMeta,
-        colorHexInput: filterColorHex,
-        normalizeColorToken,
-        colorAllowList,
-      });
-
-      product.uiMeta =
-        mergedUiMeta &&
-        typeof mergedUiMeta === "object" &&
-        Object.keys(mergedUiMeta).length > 0
-          ? mergedUiMeta
-          : undefined;
     }
 
     // Update additional fields

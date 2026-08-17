@@ -52,23 +52,23 @@ const allowedOrigins = [
   .filter(Boolean)
   .map((url) => url.trim().replace(/\/$/, ""));
 
+const isDevelopment = process.env.NODE_ENV !== "production";
+
 const corsOptions = {
   origin(origin, callback) {
     if (!origin) {
       return callback(null, true);
     }
 
-    const normalizedOrigin = origin.trim().replace(/\/$/, "");
-    const isLocalhost =
-      normalizedOrigin.startsWith("http://localhost:") ||
-      normalizedOrigin.startsWith("http://127.0.0.1:") ||
-      normalizedOrigin === "http://localhost" ||
-      normalizedOrigin === "http://127.0.0.1";
+    // Dev: Vite dev server (pnpm dev --host) is reachable from any LAN IP/port,
+    // so reflect any origin instead of maintaining a per-machine allowlist.
+    if (isDevelopment) {
+      return callback(null, true);
+    }
 
-    if (
-      (process.env.NODE_ENV !== "production" && isLocalhost) ||
-      allowedOrigins.includes(normalizedOrigin)
-    ) {
+    const normalizedOrigin = origin.trim().replace(/\/$/, "");
+
+    if (allowedOrigins.includes(normalizedOrigin)) {
       return callback(null, true);
     }
 

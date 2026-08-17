@@ -4,7 +4,7 @@
  * Two separate modes for safety:
  *
  *   --filter   Normalize filterAttributes only (color, size, material, etc.)
- *   --variant  Normalize variantOptions values + rebuild uiMeta.color + recalc usageCount
+ *   --variant  Normalize variantOptions values + recalc usageCount
  *
  * Each mode supports --dry-run and --apply:
  *
@@ -401,7 +401,6 @@ async function migrateVariantOptions(dryRun, allProducts, lookups, attrByCode, a
     productsSkipped: 0,
     valuesRemapped: 0,
     newAllowedValues: 0,
-    uiMetaChanged: 0,
     unmatchedValues: [],
     remappedValues: [],
   };
@@ -527,36 +526,6 @@ async function migrateVariantOptions(dryRun, allProducts, lookups, attrByCode, a
       }
     }
 
-    // Rebuild uiMeta.color (only when processing color or all attributes)
-    if (!attrFilter || attrFilter.toLowerCase() === "color") {
-      const colorOption = (product.variantOptions || []).find(
-        (o) => (o.code || "").toLowerCase() === "color"
-      );
-      const colorAttrDef = attrByCode.get("color");
-
-      if (colorOption && colorAttrDef) {
-        const hexLookup = new Map();
-        for (const av of (colorAttrDef.allowedValues || []).filter((v) => v.isActive !== false)) {
-          const h = normalizeHex(av.hex);
-          if (h) hexLookup.set(normalizeTokenToSlug(av.value), h);
-        }
-
-        const newColorMeta = {};
-        for (const val of (colorOption.values || [])) {
-          const slug = normalizeTokenToSlug(val.value);
-          const hex = hexLookup.get(slug) || normalizeHex(val.hex);
-          if (slug && hex) newColorMeta[slug] = { hex };
-        }
-
-        const oldStr = JSON.stringify(product.uiMeta?.color || {});
-        const newStr = JSON.stringify(newColorMeta);
-        if (oldStr !== newStr && Object.keys(newColorMeta).length > 0) {
-          stats.uiMetaChanged++;
-          changes.push(`  uiMeta.color: rebuilt`);
-        }
-      }
-    }
-
     if (changed) {
       stats.productsUpdated++;
       console.log(`[${product.sku || product._id}] ${product.name || "Unnamed"}`);
@@ -567,27 +536,6 @@ async function migrateVariantOptions(dryRun, allProducts, lookups, attrByCode, a
 
         if (changes.some((c) => c.includes("variants[]"))) {
           updateOps.variants = product.variants;
-        }
-
-        if (changes.some((c) => c.includes("uiMeta"))) {
-          const colorOpt = (product.variantOptions || []).find(
-            (o) => (o.code || "").toLowerCase() === "color"
-          );
-          const cAttrDef = attrByCode.get("color");
-          if (colorOpt && cAttrDef) {
-            const hLookup = new Map();
-            for (const av of (cAttrDef.allowedValues || []).filter((v) => v.isActive !== false)) {
-              const h = normalizeHex(av.hex);
-              if (h) hLookup.set(normalizeTokenToSlug(av.value), h);
-            }
-            const colorMeta = {};
-            for (const val of (colorOpt.values || [])) {
-              const slug = normalizeTokenToSlug(val.value);
-              const hex = hLookup.get(slug) || normalizeHex(val.hex);
-              if (slug && hex) colorMeta[slug] = { hex };
-            }
-            updateOps.uiMeta = { ...(product.uiMeta || {}), color: colorMeta };
-          }
         }
 
         await Product.updateOne({ _id: product._id }, { $set: updateOps });
@@ -694,7 +642,7 @@ async function main() {
   if (!dryRun && !apply) {
     console.log("Usage:");
     console.log("  --filter                    Normalize filterAttributes only");
-    console.log("  --variant                   Normalize all variantOptions + uiMeta + usageCount");
+    console.log("  --variant                   Normalize all variantOptions + usageCount");
     console.log("  --variant --attr <code>     Normalize variantOptions for a single attribute");
     console.log("  --dry-run                   Preview changes (no writes)");
     console.log("  --apply                     Apply changes");
@@ -785,7 +733,6 @@ async function main() {
   } else {
     console.log(`Values remapped:      ${stats.valuesRemapped}`);
     console.log(`New allowed values:   ${stats.newAllowedValues}`);
-    console.log(`uiMeta.color rebuilt: ${stats.uiMetaChanged}`);
     if (stats.unmatchedValues.length > 0) {
       console.log(`\nUnmatched values (added as new allowed values):`);
       for (const u of stats.unmatchedValues) {

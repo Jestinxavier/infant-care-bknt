@@ -297,10 +297,6 @@ const productSchema = new mongoose.Schema(
       enum: ["public", "private", "hidden"],
       default: "public",
     },
-    uiMeta: {
-      type: Object,
-      default: {},
-    },
     customAttributes: { type: Map, of: mongoose.Schema.Types.Mixed },
   },
   {

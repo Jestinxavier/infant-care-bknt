@@ -21,6 +21,10 @@ const {
   validateCollectionsAndBadge,
   normalizeCollectionSlug,
 } = require("../../utils/collectionUtils");
+const {
+  sanitizeIncomingFilterAttributes,
+  getFilterAttributeCardinalityViolations,
+} = require("../../utils/filterAttributes");
 
 // Cloudinary folder for permanent CSV imported images
 // CSV imported images should be stored in "assets" folder
@@ -35,6 +39,13 @@ const norm = (v) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+
+// "Provided" = the import payload actually carries a value for this field.
+// Used by the update path so re-imports do not wipe fields absent from the CSV.
+const isProvided = (v) => v !== undefined && v !== null && v !== "";
+const isNonEmptyArray = (v) => Array.isArray(v) && v.length > 0;
+const isNonEmptyObject = (v) =>
+  !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
 
 const normalizeImportFieldKey = (key) =>
   String(key || "")
@@ -86,6 +97,78 @@ const stripDeprecatedTagFieldsFromImportObject = (obj) => {
   });
   return removed;
 };
+
+/**
+ * Match imported products/variants to existing DB records by SKU so that
+ * re-importing a product (e.g. from a hand-edited CSV that only carries SKUs)
+ * updates the existing record instead of failing with "SKU already exists".
+ * Only rows without a real csvId are resolved; explicit ids always win.
+ */
+async function resolveExistingProductsBySku(products, session) {
+  if (!Array.isArray(products) || products.length === 0) return;
+
+  const skus = new Set();
+  products.forEach((p) => {
+    if (p?.sku) skus.add(p.sku.trim());
+    (p?.variants || []).forEach((v) => {
+      if (v?.sku) skus.add(v.sku.trim());
+    });
+  });
+  if (skus.size === 0) return;
+
+  const query = {
+    $or: [
+      { sku: { $in: Array.from(skus) } },
+      { "variants.sku": { $in: Array.from(skus) } },
+    ],
+  };
+
+  const finder = Product.find(query).select(
+    "_id sku variants.sku variants.id"
+  );
+  const existing = session
+    ? await finder.session(session).lean()
+    : await finder.lean();
+
+  const parentBySku = new Map();
+  const variantBySku = new Map();
+  existing.forEach((prod) => {
+    if (prod.sku) parentBySku.set(prod.sku.trim(), prod._id);
+    (prod.variants || []).forEach((v) => {
+      if (v.sku) {
+        variantBySku.set(v.sku.trim(), {
+          productId: prod._id,
+          variantId: v.id || v._id,
+        });
+      }
+    });
+  });
+
+  products.forEach((p) => {
+    const hasRealId = p.csvId && !String(p.csvId).startsWith("TMP_");
+    let parentId = hasRealId ? String(p.csvId) : null;
+
+    if (!hasRealId && p.sku) {
+      const existingParentId = parentBySku.get(p.sku.trim());
+      if (existingParentId) {
+        p.csvId = existingParentId.toString();
+        p.isNewProduct = false;
+        parentId = p.csvId;
+      }
+    }
+
+    (p.variants || []).forEach((v) => {
+      const variantHasRealId = v.csvId && !String(v.csvId).startsWith("TMP_");
+      if (variantHasRealId || !v.sku) return;
+
+      const match = variantBySku.get(v.sku.trim());
+      if (match && parentId && String(match.productId) === String(parentId)) {
+        v.csvId = match.variantId;
+        v.isNewVariant = false;
+      }
+    });
+  });
+}
 
 function buildVariantTitle(parentTitle, productVariantOptions, attributesMap) {
   const attrsObj =
@@ -274,14 +357,16 @@ class BulkImportController {
     const inputSkus = new Set();
     const inputIds = new Set();
 
+    // Re-imports matched by SKU become updates of the existing product
+    await resolveExistingProductsBySku(products);
+
     for (let i = 0; i < products.length; i++) {
       const product = products[i];
       const rowNum = i + 1;
 
-      // CSV bulk import intentionally excludes filterAttributes fields.
-      const removedImportFields = new Set(
-        stripFilterAttributesFromImportObject(product)
-      );
+      // Parent-level filterAttributes are supported; strip them only from
+      // variant rows (variants never carry filter attributes).
+      const removedImportFields = new Set();
       const removedDeprecatedTagFields = new Set(
         stripDeprecatedTagFieldsFromImportObject(product)
       );
@@ -313,7 +398,7 @@ class BulkImportController {
         warnings.push({
           row: rowNum,
           field: "filterAttributes",
-          message: `Ignored unsupported filterAttributes fields in CSV import: ${Array.from(
+          message: `Ignored unsupported filterAttributes fields on variant rows in CSV import: ${Array.from(
             removedImportFields
           ).join(", ")}`,
         });
@@ -326,6 +411,29 @@ class BulkImportController {
             removedDeprecatedTagFields
           ).join(", ")}. Use collections instead.`,
         });
+      }
+
+      // Warn on filter attribute cardinality violations (single-value fields
+      // given multiple values). Values are still stored, but may not facet.
+      if (
+        product.filterAttributes &&
+        typeof product.filterAttributes === "object"
+      ) {
+        const cardinalityViolations = getFilterAttributeCardinalityViolations(
+          product.filterAttributes,
+          {
+            productType: product.product_type || undefined,
+          }
+        );
+        if (cardinalityViolations.length > 0) {
+          warnings.push({
+            row: rowNum,
+            field: "filterAttributes",
+            message: `Filter attribute(s) accept a single value only: ${cardinalityViolations
+              .map((v) => `${v.key} (${v.values.join(", ")})`)
+              .join("; ")}`,
+          });
+        }
       }
 
       // Check for duplicate SKUs in input
@@ -732,12 +840,11 @@ class BulkImportController {
         .json(ApiResponse.error("Products array is required", 400).toJSON());
     }
 
-    // CSV bulk import intentionally excludes filterAttributes fields.
+    // Parent-level filterAttributes are supported; only variant-level fields
+    // are stripped (variants never carry filter attributes).
     let ignoredFilterAttributeFieldsCount = 0;
     let ignoredDeprecatedTagFieldsCount = 0;
     products.forEach((product) => {
-      ignoredFilterAttributeFieldsCount +=
-        stripFilterAttributesFromImportObject(product).length;
       ignoredDeprecatedTagFieldsCount +=
         stripDeprecatedTagFieldsFromImportObject(product).length;
       if (Array.isArray(product?.variants)) {
@@ -762,7 +869,7 @@ class BulkImportController {
     });
     if (ignoredFilterAttributeFieldsCount > 0) {
       logger.warn(
-        `⚠️ [Bulk Import] Ignored ${ignoredFilterAttributeFieldsCount} filterAttributes field(s). CSV bulk import does not support filterAttributes.`
+        `⚠️ [Bulk Import] Ignored ${ignoredFilterAttributeFieldsCount} filterAttributes field(s) on variant rows. Variants do not support filterAttributes.`
       );
     }
     if (ignoredDeprecatedTagFieldsCount > 0) {
@@ -909,6 +1016,13 @@ class BulkImportController {
       // Track SKUs/url_keys assigned in this batch to avoid intra-import collisions
       const usedSkusInBatch = new Set();
       const usedUrlKeysInBatch = new Set();
+
+      // Re-imports matched by SKU become updates of the existing product.
+      // Must run before the create/update loop so isUpdate is computed correctly.
+      await resolveExistingProductsBySku(
+        products,
+        isTransactionStarted ? session : undefined
+      );
 
       const skuExistsGlobally = async (sku, excludeProductId = null) => {
         if (!sku) return false;
@@ -1354,61 +1468,94 @@ class BulkImportController {
         });
 
         if (isUpdate) {
-          // Update existing product
+          // Update existing product. Only set fields the CSV actually provides
+          // (partial update) so a re-import that changes one value does not
+          // wipe unrelated fields. Missing fields are left untouched.
+          const updateData = {};
+
+          if (productData.title) {
+            updateData.title = productData.title;
+            updateData.name = productData.title; // Sync name with title
+          }
+          if (isProvided(productData.sku)) updateData.sku = productData.sku;
+          if (isProvided(productData.description)) {
+            updateData.description = productData.description;
+          }
+          if (resolvedCategoryId || isProvided(productData.category)) {
+            updateData.category = resolvedCategoryId || productData.category;
+            updateData.categoryCode =
+              idToDataMap.get(resolvedCategoryId?.toString())?.code ||
+              (isProvided(productData.categoryCode)
+                ? productData.categoryCode
+                : undefined);
+          }
+          if (isProvided(productData.status)) {
+            const status = String(productData.status).toLowerCase();
+            if (["draft", "published", "archived"].includes(status)) {
+              updateData.status = status;
+            }
+          }
+          if (images.length > 0) {
+            updateData.images = images.map((i) => i.url);
+          }
+          if (isProvided(productData.price)) {
+            updateData.price = Number(productData.price);
+          }
+          if (isProvided(productData.offerPrice)) {
+            updateData.offerPrice = Number(productData.offerPrice);
+          }
+          if (isProvided(productData.offerStartAt)) {
+            updateData.offerStartAt = productData.offerStartAt;
+          }
+          if (isProvided(productData.offerEndAt)) {
+            updateData.offerEndAt = productData.offerEndAt;
+          }
+          if (isProvided(productData.stock)) {
+            const available = Number(productData.stock) || 0;
+            updateData.stockObj = {
+              available,
+              isInStock: available > 0,
+            };
+          }
+          if (isNonEmptyArray(productData.details)) {
+            updateData.details = normalizeDetailsForImport(productData.details);
+          }
+          if (isNonEmptyArray(parsedCollections.collections)) {
+            updateData.collections = parsedCollections.collections;
+          }
+          if (
+            isProvided(productData.badgeCollection) ||
+            isProvided(productData.badge)
+          ) {
+            updateData.badgeCollection = parsedCollections.badgeCollection;
+          }
+          if (isProvided(productData.url_key)) {
+            updateData.url_key = productData.url_key;
+          }
+          if (isProvided(productData.metaTitle)) {
+            updateData.metaTitle = productData.metaTitle;
+          }
+          if (isProvided(productData.metaDescription)) {
+            updateData.metaDescription = productData.metaDescription;
+          }
+          const normalizedFilterAttributes = sanitizeIncomingFilterAttributes(
+            productData.filterAttributes
+          );
+          if (isNonEmptyObject(normalizedFilterAttributes)) {
+            updateData.filterAttributes = normalizedFilterAttributes;
+          }
+
+          // Variants: only replace when the import actually provides them, so a
+          // minimal re-import (parent row only) never wipes existing variants.
+          if (embeddedVariants.length > 0) {
+            updateData.variantOptions = finalVariantOptions;
+            updateData.variants = embeddedVariants;
+            updateData.product_type = productType;
+          }
+
           await Product.findByIdAndUpdate(
             productData.csvId,
-            {
-              title: productData.title,
-              name: productData.title, // Sync name with title
-              sku: productData.sku,
-              description: productData.description || "",
-              category: resolvedCategoryId || productData.category,
-              categoryCode:
-                idToDataMap.get(resolvedCategoryId?.toString())?.code ||
-                productData.categoryCode,
-              status: ["draft", "published", "archived"].includes(
-                (productData.status || "").toLowerCase()
-              )
-                ? productData.status.toLowerCase()
-                : "draft",
-              product_type: productType, // ✅ Set product type based on variants
-              images: images.length > 0 ? images.map((i) => i.url) : undefined, // Product schema images is string[]
-              price: productData.price || 0, // Ensure direct field is updated too
-              offerPrice:
-                productData.offerPrice !== undefined &&
-                productData.offerPrice !== null &&
-                productData.offerPrice !== ""
-                  ? Number(productData.offerPrice)
-                  : undefined,
-              offerStartAt:
-                productData.offerStartAt &&
-                productData.offerStartAt !== "" &&
-                productData.offerStartAt !== null
-                  ? productData.offerStartAt
-                  : undefined,
-              offerEndAt:
-                productData.offerEndAt &&
-                productData.offerEndAt !== "" &&
-                productData.offerEndAt !== null
-                  ? productData.offerEndAt
-                  : undefined,
-              stockObj: {
-                available: productData.stock || 0,
-                isInStock: (productData.stock || 0) > 0,
-              },
-              details: normalizeDetailsForImport(productData.details || []),
-              collections: parsedCollections.collections,
-              badgeCollection: parsedCollections.badgeCollection,
-              // New fields
-              url_key: productData.url_key,
-              metaTitle: productData.metaTitle,
-              metaDescription: productData.metaDescription,
-              uiMeta: productData.uiMeta, // ✅ NEW
-              variantOptions: finalVariantOptions, // ✅ UPDATED with attributeId
-
-              // ✅ NEW: Embed variants directly
-              variants: embeddedVariants, // ✅ UPDATED strict variants
-            },
+            updateData,
             isTransactionStarted ? { session } : {}
           );
           logger.info(`  📝 Updated product: ${productData.sku}`);
@@ -1460,7 +1607,9 @@ class BulkImportController {
             url_key: productData.url_key,
             metaTitle: productData.metaTitle,
             metaDescription: productData.metaDescription,
-            uiMeta: productData.uiMeta, // ✅ NEW
+            filterAttributes: sanitizeIncomingFilterAttributes(
+              productData.filterAttributes
+            ),
             variantOptions: finalVariantOptions, // ✅ UPDATED with attributeId
             variants: embeddedVariants, // ✅ UPDATED strict variants
           };

@@ -68,7 +68,7 @@ const formatProductResponse = (product) => {
     };
   });
 
-  // Format variantOptions (hex is now in uiMeta, not in variant option values)
+  // Format variantOptions (hex comes from the attribute catalog, not the product)
   const formattedVariantOptions = (productObj.variantOptions || []).map(
     (option) => ({
       name: option.name,
@@ -76,7 +76,7 @@ const formatProductResponse = (product) => {
       values: (option.values || []).map((val) => ({
         label: val.label || val.value,
         value: val.value,
-        // hex is available in uiMeta - no longer included here
+        // hex is sourced from the global attribute catalog
       })),
     })
   );
@@ -276,7 +276,6 @@ const formatProductResponse = (product) => {
     meta_title: productObj.metaTitle || productObj.meta_title || "",
     meta_description:
       productObj.metaDescription || productObj.meta_description || "",
-    uiMeta: productObj.uiMeta || {},
     // Quantity-based tier pricing
     quantityRules: productObj.quantityRules || [],
     videos: productObj.videos || [],

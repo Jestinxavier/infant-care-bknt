@@ -25,9 +25,7 @@ const {
 const {
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
-  normalizeFilterValue,
 } = require("../../utils/filterAttributes");
-const { mergeColorHexUiMeta } = require("../../utils/colorHexMeta");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
 
@@ -189,14 +187,6 @@ const createProduct = async (req, res) => {
       }
     }
 
-    if (typeof parsedBody.uiMeta === "string") {
-      try {
-        parsedBody.uiMeta = JSON.parse(parsedBody.uiMeta);
-      } catch (e) {
-        parsedBody.uiMeta = {};
-      }
-    }
-
     // Support both new structure and legacy structure
     const {
       // New structure fields
@@ -235,8 +225,6 @@ const createProduct = async (req, res) => {
       // Quantity-based tier pricing
       quantityRules,
       filterAttributes,
-      filterColorHex,
-      uiMeta,
     } = parsedBody;
 
     // Use title or name (backward compatibility)
@@ -811,19 +799,6 @@ const createProduct = async (req, res) => {
         }))
       : [];
 
-    const normalizeColorToken = (value) => normalizeFilterValue(value, "color");
-    const mergedUiMeta = mergeColorHexUiMeta({
-      existingUiMeta: uiMeta,
-      variantOptions,
-      colorHexInput: filterColorHex,
-      normalizeColorToken,
-      colorAllowList: sanitizedFilterAttributes?.color,
-    });
-    const hasUiMeta =
-      mergedUiMeta &&
-      typeof mergedUiMeta === "object" &&
-      Object.keys(mergedUiMeta).length > 0;
-
     // Create product with new structure
     const productData = {
       title: productTitle,
@@ -837,7 +812,7 @@ const createProduct = async (req, res) => {
       url_key: productUrlKey,
       status: normalizedStatus,
       sku: productSku || null,
-      // Strip hex values from variantOptions.values - uiMeta handles hex separately
+      // Strip hex values from variantOptions.values - hex comes from the catalog
       // Also capitalize variant option names and add "M" suffix for size patterns
       variantOptions: cleanedVariantOptions,
       variants: processedVariants,
@@ -912,7 +887,6 @@ const createProduct = async (req, res) => {
             }))
           : [],
       filterAttributes: sanitizedFilterAttributes,
-      uiMeta: hasUiMeta ? mergedUiMeta : undefined,
       // DO NOT allow rating fields to be set manually
       averageRating: 0,
       totalReviews: 0,

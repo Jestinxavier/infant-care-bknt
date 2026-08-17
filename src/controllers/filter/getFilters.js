@@ -1,5 +1,6 @@
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
+const AttributeDefinition = require("../../models/AttributeDefinition");
 const logger = require("../../utils/logger");
 const { generateFilterConfig } = require("../../utils/generateFilterConfig");
 const {
@@ -212,25 +213,31 @@ const applySearchFilter = (baseFilter, rawSearchTerm, useFuzzy = false) => {
   return filter;
 };
 
-const getHexFromUiMeta = (uiMetaColors, colorValue) => {
-  if (!uiMetaColors || typeof uiMetaColors !== "object") return null;
-
-  const directMeta = uiMetaColors[colorValue];
-  if (directMeta?.hex && HEX_COLOR_REGEX.test(directMeta.hex)) {
-    return directMeta.hex;
+const getHexFromAttributeCatalog = (colorHexMap, colorValue) => {
+  if (!colorHexMap || typeof colorHexMap !== "object") return null;
+  if (colorHexMap[colorValue] && HEX_COLOR_REGEX.test(colorHexMap[colorValue])) {
+    return colorHexMap[colorValue];
   }
 
   const normalizedColor = normalizeValue(colorValue);
-  for (const [key, meta] of Object.entries(uiMetaColors)) {
-    if (normalizeValue(key) === normalizedColor) {
-      if (meta?.hex && HEX_COLOR_REGEX.test(meta.hex)) {
-        return meta.hex;
-      }
+  for (const [value, hex] of Object.entries(colorHexMap)) {
+    if (normalizeValue(value) === normalizedColor) {
+      if (hex && HEX_COLOR_REGEX.test(hex)) return hex;
       break;
     }
   }
 
   return null;
+};
+
+const buildColorHexMapFromCatalog = (attribute) => {
+  const map = {};
+  if (!attribute || !Array.isArray(attribute.allowedValues)) return map;
+  attribute.allowedValues.forEach((value) => {
+    if (!value?.value || !value?.hex) return;
+    if (HEX_COLOR_REGEX.test(value.hex)) map[value.value] = value.hex;
+  });
+  return map;
 };
 
 const getHexFromVariantOptions = (variantOptions, colorValue) => {
@@ -355,6 +362,14 @@ const getFilters = async (req, res) => {
     const filterColorHexMap = new Map();
     const prices = [];
 
+    // Color swatch hex comes from the global attribute catalog (source of
+    // truth), not from per-product uiMeta. Variant option hex is kept as a
+    // legacy fallback only.
+    const colorAttribute = await AttributeDefinition.findOne({ code: "color" })
+      .select("allowedValues")
+      .lean();
+    const catalogColorHexMap = buildColorHexMapFromCatalog(colorAttribute);
+
     for (const product of products) {
       const productFilterAttributes =
         product.filterAttributes && typeof product.filterAttributes === "object"
@@ -373,15 +388,15 @@ const getFilters = async (req, res) => {
           countMap.set(normalized, (countMap.get(normalized) || 0) + 1);
 
           if (key === "color") {
-            const colorHexFromUiMeta = getHexFromUiMeta(
-              product.uiMeta?.color,
+            const colorHexFromCatalog = getHexFromAttributeCatalog(
+              catalogColorHexMap,
               value
             );
             const colorHexFromVariantOptions = getHexFromVariantOptions(
               product.variantOptions,
               value
             );
-            const colorHex = colorHexFromUiMeta || colorHexFromVariantOptions;
+            const colorHex = colorHexFromCatalog || colorHexFromVariantOptions;
             if (colorHex) {
               filterColorHexMap.set(normalized, colorHex);
             }

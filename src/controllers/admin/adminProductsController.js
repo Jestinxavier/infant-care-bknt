@@ -38,6 +38,7 @@ const getAllProducts = async (req, res) => {
       includeInactive = false,
       product_type,
       stockStatus,
+      includeVariants,
     } = requestData;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -114,7 +115,9 @@ const getAllProducts = async (req, res) => {
 
     // Transform products for admin dashboard using utility function
     const formattedProducts = products.map((product) =>
-      transformForDashboard(product)
+      transformForDashboard(product, {
+        includeVariants: includeVariants === "true" || includeVariants === true,
+      })
     );
 
     res.status(200).json({

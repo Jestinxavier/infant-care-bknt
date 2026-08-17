@@ -63,6 +63,8 @@ describe("filterAttributes governance", () => {
   });
 
   it("syncs configurable color/size from variants and keeps other attributes", () => {
+    // Manual color overrides the variant-derived color list; size is always
+    // derived from variants.
     const synced = syncFilterAttributes({
       productType: "CONFIGURABLE",
       filterAttributes: {
@@ -77,9 +79,26 @@ describe("filterAttributes governance", () => {
       ],
     });
 
-    expect(synced.color).toEqual(["red", "blue"]);
+    expect(synced.color).toEqual(["manual-color"]);
     expect(synced.size).toEqual(["0-3-months", "3-6-months"]);
     expect(synced.material).toEqual(["cotton"]);
+  });
+
+  it("derives configurable color from variants when no manual color is set", () => {
+    const synced = syncFilterAttributes({
+      productType: "CONFIGURABLE",
+      filterAttributes: {
+        material: ["Cotton"],
+      },
+      variants: [
+        { attributes: { color: "Red", size: "0-3m" } },
+        { attributes: { color: "Blue", size: "3-6m" } },
+        { attributes: { color: "red", size: "0-3m" } },
+      ],
+    });
+
+    expect(synced.color).toEqual(["red", "blue"]);
+    expect(synced.size).toEqual(["0-3-months", "3-6-months"]);
   });
 
   it("sanitizes only allowed keys and keeps normalized arrays", () => {

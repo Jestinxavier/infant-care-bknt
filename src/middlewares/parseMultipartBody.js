@@ -11,7 +11,6 @@ const parseMultipartBody = (req, res, next) => {
     "pricing",
     "stockObj",
     "filterAttributes",
-    "uiMeta",
     "quantityRules",
     "collections",
     "bundle_config", // For bundle products

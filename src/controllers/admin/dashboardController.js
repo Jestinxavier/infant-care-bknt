@@ -110,7 +110,7 @@ exports.getDashboardStats = async (req, res) => {
       const dateMatch = isAllTime
         ? {}
         : customDateRange
-          ? customDateRange
+          ? { createdAt: customDateRange }
           : endDateTime
             ? { createdAt: { $gte: startDate, $lte: endDateTime } }
             : { createdAt: { $gte: startDate } };
@@ -567,9 +567,23 @@ exports.getDashboardStats = async (req, res) => {
 
       const [codPendingRevRes] = await Order.aggregate([
         { $match: codPendingMatch },
-        { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+        { $group: { _id: null, total: { $sum: "$totalAmount" }, orders: { $sum: 1 } } },
       ]);
       const codPendingRevenue = codPendingRevRes?.total || 0;
+      const codPendingOrders = codPendingRevRes?.orders || 0;
+
+      const [codTotalRes] = await Order.aggregate([
+        {
+          $match: {
+            orderStatus: { $ne: "cancelled" },
+            paymentMethod: "COD",
+            ...dateMatch,
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$totalAmount" }, orders: { $sum: 1 } } },
+      ]);
+      const codTotalRevenue = codTotalRes?.total || 0;
+      const codTotalOrders = codTotalRes?.orders || 0;
 
       let codPendingTrendObj = null;
       if (!isAllTime) {
@@ -654,7 +668,10 @@ exports.getDashboardStats = async (req, res) => {
         productsInStock,
         salesOverTime: formattedSales,
         codPendingRevenue,
+        codPendingOrders,
         codPendingOverTime,
+        codTotalRevenue,
+        codTotalOrders,
         recentOrders,
         orderStatusDist,
         categorySales,

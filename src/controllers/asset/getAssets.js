@@ -1,4 +1,5 @@
 const Asset = require("../../models/Asset");
+const Product = require("../../models/Product");
 const mongoose = require("mongoose");
 const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
@@ -36,8 +37,27 @@ const getAssets = async (req, res) => {
     }
 
     // Search by publicId (partial match, case-insensitive)
+    // Also matches the full secure URL, origin context, and products that use the asset
+    // (by product name or SKU) so users can find images without the long public ID.
     if (search) {
-      baseQuery.publicId = { $regex: escapeRegex(search), $options: "i" };
+      const searchRegex = { $regex: escapeRegex(search), $options: "i" };
+
+      // Resolve matching products (by name or SKU) → asset usedBy.id lookup
+      const matchedProductIds = await Product.find({
+        $or: [{ name: searchRegex }, { sku: searchRegex }],
+      })
+        .select("_id")
+        .lean();
+      const productIdList = matchedProductIds.map((p) => p._id);
+
+      baseQuery.$or = [
+        { publicId: searchRegex },
+        { secureUrl: searchRegex },
+        { "origin.sourceContext": searchRegex },
+        ...(productIdList.length > 0
+          ? [{ "usedBy.id": { $in: productIdList } }]
+          : []),
+      ];
     }
 
     const [total] = await Promise.all([Asset.countDocuments(baseQuery)]);
