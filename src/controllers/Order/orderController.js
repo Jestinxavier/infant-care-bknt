@@ -1018,6 +1018,7 @@ const createOrder = async (req, res) => {
       message: "Order placed successfully",
       paymentMode: "cod",
       orderId: order.orderId,
+      totalAmount: order.totalAmount || order.pricing?.payableAmount || order.pricing?.grandTotal || order.payableAmount || 0,
       isGuestOrder: isGuest,
       requiresPayment: false,
     });
