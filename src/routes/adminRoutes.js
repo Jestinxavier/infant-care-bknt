@@ -13,6 +13,7 @@ const {
   updateOrderStatus,
   sendOrderInvoice,
   markOrderAsPaid,
+  markCodOrderAsPaid,
   getAllCategories,
   getCategoryById,
   getAllCustomers,
@@ -968,6 +969,42 @@ router.patch(
   verifyToken,
   requireAdmin,
   markOrderAsPaid,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/mark-cod-paid:
+ *   patch:
+ *     summary: "[Admin] Mark a COD order as paid (cash collected)"
+ *     description: Sets paymentStatus to paid for a Cash on Delivery order without changing its order status. Records a status history entry and sends the invoice email.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 description: Order ID
+ *     responses:
+ *       200:
+ *         description: COD order marked as paid
+ *       400:
+ *         description: Not a COD order or already paid
+ *       404:
+ *         description: Order not found
+ */
+router.patch(
+  "/orders/mark-cod-paid",
+  verifyToken,
+  requireAdmin,
+  markCodOrderAsPaid,
 );
 
 /**

@@ -23,8 +23,6 @@ const verifyToken = (req, res, next) => {
   const token = getTokenFromRequest(req, "access");
   if (!token) return next(ApiError.unauthorized("No token provided"));
 
-  if (!token) return next(ApiError.unauthorized("Invalid token format"));
-
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();

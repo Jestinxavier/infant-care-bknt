@@ -18,6 +18,30 @@
 const SystemErrorLog = require("../models/SystemErrorLog");
 const logger = require("./logger");
 
+// ── Expected-error noise filter ──────────────────────────────────────────────
+// Errors that happen as part of natural workflows (e.g. the dashboard pinging
+// /auth/profile while logged out) must not bloat system_error_logs or
+// logs/error.log. Matching sub-500 errors are dropped at source.
+// Extend via env: ERROR_LOG_NOISE_PATTERNS="No token provided,Some other msg"
+const DEFAULT_NOISE_PATTERNS = [
+  "No token provided",
+  "Invalid token format",
+  "Invalid token",
+  "Invalid or expired token",
+  "Token expired",
+];
+
+const noisePatterns = (
+  process.env.ERROR_LOG_NOISE_PATTERNS ?? DEFAULT_NOISE_PATTERNS.join(",")
+)
+  .split(",")
+  .map((p) => p.trim().toLowerCase())
+  .filter(Boolean);
+
+const isExpectedNoise = (error, statusCode) =>
+  statusCode < 500 &&
+  noisePatterns.some((p) => (error?.message || "").toLowerCase().includes(p));
+
 /**
  * Persist an error to the system_error_logs collection AND emit to the file logger.
  *
@@ -36,6 +60,17 @@ const logError = async (error, context = {}) => {
   const endpoint = req?.originalUrl ?? context.endpoint ?? null;
   const userId   = req?.user?._id   ?? context.userId   ?? null;
   const resolvedStatus = statusCode ?? error?.statusCode ?? 500;
+
+  // ── Drop known expected-workflow errors (no DB write, no error file) ────
+  if (isExpectedNoise(error, resolvedStatus)) {
+    logger.debug(`Expected error ignored: ${error.message}`, {
+      source,
+      method,
+      endpoint,
+      statusCode: resolvedStatus,
+    });
+    return;
+  }
 
   // ── Emit to the file logger first (never blocks) ─────────────────────────
   logger.error(error.message || "Unknown error", {
@@ -77,7 +112,10 @@ const logError = async (error, context = {}) => {
  */
 const logErrorFileOnly = (error, context = {}) => {
   const message = typeof error === "string" ? error : error?.message;
-  logger.error(message || "Unknown error", context);
+  const resolvedStatus = context.statusCode ?? 500;
+  if (!isExpectedNoise({ message }, resolvedStatus)) {
+    logger.error(message || "Unknown error", context);
+  }
 };
 
 module.exports = { logError, logErrorFileOnly };

@@ -25,6 +25,9 @@ const getAllOrders = async (req, res) => {
       status,
       paymentStatus,
       paymentMethod,
+      customerType, // "guest" | "registered"
+      minTotal, // minimum order amount
+      maxTotal, // maximum order amount
       sortBy = "createdAt",
       sortOrder = -1,
       search,
@@ -90,6 +93,23 @@ const getAllOrders = async (req, res) => {
 
     if (paymentMethod) {
       filter.paymentMethod = paymentMethod;
+    }
+
+    // Customer type filter (guest vs registered)
+    if (customerType === "guest") {
+      filter.isGuestOrder = true;
+    } else if (customerType === "registered") {
+      filter.isGuestOrder = false;
+    }
+
+    // Order amount range filter
+    const parsedMinTotal = Number(minTotal);
+    const parsedMaxTotal = Number(maxTotal);
+    if (minTotal !== undefined && minTotal !== null && minTotal !== "" && Number.isFinite(parsedMinTotal)) {
+      filter.totalAmount = { ...filter.totalAmount, $gte: parsedMinTotal };
+    }
+    if (maxTotal !== undefined && maxTotal !== null && maxTotal !== "" && Number.isFinite(parsedMaxTotal)) {
+      filter.totalAmount = { ...filter.totalAmount, $lte: parsedMaxTotal };
     }
 
     // Advanced Search
@@ -817,10 +837,97 @@ const markOrderAsPaid = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Mark a COD order as paid (cash collected manually)
+ * Sets paymentStatus = "paid" without touching orderStatus, records status history.
+ */
+const markCodOrderAsPaid = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Order ID is required" });
+    }
+
+    // Resolve order
+    const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
+    let query = mongoose.Types.ObjectId.isValid(orderId)
+      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
+
+    const order = await Order.findOne(query)
+      .populate("userId", "username email phone")
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Guard: only allow for COD + pending payment
+    if (order.paymentMethod !== PAYMENT_METHODS.COD) {
+      return res.status(400).json({
+        success: false,
+        message: `This order uses ${order.paymentMethod}. COD marking is only for Cash on Delivery orders.`,
+      });
+    }
+    if (order.paymentStatus === "paid") {
+      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+    }
+
+    // Build status history entry
+    const history = order.statusHistory || [];
+    history.push({
+      status: order.orderStatus,
+      timestamp: new Date(),
+      note: "COD payment collected — marked as paid by admin",
+      updatedBy: req.user?._id,
+    });
+
+    const updated = await Order.findByIdAndUpdate(
+      order._id,
+      {
+        $set: {
+          paymentStatus: "paid",
+          statusHistory: history,
+        },
+      },
+      { new: true }
+    )
+      .populate("userId", "username email phone")
+      .lean();
+
+    if (!updated) {
+      return res.status(500).json({ success: false, message: "Failed to update order" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "COD order marked as paid.",
+      order: { ...updated, _id: updated._id?.toString() },
+    });
+
+    // Revenue changed — flush the dashboard cache
+    invalidateDashboardCache().catch((err) =>
+      logger.error("Dashboard cache invalidation failed after COD mark-paid", { error: err.message })
+    );
+
+    // Send invoice email asynchronously (don't block the response)
+    if (updated.userId?.email) {
+      emailService
+        .sendInvoiceEmail(updated.userId, updated)
+        .catch((err) => logger.error("❌ Invoice email failed after COD mark-paid:", err.message));
+    }
+  } catch (err) {
+    logger.error("❌ Admin Error marking COD order as paid:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
   markOrderAsPaid,
+  markCodOrderAsPaid,
 };

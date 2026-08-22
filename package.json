@@ -16,7 +16,8 @@
     "migrate:media": "node src/scripts/migrate-to-media-server.js",
     "migrate:media:dry": "node src/scripts/migrate-to-media-server.js --dry-run",
     "fix:media-url": "node src/scripts/fix-media-base-url.js",
-    "backfill:synonyms": "node scripts/backfill_attribute_synonyms.js"
+    "backfill:synonyms": "node scripts/backfill_attribute_synonyms.js",
+ "purge:error-logs": "node scripts/purgeNoiseErrorLogs.js"
   },
   "keywords": [
     "nodejs",
