@@ -19,6 +19,7 @@ const {
   checkStock,
   getPriceAndStock,
   getRecommendations,
+  searchSuggest,
 } = require("../controllers/product");
 const productService = require("../features/product/product.service");
 const verifyToken = require("../middlewares/authMiddleware");
@@ -91,6 +92,32 @@ router.get("/search", async (req, res) => {
  *         description: Search index retrieved successfully
  */
 router.get("/search-index", getSearchIndex);
+
+/**
+ * @swagger
+ * /api/v1/product/search/suggest:
+ *   get:
+ *     summary: Typeahead suggestions for the storefront search overlay
+ *     description: Returns a small set of published products matching a prefix/substring query. Exact SKU hits return a single product with exactMatch=true. Redis-cached per query.
+ *     tags: [Products]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search term (min 2 chars)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 6
+ *           maximum: 10
+ *     responses:
+ *       200:
+ *         description: Suggestions retrieved successfully
+ */
+router.get("/search/suggest", searchSuggest);
 
 /**
  * @swagger
