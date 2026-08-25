@@ -605,7 +605,7 @@ const createCart = async (req, res) => {
           await existingCart.populate({
             path: "items.productId",
             select:
-              "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+              "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
           });
           const totals = await calculateTotals(existingCart.items);
           const itemPrices = totals.itemPrices;
@@ -739,7 +739,7 @@ const getCart = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals (coupons + shipping) based on current cart state
@@ -978,7 +978,7 @@ const addItem = async (req, res) => {
     await cartDoc.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Get bundle stocks for bundle products
@@ -1112,7 +1112,7 @@ const updateItem = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals (coupons recalculated + shipping adjusted after discounts)
@@ -1258,7 +1258,7 @@ const removeItem = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals (coupons recalculated + shipping adjusted after discounts)
@@ -1377,7 +1377,7 @@ const getItems = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals with itemPrices
@@ -1447,7 +1447,7 @@ const getPriceSummary = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals with itemPrices
@@ -1491,7 +1491,7 @@ const getProductData = async (req, res) => {
     // Populate product details
     await cart.populate({
       path: "items.productId",
-      select: "title url_key images pricing stockObj variants status",
+      select: "title url_key images pricing stockObj variants variantOptions status",
     });
 
     const productData = cart.items.map((item) => {
@@ -1584,7 +1584,7 @@ const getSummary = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Compute totals with itemPrices
@@ -1734,7 +1734,7 @@ const mergeCart = async (req, res) => {
       await userCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+          "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       // Recalculate totals and re-validate all applied coupons against the new cart
@@ -1766,7 +1766,7 @@ const mergeCart = async (req, res) => {
       await userCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+          "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       // Compute totals with itemPrices
@@ -1816,7 +1816,7 @@ const mergeCart = async (req, res) => {
         await guestCart.populate({
           path: "items.productId",
           select:
-            "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+            "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
         });
 
         const totals = await calculateTotals(guestCart.items);
@@ -1844,7 +1844,7 @@ const mergeCart = async (req, res) => {
       await guestCart.populate({
         path: "items.productId",
         select:
-          "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+          "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
       });
 
       const totals = await calculateTotals(guestCart.items);
@@ -2007,7 +2007,7 @@ const applyCoupon = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status category",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status category",
     });
 
     // Compute totals dynamically (explicit pricing stages)
@@ -2410,7 +2410,7 @@ const removeCoupon = async (req, res) => {
     await cart.populate({
       path: "items.productId",
       select:
-        "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+        "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
     });
 
     // Recalculate totals with remaining coupons
@@ -2726,7 +2726,7 @@ const recoverCart = async (req, res) => {
         await newCart.populate({
           path: "items.productId",
           select:
-            "title url_key images stockObj variants product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
+            "title url_key images stockObj variants variantOptions product_type bundle_config sku quantityRules price offerPrice offerStartAt offerEndAt status",
         });
 
         // calculateTotals skips items with null/missing products (no crash)

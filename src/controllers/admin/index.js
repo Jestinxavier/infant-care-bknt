@@ -5,6 +5,7 @@ const {
   skuLookup,
   countFilterValue,
 } = require("./adminProductsController");
+const { reindexSearchIndex } = require("./adminSearchController");
 const {
   getAllOrders,
   getOrderById,
@@ -35,6 +36,7 @@ module.exports = {
   searchProducts,
   skuLookup,
   countFilterValue,
+  reindexSearchIndex,
 
   // Orders
   getAllOrders,

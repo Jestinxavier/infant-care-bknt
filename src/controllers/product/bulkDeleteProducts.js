@@ -4,6 +4,7 @@ const Review = require("../../models/Review");
 const { extractImagePublicIds } = require("../../utils/mediaFinalizer");
 const Media = require("../../models/Media");
 const logger = require("../../utils/logger");
+const { removeProductsByIds } = require("../../services/searchIndexService");
 
 /**
  * Bulk delete multiple products and all their associated data
@@ -116,6 +117,11 @@ const bulkDeleteProducts = async (req, res) => {
         });
         results.failureCount++;
       }
+    }
+
+    // Fire-and-forget: drop deleted products from search index
+    if (results.successful.length > 0) {
+      removeProductsByIds(results.successful.map((r) => r.productId));
     }
 
     // Batch process image deletion AFTER all products are deleted

@@ -28,6 +28,7 @@ const {
 } = require("../../utils/filterAttributes");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
+const { syncProductsByIds } = require("../../services/searchIndexService");
 
 /**
  * Derive auto-thumbnail for a video entry and return the normalized object.
@@ -920,6 +921,9 @@ const createProduct = async (req, res) => {
     }
 
     // No need to set selectedOptions - variant selection is determined from URL
+
+    // Fire-and-forget: keep search index in sync (never blocks/fails the request)
+    syncProductsByIds([product._id]);
 
     res.status(201).json({
       success: true,

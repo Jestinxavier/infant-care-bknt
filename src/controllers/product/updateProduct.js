@@ -25,6 +25,7 @@ const {
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
 const { triggerRevalidation } = require("../../services/revalidateService");
+const { syncProductsByIds } = require("../../services/searchIndexService");
 
 const norm = (v) =>
   (v ?? "")
@@ -902,6 +903,9 @@ const updateProduct = async (req, res) => {
     if (product.url_key) {
       triggerRevalidation({ type: "product", resource: product.url_key }).catch(() => {});
     }
+
+    // Fire-and-forget: keep search index in sync (never blocks/fails the request)
+    syncProductsByIds([product._id]);
 
     res.status(200).json({
       success: true,

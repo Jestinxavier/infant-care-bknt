@@ -9,6 +9,7 @@ const Asset = require("../../models/Asset");
 const ApiResponse = require("../../core/ApiResponse");
 const asyncHandler = require("../../core/middleware/asyncHandler");
 const logger = require("../../utils/logger");
+const { syncProductsByIds } = require("../../services/searchIndexService");
 const {
   suggestProductSku,
   generateVariantSku,
@@ -1651,6 +1652,11 @@ class BulkImportController {
       logger.info(
         `✅ [Bulk Import] Successfully committed ${products.length} products`
       );
+
+      // Fire-and-forget: keep search index in sync with imported products
+      if (createdProductIds.length > 0) {
+        syncProductsByIds(createdProductIds);
+      }
 
       res.status(200).json(
         ApiResponse.success("Import completed successfully", {

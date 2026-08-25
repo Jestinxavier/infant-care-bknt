@@ -2,6 +2,7 @@ const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const Review = require("../../models/Review");
 const logger = require("../../utils/logger");
+const { removeProductsByIds } = require("../../services/searchIndexService");
 
 /**
  * Delete a product and all its variants, reviews, and related data
@@ -137,6 +138,9 @@ const deleteProduct = async (req, res) => {
     // Step 5: Delete the product
     await Product.findByIdAndDelete(productId);
     logger.info(`Deleted product ${productId}: ${product.name}`);
+
+    // Fire-and-forget: drop from search index (never blocks/fails the request)
+    removeProductsByIds([productId]);
 
     res.status(200).json({
       success: true,

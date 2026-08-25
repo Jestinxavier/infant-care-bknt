@@ -1,6 +1,38 @@
 // utils/formatCartResponse.js
 
 /**
+ * Resolve attribute values to labels using product's variantOptions.
+ * e.g. { size: "M" } → { size: "Medium" }
+ * @param {Object|null} attrs - Normalized attributes { code: value }
+ * @param {Array|null} variantOptions - Product's variantOptions array
+ * @returns {Object|null} Attributes with label values
+ */
+function resolveAttributeLabels(attrs, variantOptions) {
+  if (!attrs || !Array.isArray(variantOptions) || variantOptions.length === 0) {
+    return attrs;
+  }
+  const resolved = {};
+  for (const [key, val] of Object.entries(attrs)) {
+    const option = variantOptions.find(
+      (o) =>
+        (o.code && o.code.toLowerCase() === key.toLowerCase()) ||
+        (o.name && o.name.toLowerCase() === key.toLowerCase())
+    );
+    if (option && Array.isArray(option.values)) {
+      const found = option.values.find(
+        (v) =>
+          (v.value && v.value.toLowerCase() === val.toLowerCase()) ||
+          (v.label && v.label.toLowerCase() === val.toLowerCase())
+      );
+      resolved[key] = found?.label || val;
+    } else {
+      resolved[key] = val;
+    }
+  }
+  return resolved;
+}
+
+/**
  * Normalize variant attributes to a single key per attribute (lowercase).
  * Collapses duplicates like { Size: "3-6", size: "3-6" } -> { size: "3-6" }.
  * @param {Object|Map|null} attrs - Plain object or Map of attribute key -> value
@@ -177,10 +209,13 @@ const formatCartResponse = (
       titleSnapshot: item.titleSnapshot || product?.title || "",
       imageSnapshot: item.imageSnapshot || extractImageUrl(product?.images?.[0]),
       skuSnapshot: item.skuSnapshot || product?.sku || null,
-      attributesSnapshot: normalizeAttributesSnapshot(
-        item.attributesSnapshot
-          ? Object.fromEntries(item.attributesSnapshot)
-          : null,
+      attributesSnapshot: resolveAttributeLabels(
+        normalizeAttributesSnapshot(
+          item.attributesSnapshot
+            ? Object.fromEntries(item.attributesSnapshot)
+            : null,
+        ),
+        product?.variantOptions,
       ),
       selectedGiftSku: item.selectedGiftSku || null,
       selectedGift: null, // Default

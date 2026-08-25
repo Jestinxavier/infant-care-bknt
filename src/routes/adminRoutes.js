@@ -8,6 +8,7 @@ const {
   searchProducts,
   skuLookup,
   countFilterValue,
+  reindexSearchIndex,
   getAllOrders,
   getOrderById,
   updateOrderStatus,
@@ -256,6 +257,25 @@ router.post(
  *         description: Products found
  */
 router.get("/products/search", verifyToken, requireAdmin, searchProducts);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/reindex-search:
+ *   post:
+ *     summary: "[Admin] Full rebuild of the Meilisearch products index"
+ *     tags: [Admin Products]
+ *     responses:
+ *       200:
+ *         description: Index rebuilt successfully
+ *       503:
+ *         description: Meilisearch not configured
+ */
+router.post(
+  "/products/reindex-search",
+  verifyToken,
+  requireAdmin,
+  reindexSearchIndex
+);
 
 /**
  * @swagger

@@ -1,49 +1,154 @@
 const Product = require("../../models/Product");
 const redis = require("../../config/redis");
 const logger = require("../../utils/logger");
+const {
+  getProductsIndex,
+  isMeilisearchEnabled,
+} = require("../../config/meilisearch");
 
 const CACHE_TTL_SECONDS = 120;
 const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 10;
 const MIN_QUERY_LENGTH = 2;
 
-const CACHE_PREFIX = "search:suggest:v1";
+const CACHE_PREFIX = "search:suggest:v2";
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const getMinPrice = (product) => {
-  const parentPrice = product.pricing?.price || product.price || 0;
-  let minPrice = parentPrice;
-  if (Array.isArray(product.variants) && product.variants.length > 0) {
-    const variantPrices = product.variants
-      .map((variant) => variant.pricing?.price || variant.price || 0)
-      .filter((price) => price > 0);
-    if (variantPrices.length > 0) minPrice = Math.min(...variantPrices);
-  } else if (parentPrice === 0 && product.price) {
-    minPrice = product.price;
+/**
+ * Meilisearch-backed suggest (typo tolerance + prefix + synonyms).
+ * Response shape is identical to the Mongo fallback path.
+ */
+const suggestViaMeilisearch = async (normalized, limit) => {
+  const index = getProductsIndex();
+  const result = await index.search(normalized, {
+    limit,
+    filter: 'status = "published"',
+  });
+
+  const products = (result.hits || []).map((hit) => ({
+    id: hit.id,
+    title: hit.title || "",
+    url_key: hit.url_key,
+    price: hit.price || 0,
+    image: hit.image || "",
+    category: hit.category || "Uncategorized",
+  }));
+
+  const payload = {
+    success: true,
+    query: normalized,
+    products,
+    total: products.length,
+  };
+
+  // Exact-SKU detection without an extra Mongo roundtrip — the index
+  // carries sku/skus attributes for this purpose.
+  if (/^[a-z0-9-]+$/.test(normalized) && products.length > 0) {
+    const firstHitSkus = [
+      ...(result.hits[0].sku ? [result.hits[0].sku] : []),
+      ...(result.hits[0].skus || []),
+    ];
+    if (
+      firstHitSkus.some((sku) => String(sku).toLowerCase() === normalized)
+    ) {
+      payload.products = products.slice(0, 1);
+      payload.total = 1;
+      payload.exactMatch = true;
+    }
   }
-  return minPrice;
+
+  return payload;
 };
 
-const toSuggestion = (product, category = null) => ({
-  id: String(product._id),
-  title: product.title || product.name || "",
-  url_key: product.url_key,
-  price: getMinPrice(product),
-  image:
-    typeof product.images?.[0] === "string" ? product.images[0] : "",
-  category: category || product.category?.name || "Uncategorized",
-});
+// ── MongoDB fallback ─────────────────────────────────────────────────
+// Token-aware, metadata-aware matching so natural queries work:
+//   "white rompers"       → color:"white" + title/category romper*
+//   "boy baby night dress" → gender:"boy" + night + dress
+// Every token must match at least one searchable path (AND); when that is
+// too strict we relax to ANY-token matching ranked by hit quality.
+const SEARCHABLE_PATHS = [
+  "title",
+  "name",
+  "categoryName",
+  "categoryCode",
+  "collections",
+  "badgeCollection",
+  "filterAttributes.color",
+  "filterAttributes.size",
+  "filterAttributes.material",
+  "filterAttributes.season",
+  "filterAttributes.gender",
+  "filterAttributes.sleeve",
+  "filterAttributes.occasion",
+  "filterAttributes.pattern",
+  "filterAttributes.pack",
+  "variants.name",
+];
 
-/**
- * GET /api/v1/product/search/suggest?q=<term>&limit=<n>
- *
- * Lightweight typeahead endpoint for the storefront search overlay.
- * - Prefix-first matching on title / variant names (+ SKU legs)
- * - Substring fallback when prefix results are thin
- * - Exact SKU hit short-circuits with exactMatch: true (client jumps straight to PDP)
- * - Redis-cached per normalized query; Redis failures never break search
- */
+const BASE_SELECT =
+  "title name url_key images pricing price sku categoryName categoryCode collections badgeCollection filterAttributes variants.sku variants.name variants.pricing variants.price category";
+
+const buildTokenRegexes = (tokens) =>
+  tokens.map((token, i) => {
+    const isLast = i === tokens.length - 1;
+    let source = escapeRegExp(token);
+    // Naive plural handling: "rompers" → /rompers?/i also matches "romper"
+    if (token.length > 3 && token.endsWith("s")) {
+      source = `${escapeRegExp(token.slice(0, -1))}s?`;
+    }
+    // Last token keeps its typeahead prefix tail: "dre" matches "dress"
+    if (isLast && token.length >= 2) {
+      source = `${source}\\w*`;
+    }
+    return new RegExp(source, "i");
+  });
+
+const rankAndSlice = (docs, tokenRegexes, tokens, limit) => {
+  const primaryText = (doc) =>
+    `${doc.title || doc.name || ""} ${doc.categoryName || ""}`.toLowerCase();
+  const metaText = (doc) => {
+    const attrs = doc.filterAttributes || {};
+    return [
+      ...(Array.isArray(doc.collections) ? doc.collections : []),
+      doc.badgeCollection || "",
+      ...Object.values(attrs).flatMap((v) => (Array.isArray(v) ? v : [v])),
+    ]
+      .join(" ")
+      .toLowerCase();
+  };
+
+  const scoreDoc = (doc) => {
+    const primary = primaryText(doc);
+    const meta = metaText(doc);
+    let primaryHits = 0;
+    let metaOnlyHits = 0;
+    for (const regex of tokenRegexes) {
+      if (regex.test(primary)) primaryHits += 1;
+      else if (regex.test(meta)) metaOnlyHits += 1;
+    }
+    return {
+      matchedAll: primaryHits + metaOnlyHits === tokens.length ? 1 : 0,
+      primaryHits,
+      metaOnlyHits,
+      titleLength: (doc.title || "").length,
+    };
+  };
+
+  return docs
+    .map((doc) => ({ suggestion: toSuggestion(doc), score: scoreDoc(doc) }))
+    .sort(
+      (a, b) =>
+        b.score.matchedAll - a.score.matchedAll ||
+        b.score.primaryHits - a.score.primaryHits ||
+        b.score.metaOnlyHits - a.score.metaOnlyHits ||
+        a.score.titleLength - b.score.titleLength ||
+        a.suggestion.title.localeCompare(b.suggestion.title)
+    )
+    .slice(0, limit)
+    .map((entry) => entry.suggestion);
+};
+
 const searchSuggest = async (req, res) => {
   try {
     const rawQuery = String(req.query.q ?? "").trim();
@@ -74,30 +179,50 @@ const searchSuggest = async (req, res) => {
       logger.warn("⚠️ Suggest cache read failed:", cacheError.message);
     }
 
+    // ── Meilisearch path (typo tolerance, prefix, synonyms) ─────────
+    if (isMeilisearchEnabled()) {
+      try {
+        const payload = await suggestViaMeilisearch(normalized, limit);
+        try {
+          await redis.set(
+            cacheKey,
+            JSON.stringify(payload),
+            "EX",
+            CACHE_TTL_SECONDS
+          );
+        } catch (cacheError) {
+          logger.warn("⚠️ Suggest cache write failed:", cacheError.message);
+        }
+        return res.status(200).json(payload);
+      } catch (searchError) {
+        // Engine hiccup must not break search — fall through to MongoDB.
+        logger.error(
+          "❌ Meilisearch suggest failed, using Mongo fallback:",
+          searchError.message
+        );
+      }
+    }
+
     const escaped = escapeRegExp(normalized);
     const prefixRegex = new RegExp(`^${escaped}`, "i");
-    const containsRegex = new RegExp(escaped, "i");
     const isSkuLike = /^[a-z0-9-]+$/.test(normalized);
-
-    const baseSelect =
-      "title name url_key images pricing price sku variants.sku variants.name variants.pricing variants.price category";
 
     // ── Exact SKU short-circuit ─────────────────────────────────────
     if (isSkuLike) {
       const exactSkuProduct = await Product.findOne({
         status: "published",
-        $or: [
-          { sku: prefixRegex },
-          { "variants.sku": prefixRegex },
-        ],
+        $or: [{ sku: prefixRegex }, { "variants.sku": prefixRegex }],
       })
-        .select(baseSelect)
+        .select(BASE_SELECT)
         .populate("category", "name")
         .lean();
 
       const hasExactSku =
         exactSkuProduct &&
-        [exactSkuProduct.sku, ...(exactSkuProduct.variants || []).map((v) => v.sku)]
+        [
+          exactSkuProduct.sku,
+          ...(exactSkuProduct.variants || []).map((v) => v.sku),
+        ]
           .filter(Boolean)
           .some((sku) => sku.toLowerCase() === normalized);
 
@@ -110,7 +235,12 @@ const searchSuggest = async (req, res) => {
           exactMatch: true,
         };
         try {
-          await redis.set(cacheKey, JSON.stringify(payload), "EX", CACHE_TTL_SECONDS);
+          await redis.set(
+            cacheKey,
+            JSON.stringify(payload),
+            "EX",
+            CACHE_TTL_SECONDS
+          );
         } catch (cacheError) {
           logger.warn("⚠️ Suggest cache write failed:", cacheError.message);
         }
@@ -118,58 +248,36 @@ const searchSuggest = async (req, res) => {
       }
     }
 
-    // ── Phase A: prefix matches (title / name / variant name) ───────
+    const tokens = normalized.split(" ").filter(Boolean);
+    const tokenRegexes = buildTokenRegexes(tokens);
+
+    // ── Phase A: every token must match somewhere ───────────────────
     let docs = await Product.find({
       status: "published",
-      $or: [
-        { title: prefixRegex },
-        { name: prefixRegex },
-        { "variants.name": prefixRegex },
-      ],
+      $and: tokenRegexes.map((regex) => ({
+        $or: SEARCHABLE_PATHS.map((path) => ({ [path]: regex })),
+      })),
     })
-      .select(baseSelect)
+      .select(BASE_SELECT)
       .populate("category", "name")
-      .limit(limit * 2)
+      .limit(limit * 3)
       .lean();
 
-    // ── Phase B: substring fallback to fill remaining slots ─────────
-    if (docs.length < limit) {
-      const seenIds = new Set(docs.map((doc) => String(doc._id)));
-      const extraDocs = await Product.find({
+    // ── Phase B: relax to any-token when AND is too strict ──────────
+    if (docs.length === 0 && tokens.length > 1) {
+      docs = await Product.find({
         status: "published",
-        _id: { $nin: Array.from(seenIds) },
-        $or: [
-          { title: containsRegex },
-          { name: containsRegex },
-          { "variants.name": containsRegex },
-        ],
+        $or: SEARCHABLE_PATHS.flatMap((path) =>
+          tokenRegexes.map((regex) => ({ [path]: regex }))
+        ),
       })
-        .select(baseSelect)
+        .select(BASE_SELECT)
         .populate("category", "name")
-        .limit(limit - docs.length + Math.ceil(limit / 2))
+        .limit(limit * 3)
         .lean();
-      docs = [...docs, ...extraDocs];
     }
 
-    // ── Rank: prefix > word-boundary > substring; shorter title wins ─
-    const rank = (title) => {
-      const lowerTitle = (title || "").toLowerCase();
-      if (lowerTitle.startsWith(normalized)) return 0;
-      if (lowerTitle.includes(` ${normalized}`)) return 1;
-      if (lowerTitle.includes(normalized)) return 2;
-      return 3;
-    };
-
-    const products = docs
-      .map((doc) => ({ doc, suggestion: toSuggestion(doc) }))
-      .sort(
-        (a, b) =>
-          rank(a.suggestion.title) - rank(b.suggestion.title) ||
-          a.suggestion.title.length - b.suggestion.title.length ||
-          a.suggestion.title.localeCompare(b.suggestion.title)
-      )
-      .slice(0, limit)
-      .map((entry) => entry.suggestion);
+    const products = rankAndSlice(docs, tokenRegexes, tokens, limit);
 
     const payload = {
       success: true,

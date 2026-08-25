@@ -17,7 +17,7 @@
     "migrate:media:dry": "node src/scripts/migrate-to-media-server.js --dry-run",
     "fix:media-url": "node src/scripts/fix-media-base-url.js",
     "backfill:synonyms": "node scripts/backfill_attribute_synonyms.js",
- "purge:error-logs": "node scripts/purgeNoiseErrorLogs.js"
+    "purge:error-logs": "node scripts/purgeNoiseErrorLogs.js"
   },
   "keywords": [
     "nodejs",
@@ -48,6 +48,7 @@
     "ioredis": "^5.10.1",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
+    "meilisearch": "^0.60.0",
     "mongodb": "^6.20.0",
     "mongoose": "^8.18.3",
     "multer": "^1.4.5-lts.1",
