@@ -670,12 +670,12 @@ const sendOrderInvoice = async (req, res) => {
         .json({ success: false, message: "Order not found" });
     }
 
-    if (!order.userId || !order.userId.email) {
-      // Fallback to guest email if stored on order (if applicable) or error
-      // Assuming order.customerEmail might exist for guest checkout in future, but for now strict user check
+    const recipient = await emailService.getOrderRecipient(order);
+
+    if (!recipient?.email) {
       return res.status(400).json({
         success: false,
-        message: "User email not found for this order. Cannot send invoice.",
+        message: "Customer email not found for this order. Cannot send invoice.",
       });
     }
 
@@ -686,7 +686,7 @@ const sendOrderInvoice = async (req, res) => {
     // Our population matches that mostly.
 
     // Send Email
-    await emailService.sendInvoiceEmail(order.userId, order);
+    await emailService.sendInvoiceEmail(recipient, order);
 
     res.status(200).json({
       success: true,
@@ -776,11 +776,9 @@ const markOrderAsPaid = async (req, res) => {
     });
 
     // Send invoice email asynchronously (don't block the response)
-    if (updated.userId?.email) {
-      emailService
-        .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => logger.error("❌ Invoice email failed after mark-paid:", err.message));
-    }
+    emailService
+      .sendOrderConfirmationEmail(updated)
+      .catch((err) => logger.error("❌ Invoice email failed after mark-paid:", err.message));
   } catch (err) {
     logger.error("❌ Admin Error marking order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -861,11 +859,9 @@ const markCodOrderAsPaid = async (req, res) => {
     });
 
     // Send invoice email asynchronously
-    if (updated.userId?.email) {
-      emailService
-        .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => logger.error("❌ Invoice email failed after COD mark-paid:", err.message));
-    }
+    emailService
+      .sendOrderConfirmationEmail(updated)
+      .catch((err) => logger.error("❌ Invoice email failed after COD mark-paid:", err.message));
   } catch (err) {
     logger.error("❌ Admin Error marking COD order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });

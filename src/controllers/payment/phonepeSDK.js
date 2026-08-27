@@ -768,6 +768,15 @@ const initiateRefund = async (req, res) => {
         }
       }
 
+      // Send refund email to customer (guest or registered)
+      if (updatedOrder) {
+        emailService
+          .sendRefundInitiatedEmail(null, updatedOrder, amountToRefund)
+          .catch((emailErr) =>
+            logger.error("❌ [initiateRefund] Failed to send Razorpay refund email:", emailErr.message)
+          );
+      }
+
       return res.status(200).json({
         success: true,
         message: "Refund initiated successfully",
@@ -975,30 +984,14 @@ const initiateRefund = async (req, res) => {
       }
 
       // ── Send refund confirmation email to customer (fire-and-forget) ─────────
-      try {
-        const User = require("../../models/user");
-        const user = await User.findById(updatedOrder.userId).select(
-          "username email",
+      emailService
+        .sendRefundInitiatedEmail(null, updatedOrder, amountToRefund)
+        .catch((emailErr) =>
+          logger.error(
+            "❌ [initiateRefund] Failed to send refund email:",
+            emailErr.message,
+          ),
         );
-        if (user?.email) {
-          emailService
-            .sendRefundInitiatedEmail(user, updatedOrder, amountToRefund)
-            .catch((emailErr) =>
-              logger.error(
-                "❌ [initiateRefund] Failed to send refund email:",
-                emailErr.message,
-              ),
-            );
-          logger.info(
-            `📧 [initiateRefund] Refund email dispatched to ${user.email}`,
-          );
-        }
-      } catch (emailLookupErr) {
-        logger.error(
-          "❌ [initiateRefund] Failed to look up user for refund email:",
-          emailLookupErr.message,
-        );
-      }
     } // end else (updatedOrder)
 
     return res.status(200).json({
