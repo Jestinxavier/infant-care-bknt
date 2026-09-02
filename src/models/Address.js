@@ -17,7 +17,8 @@ const addressSchema = new mongoose.Schema(
     phone: String,
     houseName: String,
     street: String,
-    landmark: String,
+    additionalInstruction: String,
+    landmark: String, // Kept for backward compatibility
     addressLine1: String, // Keep for backward compatibility
     addressLine2: String, // Keep for backward compatibility
     city: String,

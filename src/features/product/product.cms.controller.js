@@ -130,6 +130,21 @@ class CmsProductController {
           return null; // Skip other product types
         }
 
+        // Product-centric metadata so homepage cards match the PLP.
+        // variantCount: number of sellable variants (0 for simple products).
+        const variantCount = Array.isArray(product.variants)
+          ? product.variants.length
+          : 0;
+        // Unique color names across all variants (for the swatch stack).
+        const colors = [
+          ...new Set(
+            (product.variants || [])
+              .map((v) => v?.attributes?.color)
+              .filter((c) => typeof c === "string" && c.trim())
+              .map((c) => c.trim())
+          ),
+        ];
+
         return {
           id: product._id.toString(),
           title: product.title,
@@ -143,6 +158,9 @@ class CmsProductController {
             ? product.collections
             : [],
           badgeCollection: product.badgeCollection || null,
+          variantCount,
+          hasVariants: variantCount > 0,
+          colors,
         };
       })
       .filter((p) => p !== null) // Remove nulls

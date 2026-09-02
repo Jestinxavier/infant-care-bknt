@@ -129,6 +129,7 @@ const orderSchema = new mongoose.Schema(
       phone: String,
       houseName: String,
       street: String,
+      additionalInstruction: String,
       landmark: String,
       addressLine1: String,
       addressLine2: String,

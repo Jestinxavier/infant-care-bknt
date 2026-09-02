@@ -31,7 +31,8 @@ const SITE_SETTING_DEFINITIONS = {
       businessName: "",
       houseName: "",
       street: "",
-      landmark: "",
+      additionalInstruction: "",
+      landmark: "", // Kept for backward compatibility
       city: "",
       state: "",
       pincode: "",

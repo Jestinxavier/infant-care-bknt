@@ -7,6 +7,12 @@ const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { canTransitionStatus } = require("../../features/order/rules/order.rules");
 const { invalidateDashboardCache } = require("./dashboardController");
+const { invalidateSalesReportCache } = require("./salesReportController");
+const { invalidateCustomerReportCache } = require("./customerReportController");
+const { invalidateRevenueReportCache } = require("./revenueReportController");
+const { invalidateOrdersByStatusCache } = require("./ordersByStatusController");
+const { invalidateReturnsCancellationsCache } = require("./returnsCancellationsController");
+const { invalidatePaymentMethodSplitCache } = require("./paymentMethodSplitController");
 const logger = require("../../utils/logger");
 
 const escapeRegex = require("../../utils/escapeRegex");
@@ -624,6 +630,24 @@ const updateOrderStatus = async (req, res) => {
       invalidateDashboardCache().catch((err) =>
         logger.error("Dashboard cache invalidation failed", { error: err.message })
       );
+      invalidateSalesReportCache().catch((err) =>
+        logger.error("Sales report cache invalidation failed", { error: err.message })
+      );
+      invalidateCustomerReportCache().catch((err) =>
+        logger.error("Customers report cache invalidation failed", { error: err.message })
+      );
+      invalidateRevenueReportCache().catch((err) =>
+        logger.error("Revenue report cache invalidation failed", { error: err.message })
+      );
+      invalidateOrdersByStatusCache().catch((err) =>
+        logger.error("Orders by status cache invalidation failed", { error: err.message })
+      );
+      invalidateReturnsCancellationsCache().catch((err) =>
+        logger.error("Returns cancellations cache invalidation failed", { error: err.message })
+      );
+      invalidatePaymentMethodSplitCache().catch((err) =>
+        logger.error("Payment method split cache invalidation failed", { error: err.message })
+      );
     }
 
     // Resolve the email recipient — works for both registered users and guests
@@ -909,6 +933,21 @@ const markCodOrderAsPaid = async (req, res) => {
     // Revenue changed — flush the dashboard cache
     invalidateDashboardCache().catch((err) =>
       logger.error("Dashboard cache invalidation failed after COD mark-paid", { error: err.message })
+    );
+    invalidateSalesReportCache().catch((err) =>
+      logger.error("Sales report cache invalidation failed after COD mark-paid", { error: err.message })
+    );
+    invalidateCustomerReportCache().catch((err) =>
+      logger.error("Customers report cache invalidation failed after COD mark-paid", { error: err.message })
+    );
+    invalidateRevenueReportCache().catch((err) =>
+      logger.error("Revenue report cache invalidation failed after COD mark-paid", { error: err.message })
+    );
+    invalidateOrdersByStatusCache().catch((err) =>
+      logger.error("Orders by status cache invalidation failed after COD mark-paid", { error: err.message })
+    );
+    invalidatePaymentMethodSplitCache().catch((err) =>
+      logger.error("Payment method split cache invalidation failed after COD mark-paid", { error: err.message })
     );
 
     // Send invoice email asynchronously (don't block the response)

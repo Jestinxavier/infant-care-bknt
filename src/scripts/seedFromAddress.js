@@ -13,7 +13,8 @@ const FROM_ADDRESS = {
   businessName: "Infants Care",
   houseName: "",
   street: "Vengola",
-  landmark: "",
+  additionalInstruction: "",
+  landmark: "", // Kept for backward compatibility
   city: "Perumbavoor",
   state: "Kerala",
   pincode: "683556",

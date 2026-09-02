@@ -45,10 +45,14 @@ const verifyToken = require("../middlewares/authMiddleware");
  *               street:
  *                 type: string
  *                 example: 123 Main Street
+ *               additionalInstruction:
+ *                 type: string
+ *                 example: Near City Mall
+ *                 description: Additional delivery instructions (optional)
  *               landmark:
  *                 type: string
  *                 example: Near City Mall
- *                 description: Landmark for easy location (optional)
+ *                 description: Landmark (kept for backward compatibility)
  *               addressLine1:
  *                 type: string
  *                 example: 123 Main Street
@@ -56,7 +60,7 @@ const verifyToken = require("../middlewares/authMiddleware");
  *               addressLine2:
  *                 type: string
  *                 example: Near City Mall
- *                 description: Address line 2 (kept for backward compatibility, use landmark instead)
+ *                 description: Address line 2 (kept for backward compatibility, use additionalInstruction instead)
  *               city:
  *                 type: string
  *                 example: Mumbai
@@ -181,10 +185,14 @@ router.post("/", verifyToken, getAddresses);
  *               street:
  *                 type: string
  *                 example: 456 New Street
+ *               additionalInstruction:
+ *                 type: string
+ *                 example: Near Park
+ *                 description: Additional delivery instructions (optional)
  *               landmark:
  *                 type: string
  *                 example: Near Park
- *                 description: Landmark for easy location (optional)
+ *                 description: Landmark (kept for backward compatibility)
  *               addressLine1:
  *                 type: string
  *                 example: 456 New Street
@@ -192,7 +200,7 @@ router.post("/", verifyToken, getAddresses);
  *               addressLine2:
  *                 type: string
  *                 example: Suite 5C
- *                 description: Address line 2 (kept for backward compatibility, use landmark instead)
+ *                 description: Address line 2 (kept for backward compatibility, use additionalInstruction instead)
  *               city:
  *                 type: string
  *                 example: Delhi

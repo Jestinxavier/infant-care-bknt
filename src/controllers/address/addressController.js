@@ -9,7 +9,8 @@ const createAddress = async (req, res) => {
       phone,
       houseName,
       street,
-      landmark,
+      additionalInstruction,
+      landmark, // Keep for backward compatibility
       addressLine1, // Keep for backward compatibility
       addressLine2, // Keep for backward compatibility
       city,
@@ -24,8 +25,9 @@ const createAddress = async (req, res) => {
 
     // Use street if provided, otherwise fallback to addressLine1
     const finalStreet = street || addressLine1;
-    // Use landmark if provided, otherwise fallback to addressLine2
-    const finalLandmark = landmark || addressLine2;
+    // Use additionalInstruction if provided, otherwise fallback to landmark / addressLine2
+    const finalLandmark =
+      additionalInstruction || landmark || addressLine2;
     // Use pincode if provided, otherwise fallback to postalCode
     const finalPincode = pincode || postalCode;
 
@@ -81,7 +83,8 @@ const createAddress = async (req, res) => {
       phone,
       houseName,
       street: finalStreet,
-      landmark: finalLandmark,
+      additionalInstruction: finalLandmark,
+      landmark: finalLandmark, // Keep for backward compatibility
       addressLine1: finalStreet, // Keep for backward compatibility
       addressLine2: finalLandmark, // Keep for backward compatibility
       city,

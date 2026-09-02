@@ -298,7 +298,14 @@ const sendInvoiceEmail = async (user, order) => {
   const fromAddressSetting = await SiteSetting.findOne({
     key: SITE_SETTING_KEYS.ORDER_FROM_ADDRESS,
   }).lean();
-  const fromAddress = fromAddressSetting?.value ?? null;
+  const rawFromAddress = fromAddressSetting?.value ?? null;
+  const fromAddress = rawFromAddress
+    ? {
+        ...rawFromAddress,
+        additionalInstruction:
+          rawFromAddress.additionalInstruction || rawFromAddress.landmark || "",
+      }
+    : null;
 
   const orderDate = new Date(order.createdAt).toLocaleDateString("en-GB", {
     day: "numeric",

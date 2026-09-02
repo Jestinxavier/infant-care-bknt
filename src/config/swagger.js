@@ -212,10 +212,15 @@ const options = {
               example: "123 Main Street",
               description: "Street address",
             },
+            additionalInstruction: {
+              type: "string",
+              example: "Near City Mall",
+              description: "Additional delivery instructions",
+            },
             landmark: {
               type: "string",
               example: "Near City Mall",
-              description: "Landmark for easy location",
+              description: "Landmark (kept for backward compatibility)",
             },
             addressLine1: {
               type: "string",

@@ -29,6 +29,30 @@ const {
   getDashboardStats,
 } = require("../controllers/admin/dashboardController");
 
+const {
+  getSalesByProduct,
+} = require("../controllers/admin/salesReportController");
+
+const {
+  getCustomersReport,
+} = require("../controllers/admin/customerReportController");
+
+const {
+  getRevenueOverTime,
+} = require("../controllers/admin/revenueReportController");
+
+const {
+  getOrdersByStatus,
+} = require("../controllers/admin/ordersByStatusController");
+
+const {
+  getReturnsCancellations,
+} = require("../controllers/admin/returnsCancellationsController");
+
+const {
+  getPaymentMethodSplit,
+} = require("../controllers/admin/paymentMethodSplitController");
+
 // Import existing product controllers for create/update/delete
 const {
   createProduct,
@@ -213,6 +237,242 @@ router.post("/products", verifyToken, requireAdmin, getAllProducts);
  *         description: Stats retrieved successfully
  */
 router.get("/dashboard", verifyToken, requireAdmin, getDashboardStats);
+
+/**
+ * @swagger
+ * /api/v1/admin/reports/sales-by-product:
+ *   get:
+ *     summary: "[Admin] Sales by product report"
+ *     description: Aggregated revenue/units per product (with per-variant rows). Supports period presets, custom date range, search, sorting, and pagination.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, week, month, year, all]
+ *           default: month
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [revenue, unitsSold, orders, price, name]
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ */
+router.get(
+  "/reports/sales-by-product",
+  verifyToken,
+  requireAdmin,
+  getSalesByProduct,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/reports/customers:
+ *   get:
+ *     summary: "[Admin] Customers report"
+ *     description: One row per customer with period and lifetime spend/orders, new/returning classification, and average order value. Supports period presets, custom dates, search, sorting, and pagination.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, week, month, year, all]
+ *           default: month
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [totalSpent, lifetimeSpent, orderCount, lifetimeOrders, avgOrderValue, lastOrderDate, registeredDate, name]
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ */
+router.get(
+  "/reports/customers",
+  verifyToken,
+  requireAdmin,
+  getCustomersReport,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/reports/revenue-over-time:
+ *   get:
+ *     summary: "[Admin] Revenue over time report"
+ *     description: Bucketed revenue & orders over time with previous-period comparison. Supports period presets and custom date ranges.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, week, month, year, all]
+ *           default: month
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ */
+router.get(
+  "/reports/revenue-over-time",
+  verifyToken,
+  requireAdmin,
+  getRevenueOverTime,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/reports/orders-by-status:
+ *   get:
+ *     summary: "[Admin] Orders by status / fulfillment report"
+ *     description: Orders grouped by current order status plus payment and COD-pending breakdowns for the range.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, week, month, year, all]
+ *           default: month
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ */
+router.get(
+  "/reports/orders-by-status",
+  verifyToken,
+  requireAdmin,
+  getOrdersByStatus,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/reports/returns-cancellations:
+ *   get:
+ *     summary: "[Admin] Returns & cancellations report"
+ *     description: Counts, values and rate of returned/cancelled orders plus a bucketed trend for the range.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, week, month, year, all]
+ *           default: month
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ */
+router.get(
+  "/reports/returns-cancellations",
+  verifyToken,
+  requireAdmin,
+  getReturnsCancellations,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/reports/payment-method-split:
+ *   get:
+ *     summary: "[Admin] Payment method split report"
+ *     description: Order count, value and collection breakdown by payment method for the range.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [today, yesterday, week, month, year, all]
+ *           default: month
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ */
+router.get(
+  "/reports/payment-method-split",
+  verifyToken,
+  requireAdmin,
+  getPaymentMethodSplit,
+);
 
 /**
  * @swagger

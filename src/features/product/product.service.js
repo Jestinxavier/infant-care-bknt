@@ -479,65 +479,6 @@ class ProductService {
     // 2. Aggregation Pipeline
     const pipeline = [
       { $match: matchStage },
-      // Add flag: does this product have "color" as a variant option? (used for listing grouping)
-      // Only group by color when product has color option → one listing item per color (blue, black).
-      // When product has no color option (e.g. only size) → one listing item per product.
-      {
-        $addFields: {
-          hasColorOption: {
-            $gt: [
-              {
-                $size: {
-                  $ifNull: [
-                    {
-                      $filter: {
-                        input: { $ifNull: ["$variantOptions", []] },
-                        as: "o",
-                        cond: {
-                          $or: [
-                            {
-                              $eq: [
-                                {
-                                  $toLower: {
-                                    $convert: {
-                                      input: { $ifNull: ["$$o.code", ""] },
-                                      to: "string",
-                                      onError: "",
-                                      onNull: "",
-                                    },
-                                  },
-                                },
-                                "color",
-                              ],
-                            },
-                            {
-                              $eq: [
-                                {
-                                  $toLower: {
-                                    $convert: {
-                                      input: { $ifNull: ["$$o.name", ""] },
-                                      to: "string",
-                                      onError: "",
-                                      onNull: "",
-                                    },
-                                  },
-                                },
-                                "color",
-                              ],
-                            },
-                          ],
-                        },
-                      },
-                    },
-                    [],
-                  ],
-                },
-              },
-              0,
-            ],
-          },
-        },
-      },
       // Unwind variants but keep simple products (no variants)
       {
         $unwind: {
@@ -695,76 +636,21 @@ class ProductService {
         ? [{ $match: { isInStock: false } }]
         : []),
 
-      // Grouping Stage
-      // When product has color option: group by (productId, color) → one listing item per color (blue, black).
-      // When product has no color option (e.g. only size): use "default" so one listing item per product.
+      // Grouping Stage — product-centric: ONE row per product, regardless of type.
+      // SIMPLE       → 1 row (its single underlying sellable item).
+      // CONFIGURABLE → 1 row aggregating min/max price, total stock & variant count.
+      // BUNDLE       → 1 row with product-level price + component count.
       {
         $group: {
-          _id: {
-            productId: "$_id",
-            color: {
-              $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: {
-                  $cond: {
-                    if: "$hasColorOption",
-                    then: {
-                      $ifNull: ["$variants.attributes.color", "default"],
-                    },
-                    else: "default",
-                  },
-                },
-                else: "single-item",
-              },
-            },
-          },
-          // Accumulate data
+          _id: "$_id", // Parent product id
           parentId: { $first: "$_id" },
-          title: {
-            $first: {
-              $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: {
-                  $cond: {
-                    if: "$hasColorOption",
-                    then: { $ifNull: ["$variants.name", "$title"] },
-                    else: "$title",
-                  },
-                },
-                else: "$title",
-              },
-            },
-          },
+          title: { $first: "$title" },
           product_type: { $first: "$product_type" },
           url_key: {
-            $first: {
-              $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: {
-                  $cond: {
-                    if: "$hasColorOption",
-                    then: "$variants.url_key",
-                    else: "$url_key",
-                  },
-                },
-                else: "$url_key",
-              },
-            },
+            $first: { $ifNull: ["$url_key", "$variants.url_key", ""] },
           },
           slug: {
-            $first: {
-              $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: {
-                  $cond: {
-                    if: "$hasColorOption",
-                    then: "$variants.url_key",
-                    else: "$url_key",
-                  },
-                },
-                else: "$url_key",
-              },
-            },
+            $first: { $ifNull: ["$url_key", "$variants.url_key", ""] },
           },
           sku: { $first: "$sku" },
           category: { $first: "$category" },
@@ -772,73 +658,66 @@ class ProductService {
           collections: { $first: { $ifNull: ["$collections", []] } },
           badgeCollection: { $first: { $ifNull: ["$badgeCollection", null] } },
 
-          // Variant/Product specific data (variantId null when no color option → PDP shows size picker)
-          variantId: {
-            $first: {
-              $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: {
-                  $cond: {
-                    if: "$hasColorOption",
-                    then: "$variants.id",
-                    else: null,
-                  },
-                },
-                else: null,
-              },
-            },
-          },
-          variantSku: {
-            $first: {
-              $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: "$variants.sku",
-                else: null,
-              },
-            },
-          },
+          // Always null here — the listing is product-centric, cards link to the
+          // parent product page (variant selection happens on the PDP).
+          variantId: { $first: null },
+          variantSku: { $first: null },
+
           image: {
             $first: {
+              $ifNull: [
+                { $arrayElemAt: ["$images", 0] },
+                { $arrayElemAt: ["$variants.images", 0] },
+                "",
+              ],
+            },
+          },
+
+          // Pricing — min current/effective price ("From ₹X"), min & max regular price
+          price: { $min: "$effectivePrice" },
+          regularPrice: {
+            $min: { $ifNull: ["$variants.price", "$price", 0] },
+          },
+          maxRegularPrice: {
+            $max: { $ifNull: ["$variants.price", "$price", 0] },
+          },
+
+          // Stock — aggregate across variants; simple/bundle use product-level stock.
+          // Each grouped doc is one variant (or the parent for simple/bundle).
+          totalStock: {
+            $sum: {
               $cond: {
                 if: { $ifNull: ["$variants", false] },
                 then: {
-                  $cond: {
-                    if: "$hasColorOption",
-                    then: { $arrayElemAt: ["$variants.images", 0] },
-                    else: { $arrayElemAt: ["$images", 0] },
-                  },
-                },
-                else: { $arrayElemAt: ["$images", 0] },
-              },
-            },
-          },
-          price: { $first: "$effectivePrice" },
-          discountPrice: {
-            $first: {
-              $cond: {
-                if: {
-                  $lt: [
-                    "$effectivePrice",
-                    {
-                      $cond: {
-                        if: { $ifNull: ["$variants", false] },
-                        then: { $ifNull: ["$variants.price", 0] },
-                        else: { $ifNull: ["$price", 0] },
-                      },
-                    },
+                  $ifNull: [
+                    "$variants.stockObj.available",
+                    { $ifNull: ["$variants.stock", 0] },
+                    0,
                   ],
                 },
-                then: "$effectivePrice",
-                else: null,
+                else: {
+                  $ifNull: [
+                    "$stockObj.available",
+                    { $ifNull: ["$stock", 0] },
+                    0,
+                  ],
+                },
               },
             },
           },
-          regularPrice: {
+
+          // Variant count — 0 for simple/bundle (nothing to expand), N for configurable
+          variantCount: {
+            $sum: { $cond: [{ $ifNull: ["$variants", false] }, 1, 0] },
+          },
+
+          // Bundle/choice component count (product-level, not flattened into rows)
+          bundleItemCount: {
             $first: {
               $cond: {
-                if: { $ifNull: ["$variants", false] },
-                then: { $ifNull: ["$variants.price", 0] },
-                else: { $ifNull: ["$price", 0] },
+                if: { $eq: ["$product_type", "BUNDLE"] },
+                then: { $size: { $ifNull: ["$bundle_config.items", []] } },
+                else: null,
               },
             },
           },
@@ -852,16 +731,20 @@ class ProductService {
         },
       },
 
-      // Ensure unique ID for frontend and clean up fields
+      // Ensure unique ID for frontend (parent product ID) and derive discount/stock aliases
       {
         $addFields: {
-          id: {
-            $cond: {
-              if: { $eq: [{ $type: "$variantId" }, "null"] },
-              then: "$parentId",
-              else: "$variantId",
-            },
+          id: "$parentId",
+          // Active offer (effective < regular) → show discounted "From ₹X"
+          discountPrice: {
+            $cond: [
+              { $lt: ["$price", "$regularPrice"] },
+              "$price",
+              null,
+            ],
           },
+          stock: "$totalStock",
+          hasVariants: { $gt: ["$variantCount", 0] },
         },
       },
       {
@@ -915,10 +798,6 @@ class ProductService {
       // Remove internal MongoDB IDs and unnecessary fields
       {
         $project: {
-          "_id.color": 0, // Remove color from _id
-          category: 0, // Remove category ObjectId
-          slug: 0, // Remove slug
-          colors: 0, // Remove colors array
           "badgeCollectionMeta.__v": 0,
           "badgeCollectionMeta.createdAt": 0,
           "badgeCollectionMeta.updatedAt": 0,
