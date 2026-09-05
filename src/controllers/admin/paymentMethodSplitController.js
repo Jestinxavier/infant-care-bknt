@@ -90,10 +90,10 @@ exports.getPaymentMethodSplit = async (req, res) => {
                     {
                       $and: [
                         { $eq: ["$paymentMethod", "COD"] },
-                        { $nin: ["$orderStatus", ["cancelled", "returned"]] },
+                        { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
                       ],
                     },
-                    { $cond: [{ $eq: ["$paymentStatus", "paid"] }, 0, 1] },
+                    1,
                     0,
                   ],
                 },
@@ -104,7 +104,7 @@ exports.getPaymentMethodSplit = async (req, res) => {
                     {
                       $and: [
                         { $eq: ["$paymentMethod", "COD"] },
-                        { $nin: ["$orderStatus", ["cancelled", "returned"]] },
+                        { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
                       ],
                     },
                     "$totalAmount",

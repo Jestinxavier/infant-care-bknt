@@ -116,7 +116,7 @@ exports.getCustomersReport = async (req, res) => {
                       {
                         $and: [
                           { $eq: ["$paymentMethod", "COD"] },
-                          { $nin: ["$orderStatus", ["cancelled", "returned"]] },
+                          { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
                         ],
                       },
                     ],
@@ -148,7 +148,7 @@ exports.getCustomersReport = async (req, res) => {
                       {
                         $and: [
                           { $eq: ["$paymentMethod", "COD"] },
-                          { $nin: ["$orderStatus", ["cancelled", "returned"]] },
+                          { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
                         ],
                       },
                     ],

@@ -685,6 +685,9 @@ class CmsService {
     if (blockData.categorySlug !== undefined) {
       flatDocument.categorySlug = blockData.categorySlug;
     }
+    if (blockData.pinnedUrlKey !== undefined) {
+      flatDocument.pinnedUrlKey = blockData.pinnedUrlKey;
+    }
 
     logger.info(
       `[CMS Service] Transformed flat document:`,
