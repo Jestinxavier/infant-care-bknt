@@ -101,6 +101,23 @@ const validateCart = async (req, res, next) => {
       return next();
     }
 
+    // Re-activate abandoned carts referenced by a returning session. Without
+    // this, an abandoned cart passes /cart/get but then dead-ends: checkout
+    // mutations require status "active" (409) and /payments/options requires
+    // active/checkout (404) — the cart stagnation surfaces as a phantom cart.
+    if (cart.status === "abandoned") {
+      cart.status = "active";
+      cart.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await cart.save();
+      res.cookie(CART_ID, cart.cartId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+    }
+
     // Checking 'checkout' status:
     // Previously we hid the cart here, but that prevents reading items/summary during checkout.
     // Instead, we allow the cart to pass through, but modification controllers (addItem, etc.)

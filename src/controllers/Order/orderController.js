@@ -111,8 +111,10 @@ const createOrder = async (req, res) => {
     // === START TRANSACTION ===
     session.startTransaction();
 
-    // Step 1: Load and validate cart (must be in checkout status)
+    // Step 1: Load cart without a status filter.
     // Guests: look up by cartId only (no userId). Auth users: prefer cartId if provided.
+    // Finding the cart first (regardless of status) lets us return a precise error
+    // (ordered / checkout-not-started / expired) instead of a misleading 404.
     let cartQuery;
     if (isGuest) {
       if (!cartId) {
@@ -122,9 +124,9 @@ const createOrder = async (req, res) => {
           message: "Cart ID is required for guest checkout",
         });
       }
-      cartQuery = { cartId, status: "checkout" };
+      cartQuery = { cartId };
     } else {
-      cartQuery = { userId, status: "checkout" };
+      cartQuery = { userId };
       if (cartId) cartQuery.cartId = cartId;
     }
     const cart = await Cart.findOne(cartQuery).session(session);
@@ -132,7 +134,7 @@ const createOrder = async (req, res) => {
     logger.info(
       `🛒 Looking for checkout cart`,
       isGuest ? `[guest] cartId: ${cartId}` : `userId: ${userId}`,
-      `Found: ${cart ? cart.cartId : "null"}`,
+      `Found: ${cart ? `${cart.cartId} (${cart.status})` : "null"}`,
       `Coupons: ${cart ? JSON.stringify(cart.coupons) : "N/A"}`
     );
 
@@ -152,6 +154,27 @@ const createOrder = async (req, res) => {
         success: false,
         errorCode: "CART_ALREADY_ORDERED",
         message: "This cart has already been converted to an order",
+      });
+    }
+
+    // Re-activate an abandoned cart referenced by a returning session (mirrors
+    // validateCart): the cart should resume, not 404. Within the transaction the
+    // reactivation commits only when the order succeeds; on abort it rolls back.
+    if (cart.status === "abandoned") {
+      cart.status = "active";
+      cart.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await cart.save({ session });
+    }
+
+    // Cart must currently be in checkout state. "active" means checkout was
+    // never started or was reset earlier (e.g. payment failure / expiry) — ask
+    // the client to restart checkout rather than pretending the cart vanished.
+    if (cart.status === "active") {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        errorCode: "CHECKOUT_NOT_STARTED",
+        message: "Checkout was not started for this cart. Please restart checkout.",
       });
     }
 
@@ -775,6 +798,28 @@ const createOrder = async (req, res) => {
 
     // === COMMIT TRANSACTION ===
     await session.commitTransaction();
+
+    // After a successful order, any other live carts for the same account are
+    // stale duplicates (e.g. an unfinished checkout in another tab/browser).
+    // Demote them to "abandoned" so /cart/get can't resurrect purchased items
+    // via the logged-in restore path. Best-effort; never blocks the response.
+    if (cart.userId) {
+      try {
+        await Cart.updateMany(
+          {
+            userId: cart.userId,
+            _id: { $ne: cart._id },
+            status: { $in: ["active", "checkout"] },
+          },
+          { $set: { status: "abandoned" } }
+        );
+      } catch (cleanupErr) {
+        logger.error(
+          `❌ Failed to demote sibling carts for order ${order.orderId}:`,
+          cleanupErr
+        );
+      }
+    }
 
     logger.info(
       `✅ Order ${order.orderId} created successfully in transaction`

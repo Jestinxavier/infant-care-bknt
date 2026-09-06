@@ -1314,6 +1314,14 @@ class BulkImportController {
                     let hexCode = null;
                     let label = valStr;
 
+                    // The frontend can resolve a hex per variant (e.g. catalog
+                    // auto-fill) even when the CSV omitted hex_code — prefer
+                    // the explicit variant data so that hex isn't lost.
+                    if (variantData) {
+                      hexCode =
+                        variantData.hexCode || variantData.hex_code || null;
+                    }
+
                     if (
                       productData.variantOptions &&
                       Array.isArray(productData.variantOptions)
