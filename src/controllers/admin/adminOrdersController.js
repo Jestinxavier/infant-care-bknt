@@ -868,6 +868,133 @@ const markCodOrderAsPaid = async (req, res) => {
   }
 };
 
+/**
+ * Admin: Export orders to CSV (with full filter and selection support)
+ */
+const exportOrders = async (req, res) => {
+  try {
+    const requestData = req.method === "POST" ? req.body || {} : req.query;
+
+    const {
+      status,
+      paymentStatus,
+      paymentMethod,
+      search,
+      from,
+      to,
+      orderIds, // Optional array of specific order IDs to export
+      type = "orders", // "orders" or "items"
+    } = requestData;
+
+    let filter = {};
+
+    // Specific order selection takes precedence
+    if (Array.isArray(orderIds) && orderIds.length > 0) {
+      const sanitizedIds = orderIds.map((id) => String(id).replace(/^#/, "").trim());
+      const objectIds = sanitizedIds
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+
+      filter.$or = [
+        { orderId: { $in: sanitizedIds } },
+        ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : []),
+      ];
+    } else {
+      // ===== ROLE-BASED DATE RESTRICTIONS =====
+      const userRole = req.user?.role;
+      if (userRole === "admin") {
+        const restrictionDate = new Date();
+        restrictionDate.setUTCDate(restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS);
+        restrictionDate.setUTCHours(0, 0, 0, 0);
+
+        if (from) {
+          const fromDate = new Date(from);
+          fromDate.setUTCHours(0, 0, 0, 0);
+          if (fromDate < restrictionDate) {
+            return res.status(403).json({
+              success: false,
+              errorCode: "DATE_RESTRICTED",
+              message: `Admins can only export orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+            });
+          }
+        } else {
+          filter.createdAt = { $gte: restrictionDate };
+        }
+      }
+
+      // ===== DATE RANGE FILTERING =====
+      if (from || to) {
+        filter.createdAt = filter.createdAt || {};
+        if (from) {
+          filter.createdAt.$gte = new Date(`${from}T00:00:00+05:30`);
+        }
+        if (to) {
+          filter.createdAt.$lte = new Date(`${to}T23:59:59.999+05:30`);
+        }
+      }
+
+      if (status && status !== "all") {
+        filter.orderStatus = status;
+      }
+      if (paymentStatus && paymentStatus !== "all") {
+        filter.paymentStatus = paymentStatus;
+      }
+      if (paymentMethod && paymentMethod !== "all") {
+        filter.paymentMethod = paymentMethod;
+      }
+
+      // Advanced Search
+      if (search) {
+        const safeSearch = escapeRegex(search);
+        const searchRegex = new RegExp(safeSearch, "i");
+        const sanitizedSearch = search.replace(/^#/, "");
+        const safeSanitized = escapeRegex(sanitizedSearch);
+        const sanitizedRegex = new RegExp(safeSanitized, "i");
+
+        const matchingUsers = await User.find({
+          $or: [
+            { username: searchRegex },
+            { email: searchRegex },
+            { phone: searchRegex },
+          ],
+        }).select("_id");
+
+        const matchingUserIds = matchingUsers.map((u) => u._id);
+
+        filter.$or = [
+          { orderId: sanitizedRegex },
+          { userId: { $in: matchingUserIds } },
+          { "shippingAddress.phone": searchRegex },
+          { "shippingAddress.fullName": searchRegex },
+          ...(mongoose.Types.ObjectId.isValid(sanitizedSearch)
+            ? [{ _id: new mongoose.Types.ObjectId(sanitizedSearch) }]
+            : []),
+        ];
+      }
+    }
+
+    const { exportOrdersToCSV } = require("../../services/orderExportService");
+    const csvContent = await exportOrdersToCSV({
+      filter,
+      type: type === "items" ? "items" : "orders",
+      sort: { createdAt: -1 },
+    });
+
+    const dateStr = new Date().toISOString().split("T")[0];
+    const filename = `orders_export_${type}_${dateStr}.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.status(200).send(csvContent);
+  } catch (err) {
+    logger.error("❌ Admin Error exporting orders:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to export orders",
+    });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
@@ -875,4 +1002,5 @@ module.exports = {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
 };

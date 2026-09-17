@@ -13,6 +13,7 @@ const {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
   getAllCategories,
   getCategoryById,
   getAllCustomers,
@@ -729,6 +730,8 @@ router.delete("/products/:productId", verifyToken, requireAdmin, deleteProduct);
  */
 router.get("/orders", verifyToken, requireAdmin, getAllOrders);
 router.post("/orders", verifyToken, requireAdmin, getAllOrders);
+router.get("/orders/export", verifyToken, requireAdmin, exportOrders);
+router.post("/orders/export", verifyToken, requireAdmin, exportOrders);
 
 /**
  * @swagger
