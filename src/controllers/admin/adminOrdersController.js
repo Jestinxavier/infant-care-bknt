@@ -381,17 +381,22 @@ const updateOrderStatus = async (req, res) => {
         (status === "shipped" || status === "delivered") &&
         status !== currentOrder.orderStatus
       ) {
-        // Check incoming update OR existing value on order
-        // Handle 'manual' case if frontend sends it, though we prefer ID.
-        // If value is null, it's invalid.
-        const partner =
-          req.body.deliveryPartner !== undefined
-            ? req.body.deliveryPartner
-            : currentOrder.deliveryPartner;
+        // Check incoming update OR existing value on order.
+        // Null/undefined falls back to the already-stored partner so orders
+        // that were fulfilled earlier can be moved to shipped/delivered
+        // without re-sending fulfillment data.
+        const partnerValue =
+          req.body.deliveryPartner ?? currentOrder.deliveryPartner;
         const tracking =
           trackingId !== undefined ? trackingId : currentOrder.trackingId;
 
-        if (!partner || !tracking) {
+        const partnerIsValid =
+          !!partnerValue &&
+          (typeof partnerValue !== "object" ||
+            Array.isArray(partnerValue) ||
+            !!partnerValue.name);
+
+        if (!partnerIsValid || !tracking) {
           return res.status(400).json({
             success: false,
             message:
@@ -427,7 +432,9 @@ const updateOrderStatus = async (req, res) => {
     if (trackingId !== undefined) updateFields.trackingId = trackingId;
     if (deliveryNote !== undefined) updateFields.deliveryNote = deliveryNote;
 
-    if (req.body.deliveryPartner !== undefined) {
+    // Treat null/undefined as "no change" so updating status/notes/tracking
+    // does not wipe an existing delivery partner.
+    if (req.body.deliveryPartner != null) {
       const partnerValue = req.body.deliveryPartner;
       let trackingUrlFromPartner = null;
 

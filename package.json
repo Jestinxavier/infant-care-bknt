@@ -14,6 +14,7 @@
     "seed-categories": "node scripts/seedCategories.js",
     "seed:header": "node scripts/seedHeaderMenu.js",
     "seed:partners": "node scripts/seedDeliveryPartners.js",
+    "seed:chat-kb": "node scripts/seed_chat_knowledge.js",
     "migrate:media": "node src/scripts/migrate-to-media-server.js",
     "migrate:media:dry": "node src/scripts/migrate-to-media-server.js --dry-run",
     "fix:media-url": "node src/scripts/fix-media-base-url.js",

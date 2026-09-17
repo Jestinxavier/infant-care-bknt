@@ -16,6 +16,7 @@ const getAdminUserIdFromCookies = (socket) => {
 };
 
 let io;
+let onlineAdmins = 0;
 
 const init = (server) => {
   io = new Server(server, {
@@ -61,6 +62,8 @@ const init = (server) => {
             const adminRoles = ["admin", "super-admin", "developer"];
             if (user && adminRoles.includes(user.role)) {
               socket.join("admins");
+              socket.data.isAdmin = true;
+              onlineAdmins += 1;
               socket.emit("authenticated", { success: true });
             }
           })
@@ -91,6 +94,9 @@ const init = (server) => {
     });
 
     socket.on("disconnect", () => {
+      if (socket.data.isAdmin) {
+        onlineAdmins = Math.max(0, onlineAdmins - 1);
+      }
       logger.debug("Socket disconnected", { socketId: socket.id });
     });
   });
@@ -110,4 +116,7 @@ const emitEvent = (event, data) => {
   }
 };
 
-module.exports = { init, getIO, emitEvent };
+// Number of staff (admin) dashboards currently connected via Socket.io
+const getOnlineAdminCount = () => onlineAdmins;
+
+module.exports = { init, getIO, emitEvent, getOnlineAdminCount };

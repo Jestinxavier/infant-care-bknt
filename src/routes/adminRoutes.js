@@ -633,6 +633,30 @@ router.post(
   bulkImportController.commitImport,
 );
 
+// AI Product Import & Knowledge Base Routes
+const aiProductImportController = require("../controllers/product/aiProductImportController");
+
+router.post(
+  "/products/ai/generate",
+  verifyToken,
+  requireAdmin,
+  aiProductImportController.generateProducts,
+);
+
+router.post(
+  "/products/ai/fix-errors",
+  verifyToken,
+  requireAdmin,
+  aiProductImportController.fixImportErrors,
+);
+
+router.get(
+  "/products/ai/knowledge-base",
+  verifyToken,
+  requireAdmin,
+  aiProductImportController.getKnowledgeBase,
+);
+
 /**
  * @swagger
  * /api/v1/admin/products/create:

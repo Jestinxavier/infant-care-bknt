@@ -4,13 +4,17 @@ const notificationSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["new_order", "order_update", "system"],
+      enum: ["new_order", "order_update", "system", "chat_escalation"],
       default: "new_order",
     },
     title: { type: String, required: true },
     message: { type: String, required: true },
     orderId: { type: String, default: null }, // Short order ID (e.g. "AB12CD34")
     orderDbId: { type: mongoose.Schema.Types.ObjectId, ref: "Order", default: null },
+    // Dashboard route to open when the notification is clicked (e.g. "/chat")
+    href: { type: String, default: null },
+    // Optional chat session reference for chat notifications
+    sessionId: { type: String, default: null },
     isRead: { type: Boolean, default: false },
     readAt: { type: Date, default: null },
     // Auto-expire: TTL index removes documents 24h after createdAt

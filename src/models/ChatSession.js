@@ -32,11 +32,15 @@ const chatSessionSchema = new mongoose.Schema(
     },
     escalationReason: { type: String, default: null },
     assignedStaffId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    assignedStaffName: { type: String, default: null },
+    staffJoinedAt: { type: Date, default: null },
     messages: [messageSchema],
     resolvedAt: { type: Date, default: null },
     // Snapshot of customer info for dashboard display
     customerName: { type: String, default: "Guest" },
     customerEmail: { type: String, default: null },
+    customerPhone: { type: String, default: null },
+    endedBy: { type: String, enum: ["customer", "staff"], default: null },
   },
   { timestamps: true }
 );

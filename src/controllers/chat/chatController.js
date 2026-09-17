@@ -6,7 +6,9 @@ const Product = require("../../models/Product");
 const Coupon = require("../../models/Coupon");
 const Category = require("../../models/Category");
 const logger = require("../../utils/logger");
-const { emitEvent } = require("../../services/socketService");
+const { emitEvent, getOnlineAdminCount } = require("../../services/socketService");
+const { createChatNotification } = require("../admin/notificationController");
+const Notification = require("../../models/Notification");
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -452,26 +454,21 @@ Critical rules for "search_for":
 
     response = await groq.chat.completions.create(options);
   } catch (apiErr) {
-    const errMsg = String(apiErr?.message ?? "").toLowerCase();
-    const isQuotaError =
-      apiErr?.status === 429 ||
-      errMsg.includes("rate limit") ||
-      errMsg.includes("quota") ||
-      errMsg.includes("exceeded");
-    logger.warn("Groq API error", {
+    // Any AI-provider failure (expired key 401, quota 429, network, 5xx) must
+    // still give the customer a useful reply from the live catalog instead of
+    // a 500. The key being invalid/expired is logged loudly for the owner.
+    logger.warn("Groq API error — falling back to catalog reply", {
       status: apiErr?.status,
       message: apiErr?.message,
-      isQuotaError,
+      isInvalidKey: apiErr?.status === 401 || !!apiErr?.code,
     });
-    if (isQuotaError) {
-      return await getDemoResponse(userMessage);
-    }
-    throw apiErr;
+    return await getDemoResponse(userMessage);
   }
 
   const choice = response?.choices?.[0]?.message;
-  if (!choice) {
-    throw new Error("No response message returned from Groq API");
+  if (!choice || !choice.content?.trim()) {
+    logger.warn("Groq API returned empty reply — falling back to catalog reply");
+    return await getDemoResponse(userMessage);
   }
 
   if (choice.refusal) {
@@ -577,7 +574,18 @@ const sendMessage = async (req, res) => {
         createdAt: new Date().toISOString(),
         customerName: session.customerName,
       });
-      return res.status(200).json({ success: true, reply: null, escalated: true, sessionId });
+      createChatNotification({
+        sessionId,
+        customerName: session.customerName,
+        lastMessage: cleanMessage,
+      });
+      return res.status(200).json({
+        success: true,
+        reply: null,
+        escalated: true,
+        sessionId,
+        staffUnavailable: getOnlineAdminCount() === 0,
+      });
     }
 
     session.messages.push({ role: "user", content: cleanMessage });
@@ -596,15 +604,37 @@ const sendMessage = async (req, res) => {
     if (result.escalated) {
       session.status = "escalated";
       session.escalationReason = result.escalationReason ?? "Customer needs human support";
-      emitEvent("chat:new_escalation", {
+      const staffOnline = getOnlineAdminCount() > 0;
+      const escalationData = {
         sessionId,
         customerName: session.customerName,
         customerEmail: session.customerEmail,
+        customerPhone: session.customerPhone,
         escalationReason: session.escalationReason,
         lastMessage: cleanMessage,
         createdAt: session.createdAt,
+      };
+      emitEvent("chat:new_escalation", escalationData);
+      createChatNotification({
+        sessionId,
+        customerName: session.customerName,
+        reason: session.escalationReason,
+      });
+      await session.save();
+      return res.status(200).json({
+        success: true,
+        sessionId,
+        reply: result.text,
+        products: result.products,
+        escalated: true,
+        options: [],
+        staffUnavailable: !staffOnline,
       });
     }
+
+    // AI mode: the customer is chatting with the assistant, not the team — no
+    // sound/notification on the dashboard. Staff only get alerted when the
+    // customer opts into agent mode (request-human or AI escalation above).
 
     await session.save();
     return res.status(200).json({
@@ -624,32 +654,177 @@ const sendMessage = async (req, res) => {
 // POST /api/v1/chat/session
 const getOrCreateSession = async (req, res) => {
   try {
-    const { sessionId } = req.body;
+    const { sessionId, customerName, customerPhone, customerEmail } = req.body;
     const id = sessionId || uuidv4();
 
-    let session = await ChatSession.findOne({ sessionId: id }).select(
-      "sessionId status messages customerName escalationReason createdAt"
+    const existing = await ChatSession.findOne({ sessionId: id }).select(
+      "sessionId status messages customerName customerEmail customerPhone escalationReason createdAt"
     );
 
-    if (!session) {
-      session = new ChatSession({
+    if (!existing) {
+      // New sessions require the customer's name + a way to reach them, so the
+      // support team can follow up later.
+      const cleanName =
+        typeof customerName === "string" && customerName.trim().length > 0
+          ? customerName.trim().slice(0, 80)
+          : null;
+      const cleanPhone =
+        typeof customerPhone === "string" && customerPhone.trim().length > 0
+          ? customerPhone.trim().slice(0, 20)
+          : null;
+      const cleanEmail =
+        typeof customerEmail === "string" && customerEmail.trim().length > 0
+          ? customerEmail.trim().toLowerCase().slice(0, 200)
+          : null;
+
+      if (!cleanName) {
+        return res.status(400).json({
+          success: false,
+          message: "Please share your name to start the chat.",
+        });
+      }
+      if (!cleanPhone && !cleanEmail) {
+        return res.status(400).json({
+          success: false,
+          message: "Please share a phone number or email so we can assist you.",
+        });
+      }
+
+      const session = new ChatSession({
         sessionId: id,
         userId: req.user?.id ?? null,
-        customerName: req.user?.username ?? "Guest",
-        customerEmail: req.user?.email ?? null,
+        customerName: cleanName || req.user?.username || "Guest",
+        customerPhone: cleanPhone,
+        customerEmail: cleanEmail || req.user?.email || null,
       });
       await session.save();
+      return res.status(200).json({
+        success: true,
+        sessionId: session.sessionId,
+        status: session.status,
+        messages: session.messages,
+      });
+    }
+
+    // Existing session — resume it as-is, but fill in any contact details the
+    // customer provides (e.g. legacy Guest sessions created before this rule).
+    const cleanName =
+      typeof customerName === "string" && customerName.trim().length > 0
+        ? customerName.trim().slice(0, 80)
+        : null;
+    const cleanPhone =
+      typeof customerPhone === "string" && customerPhone.trim().length > 0
+        ? customerPhone.trim().slice(0, 20)
+        : null;
+    const cleanEmail =
+      typeof customerEmail === "string" && customerEmail.trim().length > 0
+        ? customerEmail.trim().toLowerCase().slice(0, 200)
+        : null;
+
+    if (
+      cleanName ||
+      cleanPhone ||
+      cleanEmail
+    ) {
+      let changed = false;
+      if (cleanName && existing.customerName !== cleanName) {
+        existing.customerName = cleanName;
+        changed = true;
+      }
+      if (cleanPhone) {
+        existing.customerPhone = cleanPhone;
+        changed = true;
+      }
+      if (cleanEmail && !existing.customerEmail) {
+        existing.customerEmail = cleanEmail;
+        changed = true;
+      }
+      if (changed) await existing.save();
     }
 
     return res.status(200).json({
       success: true,
-      sessionId: session.sessionId,
-      status: session.status,
-      messages: session.messages,
+      sessionId: existing.sessionId,
+      status: existing.status,
+      messages: existing.messages,
     });
   } catch (err) {
     logger.error("Chat getOrCreateSession error", { message: err.message });
     return res.status(500).json({ success: false, message: "Failed to initialize chat" });
+  }
+};
+
+// POST /api/v1/chat/session/:sessionId/contact
+// Customer leaves an email/phone so staff can ping them when free
+const saveContact = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { email, phone, name } = req.body;
+
+    const cleanName =
+      typeof name === "string" && name.trim().length > 0 ? name.trim().slice(0, 80) : null;
+    const cleanEmail =
+      typeof email === "string" && email.trim().length <= 200 ? email.trim() : null;
+    const cleanPhone =
+      typeof phone === "string" && phone.trim().length <= 20 ? phone.trim() : null;
+
+    if (!cleanEmail && !cleanPhone) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Please provide an email or phone number" });
+    }
+
+    const session = await ChatSession.findOne({ sessionId });
+    if (!session) return res.status(404).json({ success: false, message: "Session not found" });
+
+    if (cleanName) session.customerName = cleanName;
+    if (cleanEmail) session.customerEmail = session.customerEmail || cleanEmail;
+    if (cleanPhone) session.customerPhone = cleanPhone;
+    await session.save();
+
+    emitEvent("chat:contact_collected", {
+      sessionId,
+      customerName: session.customerName,
+      customerEmail: session.customerEmail,
+      customerPhone: session.customerPhone,
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    logger.error("saveContact error", { message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to save your contact details" });
+  }
+};
+
+// POST /api/v1/chat/session/:sessionId/end
+// Customer ends the chat (mirrors staff "Resolve")
+const endSession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await ChatSession.findOne({ sessionId });
+    if (!session) return res.status(404).json({ success: false, message: "Session not found" });
+
+    if (session.status !== "resolved" && session.status !== "closed") {
+      session.status = "resolved";
+      session.endedBy = "customer";
+      session.resolvedAt = new Date();
+      session.messages.push({
+        role: "assistant",
+        content: "You ended this chat. Thanks for shopping with Infantscare.in! 💛",
+      });
+      await session.save();
+    }
+
+    emitEvent("chat:customer_ended", {
+      sessionId,
+      customerName: session.customerName,
+      endedBy: "customer",
+    });
+
+    return res.status(200).json({ success: true, message: "Chat ended" });
+  } catch (err) {
+    logger.error("endSession error", { message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to end the chat" });
   }
 };
 
@@ -662,7 +837,7 @@ const getEscalatedSessions = async (req, res) => {
     const filter = status === "all" ? {} : { status };
     const [sessions, total] = await Promise.all([
       ChatSession.find(filter)
-        .select("sessionId status customerName customerEmail escalationReason messages createdAt updatedAt")
+        .select("sessionId status customerName customerEmail customerPhone escalationReason assignedStaffId assignedStaffName staffJoinedAt messages createdAt updatedAt")
         .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -721,6 +896,61 @@ const staffReply = async (req, res) => {
   } catch (err) {
     logger.error("staffReply error", { message: err.message });
     return res.status(500).json({ success: false, message: "Failed to send reply" });
+  }
+};
+
+// POST /api/v1/chat/admin/sessions/:sessionId/join
+// Staff (admin) takes over an escalated chat. Persists a "staff joined"
+// message so the customer sees it in history, marks the escalation
+// notification as read (bell stops ringing), and notifies the customer
+// in real-time via socket.
+const joinSession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await ChatSession.findOne({ sessionId });
+    if (!session) return res.status(404).json({ success: false, message: "Session not found" });
+
+    const staffName = req.user?.username || "A support agent";
+
+    // Idempotent — only the first join records anything.
+    if (!session.staffJoinedAt && !session.assignedStaffId) {
+      session.assignedStaffId = req.user.id;
+      session.assignedStaffName = staffName;
+      session.staffJoinedAt = new Date();
+      session.messages.push({
+        role: "staff",
+        content: `👤 ${staffName} has joined the chat.`,
+        staffId: req.user.id,
+      });
+      await session.save();
+
+      // Stop the escalation notification from ringing for this chat.
+      try {
+        await Notification.updateMany(
+          { type: "chat_escalation", sessionId, isRead: false },
+          { $set: { isRead: true, readAt: new Date() } }
+        );
+      } catch (err) {
+        logger.warn("joinSession: failed to mark notifications read", { message: err.message });
+      }
+
+      const io = require("../../services/socketService").getIO();
+      io.to(`chat:${sessionId}`).emit("chat:staff_joined", {
+        sessionId,
+        staffName,
+        message: `👤 ${staffName} has joined the chat.`,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      sessionId,
+      staffName,
+      message: "Staff joined",
+    });
+  } catch (err) {
+    logger.error("joinSession error", { message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to join the chat" });
   }
 };
 
@@ -818,7 +1048,11 @@ const requestHuman = async (req, res) => {
     const { sessionId } = req.params;
     const session = await ChatSession.findOne({ sessionId });
     if (!session) return res.status(404).json({ success: false, message: "Session not found" });
-    if (session.status === "escalated") return res.status(200).json({ success: true });
+    if (session.status === "escalated") {
+      return res
+        .status(200)
+        .json({ success: true, staffUnavailable: getOnlineAdminCount() === 0 });
+    }
 
     session.messages.push({
       role: "assistant",
@@ -828,16 +1062,26 @@ const requestHuman = async (req, res) => {
     session.escalationReason = "Customer requested human support";
     await session.save();
 
-    emitEvent("chat:new_escalation", {
+    const staffOnline = getOnlineAdminCount() > 0;
+    const escalationData = {
       sessionId,
       customerName: session.customerName,
       customerEmail: session.customerEmail,
+      customerPhone: session.customerPhone,
       escalationReason: session.escalationReason,
       lastMessage: "Customer requested human support",
       createdAt: session.createdAt,
+    };
+    emitEvent("chat:new_escalation", escalationData);
+    createChatNotification({
+      sessionId,
+      customerName: session.customerName,
+      reason: session.escalationReason,
     });
 
-    return res.status(200).json({ success: true });
+    return res
+      .status(200)
+      .json({ success: true, staffUnavailable: !staffOnline, messages: session.messages });
   } catch (err) {
     logger.error("requestHuman error", { message: err.message });
     return res.status(500).json({ success: false, message: "Failed to connect to support" });
@@ -850,9 +1094,12 @@ module.exports = {
   getEscalatedSessions,
   getSessionById,
   staffReply,
+  joinSession,
   resolveSession,
   getKnowledge,
   addKnowledge,
   deleteKnowledge,
   requestHuman,
+  saveContact,
+  endSession,
 };

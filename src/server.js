@@ -164,6 +164,19 @@ const startServer = async () => {
       logger.warn("Failed to start expired assets cleanup cron", { error: cronError.message });
     }
 
+    try {
+      const { startDailyAiReportCron, runDailyAiReport } = require("./services/aiReportService");
+      startDailyAiReportCron();
+      if (
+        process.env.NODE_ENV === "development" &&
+        process.env.RUN_AI_REPORT_ON_START === "true"
+      ) {
+        runDailyAiReport();
+      }
+    } catch (cronError) {
+      logger.warn("Failed to start AI daily report cron", { error: cronError.message });
+    }
+
     const http = require("http");
     const server = http.createServer(app);
 

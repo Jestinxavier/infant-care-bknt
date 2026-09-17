@@ -92,10 +92,48 @@ const createOrderNotification = async ({ orderId, orderDbId, customerName, total
   }
 };
 
+/**
+ * Helper: Create/persist a chat notification (clickable → chat page).
+ * One bell item per session — upserted and bumped to the top with the latest
+ * message snippet, so the dashboard always surfaces recent chat activity.
+ */
+const createChatNotification = async ({ sessionId, customerName, reason, lastMessage }) => {
+  try {
+    const title = lastMessage ? "💬 New chat message" : "💬 Customer needs help";
+    const message = lastMessage
+      ? `${customerName || "A customer"} is chatting: ${String(lastMessage).slice(0, 120)}`
+      : `${customerName || "A customer"} needs help${reason ? `: ${reason}` : ""}`;
+    await Notification.updateOne(
+      { type: "chat_escalation", sessionId: sessionId || null },
+      {
+        $set: {
+          title,
+          message,
+          href: "/chat",
+          isRead: false,
+          readAt: null,
+          createdAt: new Date(),
+        },
+        $setOnInsert: {
+          type: "chat_escalation",
+          sessionId: sessionId || null,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      },
+      { upsert: true }
+    );
+    return true;
+  } catch (err) {
+    logger.error("❌ Failed to save chat notification:", err);
+    return null;
+  }
+};
+
 module.exports = {
   getNotifications,
   markAsRead,
   markAllAsRead,
   deleteNotification,
   createOrderNotification,
+  createChatNotification,
 };

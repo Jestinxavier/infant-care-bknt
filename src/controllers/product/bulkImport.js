@@ -26,6 +26,9 @@ const {
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
+const {
+  resolveCatalogValue,
+} = require("../../utils/catalogAttributeResolver");
 
 // Cloudinary folder for permanent CSV imported images
 // CSV imported images should be stored in "assets" folder
@@ -657,9 +660,18 @@ class BulkImportController {
                   attributeDef.allowedValues &&
                   attributeDef.allowedValues.length > 0
                 ) {
-                  const isAllowed = attributeDef.allowedValues.some(
-                    (av) => av.value === normalizedValue && av.isActive
+                  // Synonym-aware: "0-3-months", "0-3m", "small" all resolve to
+                  // the canonical allowed value ("0-3 Month" / "S").
+                  const resolved = resolveCatalogValue(
+                    value,
+                    attributeDef.allowedValues,
+                    attributeDef.code || normalizedKey
                   );
+                  const isAllowed =
+                    resolved ||
+                    attributeDef.allowedValues.some(
+                      (av) => av.value === normalizedValue && av.isActive
+                    );
                   if (!isAllowed) {
                     const allowedList = attributeDef.allowedValues
                       .filter((av) => av.isActive)
@@ -1284,9 +1296,19 @@ class BulkImportController {
                   const attrKey = attrDef.name || attrDef.code || normalizedKey;
                   const attrCode = attrDef.code || normalizedKey; // Use code as key, fallback to normalizedKey
                   const valStr = String(value).trim();
-                  const canonicalVal = valStr
-                    .toLowerCase()
-                    .replace(/\s+/g, "-");
+                  // Synonym-aware canonicalization: "0-3-months" -> "0-3-month",
+                  // "small" -> "s", matching the Attribute Registry.
+                  const resolvedAv = resolveCatalogValue(
+                    value,
+                    attrDef.allowedValues || [],
+                    attrDef.code || normalizedKey
+                  );
+                  const canonicalVal = resolvedAv
+                    ? String(resolvedAv.value || resolvedAv.label)
+                        .toLowerCase()
+                        .replace(/\s+/g, "-")
+                        .replace(/^'+/, "")
+                    : valStr.toLowerCase().replace(/\s+/g, "-").replace(/^'+/, "");
                   resolvedAttributes.set(attrKey, canonicalVal);
 
                   // Collect unique variantOptions for Parent Product with ID
@@ -1312,7 +1334,7 @@ class BulkImportController {
                   ) {
                     // Try to find rich metadata (hex, label) from the parsed frontend options
                     let hexCode = null;
-                    let label = valStr;
+                    let label = resolvedAv ? resolvedAv.label : valStr;
 
                     // The frontend can resolve a hex per variant (e.g. catalog
                     // auto-fill) even when the CSV omitted hex_code — prefer
