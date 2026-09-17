@@ -183,6 +183,7 @@ app.use("/api/v1/homepage", homepageRoutes);
 app.use("/api/v1/footer", footerRoutes);
 app.use("/api/v1/faqs", faqRoutes);
 app.use("/api/v1/stock-notify", require("./routes/stockNotificationRoutes"));
+app.use("/api/v1/meta", require("./routes/metaConversionRoutes"));
 app.use("/api/v1/settings", siteSettingsRoutes); // Public settings endpoint
 app.use("/api/v1/chat", chatRoutes);
 // CMS product routes (lightweight for widgets) - Must be before general /cms route

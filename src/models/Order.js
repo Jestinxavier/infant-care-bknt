@@ -245,6 +245,19 @@ const orderSchema = new mongoose.Schema(
         updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // Optional: track who updated it
       },
     ],
+    // Meta Conversions API (CAPI) tracking and deduplication
+    metaTracking: {
+      fbp: { type: String, default: null },
+      fbc: { type: String, default: null },
+      eventSourceUrl: { type: String, default: null },
+      clientIp: { type: String, default: null },
+      clientUserAgent: { type: String, default: null },
+    },
+    metaPurchaseSent: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   { timestamps: true },
 );

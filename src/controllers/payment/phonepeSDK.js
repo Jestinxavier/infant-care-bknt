@@ -220,6 +220,12 @@ const checkOrderStatus = async (req, res) => {
           emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
             logger.error("❌ Failed to send order confirmation email (redirect):", { message: err.message, stack: err.stack })
           );
+
+          // Meta Conversions API (CAPI) Purchase event
+          const { trackPurchase } = require("../../services/metaConversionService");
+          trackPurchase({ order: updatedOrder, req }).catch((err) =>
+            logger.error("❌ [PHONEPE] Failed to send Meta CAPI purchase event (redirect):", err)
+          );
         }
       }
       return res.redirect(
@@ -538,6 +544,12 @@ const phonepeWebhook = async (req, res) => {
 
       emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
         logger.error("❌ Failed to send order confirmation email (webhook):", { message: err.message, stack: err.stack })
+      );
+
+      // Meta Conversions API (CAPI) Purchase event
+      const { trackPurchase } = require("../../services/metaConversionService");
+      trackPurchase({ order: updatedOrder, req }).catch((err) =>
+        logger.error("❌ [PHONEPE] Failed to send Meta CAPI purchase event (webhook):", err)
       );
     } else if (
       type === "CHECKOUT_ORDER_FAILED" ||
