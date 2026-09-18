@@ -60,6 +60,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    googleId: {
+      type: String,
+      default: null,
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -116,6 +125,7 @@ userSchema.methods.comparePassword = async function (password) {
 };
 
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+userSchema.index({ googleId: 1 }, { sparse: true });
 // Role index — used by admin dashboard countDocuments({ role: "user" })
 userSchema.index({ role: 1 });
 // Email OTP lookup — used during registration verification
