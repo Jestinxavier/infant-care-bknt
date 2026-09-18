@@ -79,16 +79,28 @@ const getAllOrders = async (req, res) => {
       }
     }
 
-    if (status) {
+    if (status && status !== "all") {
       filter.orderStatus = status;
     }
 
-    if (paymentStatus) {
-      filter.paymentStatus = paymentStatus;
+    if (paymentStatus && paymentStatus !== "all") {
+      filter.paymentStatus = {
+        $in: [
+          paymentStatus,
+          paymentStatus.toLowerCase(),
+          paymentStatus.toUpperCase(),
+        ],
+      };
     }
 
-    if (paymentMethod) {
-      filter.paymentMethod = paymentMethod;
+    if (paymentMethod && paymentMethod !== "all") {
+      filter.paymentMethod = {
+        $in: [
+          paymentMethod,
+          paymentMethod.toUpperCase(),
+          paymentMethod.toLowerCase(),
+        ],
+      };
     }
 
     // Advanced Search
