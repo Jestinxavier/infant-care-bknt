@@ -937,10 +937,22 @@ const exportOrders = async (req, res) => {
         filter.orderStatus = status;
       }
       if (paymentStatus && paymentStatus !== "all") {
-        filter.paymentStatus = paymentStatus;
+        filter.paymentStatus = {
+          $in: [
+            paymentStatus,
+            paymentStatus.toLowerCase(),
+            paymentStatus.toUpperCase(),
+          ],
+        };
       }
       if (paymentMethod && paymentMethod !== "all") {
-        filter.paymentMethod = paymentMethod;
+        filter.paymentMethod = {
+          $in: [
+            paymentMethod,
+            paymentMethod.toUpperCase(),
+            paymentMethod.toLowerCase(),
+          ],
+        };
       }
 
       // Advanced Search
@@ -981,7 +993,11 @@ const exportOrders = async (req, res) => {
     });
 
     const dateStr = new Date().toISOString().split("T")[0];
-    const filename = `orders_export_${type}_${dateStr}.csv`;
+    const prefix =
+      paymentMethod && paymentMethod !== "all"
+        ? `${paymentMethod.toLowerCase()}_orders`
+        : "orders";
+    const filename = `${prefix}_export_${type}_${dateStr}.csv`;
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

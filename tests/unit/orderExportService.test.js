@@ -120,6 +120,23 @@ describe("Order Export Service", () => {
       expect(row["Delivery Partner"]).toBe("Delhivery");
       expect(row["Tracking Number / AWB"]).toBe("AWB12345678");
     });
+
+    it("should map COD order with COD fee and pending payment status", () => {
+      const codOrder = {
+        ...sampleOrder,
+        orderId: "ORD-COD-1234",
+        paymentMethod: "COD",
+        paymentStatus: "pending",
+        codCost: 40,
+        phonepeTransactionId: null,
+      };
+      const row = mapOrderToSummaryRow(codOrder);
+      expect(row["Order ID"]).toBe("ORD-COD-1234");
+      expect(row["Payment Method"]).toBe("Cash on Delivery (COD)");
+      expect(row["Payment Status"]).toBe("Pending");
+      expect(row["COD Handling Fee (INR)"]).toBe("40.00");
+      expect(row["Transaction ID"]).toBe("");
+    });
   });
 
   describe("mapOrderToItemRows", () => {
