@@ -328,6 +328,7 @@ productSchema.pre("save", function (next) {
   this.filterAttributes = syncFilterAttributes({
     productType: this.product_type,
     variants: this.variants,
+    variantOptions: this.variantOptions,
     filterAttributes: this.filterAttributes,
   });
 
@@ -460,7 +461,7 @@ const syncFilterAttributesOnQueryUpdate = async function (next) {
 
     const existing = await this.model
       .findOne(this.getQuery())
-      .select("product_type variants filterAttributes")
+      .select("product_type variants variantOptions filterAttributes")
       .lean();
 
     const mergedFilterAttributes = extractFilterAttributesFromUpdate(update);
@@ -468,6 +469,8 @@ const syncFilterAttributesOnQueryUpdate = async function (next) {
     const normalized = syncFilterAttributes({
       productType: getUpdateValue(update, "product_type") || existing?.product_type,
       variants: getUpdateValue(update, "variants") || existing?.variants,
+      variantOptions:
+        getUpdateValue(update, "variantOptions") || existing?.variantOptions,
       filterAttributes: mergedFilterAttributes,
       fallbackFilterAttributes: existing?.filterAttributes,
     });

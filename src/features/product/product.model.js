@@ -333,9 +333,10 @@ productSchema.index({ "filterAttributes.pack": 1 }, { sparse: true });
 
 // Pre-save hook for URL key generation (only on creation)
 productSchema.pre("save", async function (next) {
-  this.filterAttributes = syncFilterAttributes({
+this.filterAttributes = syncFilterAttributes({
     productType: this.product_type,
     variants: this.variants,
+    variantOptions: this.variantOptions,
     filterAttributes: this.filterAttributes,
   });
 
@@ -455,15 +456,17 @@ const syncFilterAttributesOnQueryUpdate = async function (next) {
       return next();
     }
 
-    const existing = await this.model
+const existing = await this.model
       .findOne(this.getQuery())
-      .select("product_type variants filterAttributes")
+      .select("product_type variants variantOptions filterAttributes")
       .lean();
 
     const mergedFilterAttributes = extractFilterAttributesFromUpdate(update);
     const normalized = syncFilterAttributes({
       productType: getUpdateValue(update, "product_type") || existing?.product_type,
       variants: getUpdateValue(update, "variants") || existing?.variants,
+      variantOptions:
+        getUpdateValue(update, "variantOptions") || existing?.variantOptions,
       filterAttributes: mergedFilterAttributes,
       fallbackFilterAttributes: existing?.filterAttributes,
     });
