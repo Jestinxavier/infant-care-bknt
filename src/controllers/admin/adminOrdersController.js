@@ -14,6 +14,7 @@ const { invalidateOrdersByStatusCache } = require("./ordersByStatusController");
 const { invalidateReturnsCancellationsCache } = require("./returnsCancellationsController");
 const { invalidatePaymentMethodSplitCache } = require("./paymentMethodSplitController");
 const logger = require("../../utils/logger");
+const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
 
 const escapeRegex = require("../../utils/escapeRegex");
 
@@ -275,7 +276,8 @@ const getOrderById = async (req, res) => {
     const order = await Order.findOne(query)
       .populate({
         path: "items.productId",
-        select: "name title images description attributes options",
+        select:
+          "name title images description attributes options variantOptions",
       })
       .populate("userId", "username email phone")
       .populate("deliveryPartner")
@@ -288,10 +290,32 @@ const getOrderById = async (req, res) => {
       });
     }
 
+    // Resolve raw variant attribute values (e.g. "3-6-months", "red") to
+    // human-readable labels (e.g. "3-6 Month", "Red") using the product's
+    // variantOptions. Falls back to the raw value when no match is found.
+    const items = (order.items || []).map((item) => {
+      const variantOptions = item.productId?.variantOptions;
+      if (
+        !item.variantAttributes ||
+        !Array.isArray(variantOptions) ||
+        variantOptions.length === 0
+      ) {
+        return item;
+      }
+      return {
+        ...item,
+        variantAttributes: resolveAttributeLabels(
+          item.variantAttributes,
+          variantOptions,
+        ),
+      };
+    });
+
     res.status(200).json({
       success: true,
       order: {
         ...order,
+        items,
         _id: order._id?.toString(),
       },
     });

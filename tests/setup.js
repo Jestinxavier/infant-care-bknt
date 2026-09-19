@@ -57,6 +57,34 @@ jest.mock("multer-storage-cloudinary", () => {
   };
 });
 
+// meilisearch ships ESM-only builds (export/import) that Jest cannot parse.
+// The app only constructs a client when MEILISEARCH_HOST is set, which never
+// happens in tests, so a stub is enough for modules that require it.
+jest.mock("meilisearch", () => {
+  class MeiliSearch {
+    constructor() {}
+    index() {
+      return {
+        addDocuments: jest.fn(),
+        updateDocuments: jest.fn(),
+        deleteDocuments: jest.fn(),
+        deleteAllDocuments: jest.fn(),
+        search: jest.fn().mockResolvedValue({ hits: [] }),
+        getDocuments: jest.fn().mockResolvedValue([]),
+      };
+    }
+  }
+  return { MeiliSearch };
+});
+
+// uuid v14 is ESM-only; provide a v4 stub (used by chatController).
+jest.mock("uuid", () => {
+  let _uuidCounter = 0;
+  const v4 = () =>
+    `00000000-0000-4000-8000-${String(_uuidCounter++).padStart(12, "0")}`;
+  return { v4 };
+});
+
 let mongoServer;
 
 // Connect to the in-memory database before running tests

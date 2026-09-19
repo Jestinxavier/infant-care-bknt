@@ -2,7 +2,10 @@ const productRepository = require("./product.repository");
 const ApiError = require("../../core/ApiError");
 const { validatePricing } = require("./rules/pricing.rules");
 const { validateStockQuantity } = require("./rules/inventory.rules");
-const { generateUniqueUrlKey } = require("../../utils/slugGenerator");
+const {
+  generateUniqueUrlKey,
+  generateVariantUrlKey,
+} = require("../../utils/slugGenerator");
 const {
   suggestProductSku,
   generateVariantSku,
@@ -1033,25 +1036,11 @@ class ProductService {
 
         // Auto-generate Variant URL Key if missing
         if (!variant.url_key) {
-          const baseSlug = productData.url_key;
-          let suffix = "";
-
-          if (variant.attributes && typeof variant.attributes === "object") {
-            const keys = Object.keys(variant.attributes).sort();
-            const values = keys.map((k) => variant.attributes[k]);
-            suffix = values.join("-");
-          } else if (variant.options && typeof variant.options === "object") {
-            const keys = Object.keys(variant.options).sort();
-            const values = keys.map((k) => variant.options[k]);
-            suffix = values.join("-");
-          }
-
-          if (suffix) {
-            const { generateSlug } = require("../../utils/slugGenerator");
-            variant.url_key = `${baseSlug}-${generateSlug(suffix)}`;
-          } else {
-            variant.url_key = `${baseSlug}-${configCode.toLowerCase()}`;
-          }
+          variant.url_key = generateVariantUrlKey(
+            productData.url_key,
+            variant.attributes || variant.options || {},
+            { fallbackSuffix: configCode.toLowerCase() },
+          );
         }
 
         // Validate pricing

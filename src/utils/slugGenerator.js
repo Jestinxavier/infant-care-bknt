@@ -18,6 +18,45 @@ const generateSlug = (text) => {
 };
 
 /**
+ * Generate a variant url_key (SEO-friendly): <parent-slug>-<color>-<size-or-age>.
+ * Attribute order and selection are shared across create/update/CSV/service
+ * generation paths so every flow produces identical slugs.
+ * @param {string} parentUrlKey - Parent product url_key
+ * @param {Object} attributes - Variant attributes (e.g. { color, size, age })
+ * @param {Object} options
+ * @param {string} options.fallbackSuffix - Used when no distinguishing attributes exist
+ * @returns {string} - Variant url_key (slugified)
+ */
+const generateVariantUrlKey = (
+  parentUrlKey,
+  attributes = {},
+  options = {},
+) => {
+  // Normalize Map-like inputs (JS Map, Mongoose Map) to a plain object.
+  // A raw Map must not leak through: its `.size` (entry count) would be
+  // misread as the `size` attribute.
+  const attrs =
+    attributes && typeof attributes === "object" && !Array.isArray(attributes)
+      ? typeof attributes.get === "function" &&
+        typeof attributes.entries === "function"
+        ? Object.fromEntries(attributes)
+        : attributes
+      : {};
+  const parts = [String(parentUrlKey || "product").trim() || "product"];
+
+  if (attrs.color) parts.push(generateSlug(String(attrs.color)));
+  if (attrs.size || attrs.age)
+    parts.push(generateSlug(String(attrs.size || attrs.age)));
+
+  if (parts.length > 1) {
+    return generateSlug(parts.join("-"));
+  }
+
+  const fallbackSuffix = (options.fallbackSuffix || "").toString().trim();
+  return generateSlug(fallbackSuffix ? `${parts[0]}-${fallbackSuffix}` : parts[0]);
+};
+
+/**
  * Generate a unique url_key for a product
  * @param {string} title - Product title
  * @param {Function} checkExists - Async function to check if url_key exists: (url_key, excludeId?) => Promise<boolean>
@@ -156,6 +195,7 @@ const validateUrlKey = (urlKey) => {
 
 module.exports = {
   generateSlug,
+  generateVariantUrlKey,
   generateUniqueUrlKey,
   generateUrlKeyWithRedirect,
   validateUrlKey,

@@ -11,7 +11,7 @@ const {
   validateVariantOptions,
 } = require("./variantValidator");
 const { generateVariantSku } = require("./skuGenerator");
-const { generateSlug } = require("./slugGenerator");
+const { generateSlug, generateVariantUrlKey } = require("./slugGenerator");
 
 /**
  * Export product variants to CSV
@@ -133,6 +133,34 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
         continue;
       }
 
+      const variantSku =
+        (row.SKU && String(row.SKU).trim()) ||
+        generateVariantSku(
+          product.sku ||
+            product.slug ||
+            product.title.toUpperCase().substring(0, 5),
+          Object.fromEntries(options), // Convert Map to Object
+        );
+      const optionsHash = createOptionsHash(options);
+
+      // Resolve existing variant (by SKU or option hash) BEFORE url_key, so a
+      // re-import keeps the stored slug instead of regenerating it.
+      const existingIndex = product.variants.findIndex((v) => {
+        if (v.sku === variantSku) return true;
+        if (v._optionsHash === optionsHash) return true;
+        return false;
+      });
+
+      const explicitUrlKey = row.UrlKey || row["URL Key"] || row.URL_KEY;
+      const urlKey =
+        explicitUrlKey ||
+        (existingIndex >= 0 && product.variants[existingIndex].url_key) ||
+        generateVariantUrlKey(
+          product.url_key || product.slug || generateSlug(product.title),
+          Object.fromEntries(options),
+          { fallbackSuffix: variantSku },
+        );
+
       const variantData = {
         options: options,
         attributes: options,
@@ -141,26 +169,9 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
           ? parseFloat(row["Discount Price"])
           : undefined,
         stock: row.Stock ? parseInt(row.Stock) : 0,
-        sku:
-          row.SKU ||
-          generateVariantSku(
-            product.sku ||
-              product.slug ||
-              product.title.toUpperCase().substring(0, 5),
-            Object.fromEntries(options), // Convert Map to Object
-          ),
-        _optionsHash: createOptionsHash(options),
-        url_key:
-          row.UrlKey ||
-          row["URL Key"] ||
-          row.URL_KEY ||
-          // Generate from Product Slug + Options
-          `${product.url_key || product.slug || generateSlug(product.title)}-${Object.keys(
-            Object.fromEntries(options),
-          )
-            .sort()
-            .map((k) => options.get(k))
-            .join("-")}`.toLowerCase(),
+        sku: variantSku,
+        _optionsHash: optionsHash,
+        url_key: urlKey,
         images: [],
       };
 
@@ -178,12 +189,6 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
       }
 
       // Check if variant exists
-      const existingIndex = product.variants.findIndex((v) => {
-        if (v.sku === variantData.sku) return true;
-        if (v._optionsHash === variantData._optionsHash) return true;
-        return false;
-      });
-
       if (existingIndex >= 0) {
         if (updateExisting) {
           product.variants[existingIndex] = {

@@ -33,6 +33,11 @@ const PERMANENT_FOLDER = "assets";
 
 const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
 
+// Hard ceiling on products per import commit. Keeps a single synchronous
+// request inside safe latency bounds — larger files must be split into chunks
+// (or moved to a background job).
+const MAX_IMPORT_PRODUCTS = 200;
+
 const norm = (v) =>
   (v ?? "")
     .toString()
@@ -171,6 +176,66 @@ async function resolveExistingProductsBySku(products, session) {
   });
 }
 
+/**
+ * Preload the DB owners for every SKU / url_key present in the batch (parent
+ * rows and their variants) in ONE query. Returns Maps of value → Set of owning
+ * product _id strings, so the per-candidate uniqueness checks during commit
+ * become in-memory lookups instead of one `findOne` per product/variant.
+ * Values are matched case-sensitively (trimmed), mirroring the original
+ * exact-match `findOne` queries they replace.
+ */
+async function preloadIdentifierOwners(products, session) {
+  const skus = new Set();
+  const urlKeys = new Set();
+  products.forEach((p) => {
+    if (p?.sku) skus.add(p.sku.trim());
+    if (p?.url_key) urlKeys.add(p.url_key.trim());
+    (p?.variants || []).forEach((v) => {
+      if (v?.sku) skus.add(v.sku.trim());
+      if (v?.url_key) urlKeys.add(v.url_key.trim());
+    });
+  });
+
+  const skuOwners = new Map(); // value -> Set<productId>
+  const urlKeyOwners = new Map(); // value -> Set<productId>
+
+  const or = [];
+  if (skus.size > 0) {
+    or.push({ sku: { $in: Array.from(skus) } });
+    or.push({ "variants.sku": { $in: Array.from(skus) } });
+  }
+  if (urlKeys.size > 0) {
+    or.push({ url_key: { $in: Array.from(urlKeys) } });
+    or.push({ "variants.url_key": { $in: Array.from(urlKeys) } });
+  }
+  if (or.length === 0) return { skuOwners, urlKeyOwners };
+
+  const finder = Product.find({ $or: or }).select(
+    "_id sku url_key variants.sku variants.url_key"
+  );
+  const docs = session
+    ? await finder.session(session).lean()
+    : await finder.lean();
+
+  const addTo = (map, key, ownerId) => {
+    const ownerIdStr = String(ownerId);
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key).add(ownerIdStr);
+  };
+
+  docs.forEach((prod) => {
+    const pid = prod._id;
+    if (prod.sku) addTo(skuOwners, prod.sku.trim(), pid);
+    if (prod.url_key) addTo(urlKeyOwners, prod.url_key.trim(), pid);
+    (prod.variants || []).forEach((v) => {
+      if (v.sku) addTo(skuOwners, v.sku.trim(), pid);
+      if (v.url_key) addTo(urlKeyOwners, v.url_key.trim(), pid);
+    });
+  });
+
+  return { skuOwners, urlKeyOwners };
+}
+
 function buildVariantTitle(parentTitle, productVariantOptions, attributesMap) {
   const attrsObj =
     attributesMap instanceof Map
@@ -209,6 +274,99 @@ function normalizeVariantAttributeValueForHash(value) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
+// Global attribute registry matching
+//
+// AttributeDefinition (Settings → Product Attributes) is the single source of
+// truth for attribute values. A CSV value is accepted only when it matches a
+// registered, active allowed value by its `value`, its `label`, or one of its
+// registered `synonyms` (case/whitespace insensitive). Values that are not
+// registered are rejected so imports can never introduce a duplicate spelling
+// of an existing attribute value. No built-in alias vocabulary is consulted:
+// equivalent spellings must be registered as synonyms, or the CSV must be
+// changed to an existing registered value.
+// ---------------------------------------------------------------------------
+
+// Registry identity: lowercase, collapse whitespace, spaces → hyphen. Mirrors
+// the AttributeDefinition pre-save normalization.
+const registryToken = (s) =>
+  String(s ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+
+/**
+ * Find the active registered allowed value that `rawValue` refers to, or null.
+ * Matches the canonical value, its display label, or any registered synonym.
+ */
+function findRegisteredAllowedValue(attributeDef, rawValue) {
+  const input = registryToken(rawValue);
+  if (!input || !attributeDef) return null;
+
+  const allowedValues = Array.isArray(attributeDef.allowedValues)
+    ? attributeDef.allowedValues
+    : [];
+
+  return (
+    allowedValues.find((av) => {
+      if (!av || av.isActive === false) return false;
+      if (registryToken(av.value) === input) return true;
+      if (registryToken(av.label) === input) return true;
+      return (
+        Array.isArray(av.synonyms) &&
+        av.synonyms.some((synonym) => registryToken(synonym) === input)
+      );
+    }) || null
+  );
+}
+
+// Human-readable list of the registered values an import may use.
+function formatRegisteredValues(attributeDef) {
+  const labels = (
+    Array.isArray(attributeDef?.allowedValues) ? attributeDef.allowedValues : []
+  )
+    .filter((av) => av && av.isActive !== false)
+    .map((av) => `"${av.label || av.value}"`);
+  return labels.length ? labels.join(", ") : "(none configured)";
+}
+
+// Clear, actionable message for a value that is not in the global registry.
+function notRegisteredMessage(rawValue, attrKey, attributeDef) {
+  const attrLabel =
+    attributeDef?.label || attributeDef?.name || attrKey || "this attribute";
+  return (
+    `"${rawValue}" is not in the global attribute registry for '${attrKey}'. ` +
+    `Add it to "${attrLabel}" in Settings → Product Attributes, or change this ` +
+    `value to one of the registered values: ${formatRegisteredValues(
+      attributeDef,
+    )}.`
+  );
+}
+
+// Resolve the registered canonical value + label for an imported value. Returns
+// null when the value is not registered.
+function resolveRegisteredValue(attributeDef, rawValue) {
+  const matched = findRegisteredAllowedValue(attributeDef, rawValue);
+  if (!matched) return null;
+  const value = String(matched.value).trim();
+  return {
+    value,
+    label: matched.label ? String(matched.label).trim() : value,
+    hex: matched.hex || null,
+  };
+}
+
+// Resolve the display label for a stored/canonical variant attribute value from
+// the attribute catalog so CSV imports store the same labels the dashboard
+// product form writes (nice labels, never raw slugs). Returns "" when none
+// matches.
+function resolveOptionValueLabel(attrDef, rawValue) {
+  const matched = findRegisteredAllowedValue(attrDef, rawValue);
+  return matched && matched.label ? String(matched.label).trim() : "";
 }
 
 /**
@@ -305,6 +463,15 @@ class BulkImportController {
       return res
         .status(400)
         .json(ApiResponse.error("Products array is required", 400).toJSON());
+    }
+
+    if (products.length > MAX_IMPORT_PRODUCTS) {
+      return res.status(400).json(
+        ApiResponse.error(
+          `Import too large: ${products.length} products exceeds the maximum of ${MAX_IMPORT_PRODUCTS} per import. Please split the CSV into smaller batches.`,
+          400
+        ).toJSON()
+      );
     }
 
     const errors = [];
@@ -434,6 +601,42 @@ class BulkImportController {
               .map((v) => `${v.key} (${v.values.join(", ")})`)
               .join("; ")}`,
           });
+        }
+
+        // Every metadata/filter attribute value must be registered in the
+        // global attribute catalog (matching value, label, or synonym).
+        // Unregistered values are rejected so metadata cannot introduce a
+        // duplicate spelling of an existing attribute value.
+        for (const [rawKey, rawValues] of Object.entries(
+          product.filterAttributes
+        )) {
+          const key = String(rawKey || "")
+            .toLowerCase()
+            .trim();
+          const attributeDef = attributeMap.get(key);
+          if (
+            !attributeDef ||
+            !Array.isArray(attributeDef.allowedValues) ||
+            attributeDef.allowedValues.length === 0
+          ) {
+            continue;
+          }
+          const values = Array.isArray(rawValues) ? rawValues : [rawValues];
+          for (const rawValue of values) {
+            if (
+              rawValue === undefined ||
+              rawValue === null ||
+              String(rawValue).trim() === ""
+            ) {
+              continue;
+            }
+            if (findRegisteredAllowedValue(attributeDef, rawValue)) continue;
+            errors.push({
+              row: rowNum,
+              field: `filterAttributes.${key}`,
+              message: notRegisteredMessage(rawValue, key, attributeDef),
+            });
+          }
         }
       }
 
@@ -651,24 +854,16 @@ class BulkImportController {
                   message: `Unknown attribute: '${key}'. Please create this attribute in Settings > Product Attributes first.`,
                 });
               } else {
-                // Validate value against allowed values if defined
-                const normalizedValue = value.toLowerCase().trim().replace(/\s+/g, "-");
+                // Validate value against the global attribute registry
                 if (
                   attributeDef.allowedValues &&
                   attributeDef.allowedValues.length > 0
                 ) {
-                  const isAllowed = attributeDef.allowedValues.some(
-                    (av) => av.value === normalizedValue && av.isActive
-                  );
-                  if (!isAllowed) {
-                    const allowedList = attributeDef.allowedValues
-                      .filter((av) => av.isActive)
-                      .map((av) => `"${av.label}"`)
-                      .join(", ");
+                  if (!findRegisteredAllowedValue(attributeDef, value)) {
                     errors.push({
                       row: variantRow,
                       field: `attribute_${key}`,
-                      message: `Invalid value '${value}' for attribute '${key}'. Allowed values: ${allowedList || "None defined"}.`,
+                      message: notRegisteredMessage(value, key, attributeDef),
                     });
                   }
                 }
@@ -712,6 +907,10 @@ class BulkImportController {
     const allSkus = Array.from(inputSkus).filter((s) => !!s);
 
     let existingSkusInDb = new Set();
+    // sku -> owning product _id (parent or any of its variants). Used to reject
+    // update-path SKU changes that would collide with a *different* product,
+    // since the create-path check below only applies to new products.
+    const skuOwnerMap = new Map();
     if (allSkus.length > 0) {
       // Find products where either the main sku OR any variant sku matches our list
       const existingProducts = await Product.find({
@@ -725,11 +924,19 @@ class BulkImportController {
 
       // Add parent SKUs
       existingProducts.forEach((p) => {
-        if (p.sku) existingSkusInDb.add(p.sku);
+        if (p.sku) {
+          existingSkusInDb.add(p.sku);
+          skuOwnerMap.set(p.sku, p._id.toString());
+        }
         // Add variant SKUs
         if (p.variants && Array.isArray(p.variants)) {
           p.variants.forEach((v) => {
-            if (v.sku) existingSkusInDb.add(v.sku);
+            if (v.sku) {
+              existingSkusInDb.add(v.sku);
+              if (!skuOwnerMap.has(v.sku)) {
+                skuOwnerMap.set(v.sku, p._id.toString());
+              }
+            }
           });
         }
       });
@@ -747,6 +954,19 @@ class BulkImportController {
           field: "sku",
           message: `SKU "${p.sku}" already exists in database.`,
         });
+      }
+
+      // Updating product: the SKU must not be owned by a *different* product.
+      // An unchanged SKU maps back to this product's own id and is allowed.
+      if (!p.isNewProduct && p.sku) {
+        const owner = skuOwnerMap.get(p.sku);
+        if (owner && String(owner) !== String(p.csvId)) {
+          errors.push({
+            row: rowNum,
+            field: "sku",
+            message: `SKU "${p.sku}" already exists on another product.`,
+          });
+        }
       }
 
       // Check variants
@@ -841,6 +1061,25 @@ class BulkImportController {
         .json(ApiResponse.error("Products array is required", 400).toJSON());
     }
 
+    if (products.length > MAX_IMPORT_PRODUCTS) {
+      logger.warn(
+        `❌ [Bulk Import] Rejected commit of ${products.length} products (max ${MAX_IMPORT_PRODUCTS})`
+      );
+      return res.status(400).json(
+        ApiResponse.error(
+          `Import too large: ${products.length} products exceeds the maximum of ${MAX_IMPORT_PRODUCTS} per commit. Please split the CSV into smaller batches.`,
+          400
+        ).toJSON()
+      );
+    }
+
+    const importStartMs = Date.now();
+    const importProductCount = products.length;
+    const importVariantCount = products.reduce(
+      (sum, p) => sum + (Array.isArray(p?.variants) ? p.variants.length : 0),
+      0
+    );
+
     // Parent-level filterAttributes are supported; only variant-level fields
     // are stripped (variants never carry filter attributes).
     let ignoredFilterAttributeFieldsCount = 0;
@@ -911,6 +1150,7 @@ class BulkImportController {
 
     // Track created resources for rollback
     const createdProductIds = [];
+    const updatedProductIds = []; // Used to sync search index after update
     const createdVariantIds = [];
     const convertedImages = []; // { old_public_id, new_public_id }
     const tempKeysUsed = [];
@@ -1025,38 +1265,33 @@ class BulkImportController {
         isTransactionStarted ? session : undefined
       );
 
-      const skuExistsGlobally = async (sku, excludeProductId = null) => {
-        if (!sku) return false;
-        if (usedSkusInBatch.has(sku)) return true;
+      // Load every pre-existing SKU / url_key once so the uniqueness checks
+      // below are in-memory Set lookups instead of one findOne per candidate.
+      const { skuOwners, urlKeyOwners } = await preloadIdentifierOwners(
+        products,
+        isTransactionStarted ? session : undefined
+      );
 
-        const query = {
-          $or: [{ sku }, { "variants.sku": sku }],
-        };
-        if (excludeProductId) {
-          query._id = { $ne: excludeProductId };
+      const hasOtherOwner = (ownerMap, value, excludeProductId) => {
+        const owners = ownerMap.get(value);
+        if (!owners) return false;
+        if (!excludeProductId) return true;
+        for (const ownerId of owners) {
+          if (ownerId !== String(excludeProductId)) return true;
         }
-
-        const exists = isTransactionStarted
-          ? await Product.findOne(query).select("_id").session(session)
-          : await Product.findOne(query).select("_id");
-        return !!exists;
+        return false;
       };
 
-      const urlKeyExistsGlobally = async (urlKey, excludeProductId = null) => {
+      const skuExistsGlobally = (sku, excludeProductId = null) => {
+        if (!sku) return false;
+        if (usedSkusInBatch.has(sku)) return true;
+        return hasOtherOwner(skuOwners, sku, excludeProductId);
+      };
+
+      const urlKeyExistsGlobally = (urlKey, excludeProductId = null) => {
         if (!urlKey) return false;
         if (usedUrlKeysInBatch.has(urlKey)) return true;
-
-        const query = {
-          $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
-        };
-        if (excludeProductId) {
-          query._id = { $ne: excludeProductId };
-        }
-
-        const exists = isTransactionStarted
-          ? await Product.findOne(query).select("_id").session(session)
-          : await Product.findOne(query).select("_id");
-        return !!exists;
+        return hasOtherOwner(urlKeyOwners, urlKey, excludeProductId);
       };
 
       // Step 2: Create/Update products
@@ -1087,19 +1322,30 @@ class BulkImportController {
           : new mongoose.Types.ObjectId();
 
         // 0. Auto-generate SKU for new product
-        let finalProductSku = productData.sku;
+        let finalProductSku = (productData.sku || "").toString().trim() || undefined;
         if (!isUpdate) {
-          const catObj = idToDataMap.get(resolvedCategoryId?.toString());
-          const catCode = catObj?.code || catObj?.name || "PROD";
+          if (!finalProductSku) {
+            const catObj = idToDataMap.get(resolvedCategoryId?.toString());
+            const catCode = catObj?.code || catObj?.name || "PROD";
 
-          const baseSku = suggestProductSku(productData.title, {
-            categoryCode: catCode,
-          });
+            const baseSku = suggestProductSku(productData.title, {
+              categoryCode: catCode,
+            });
 
-          // Check uniqueness and generate unique SKU
-          finalProductSku = await generateUniqueSku(baseSku, async (sku) => {
-            return skuExistsGlobally(sku);
-          });
+            // Check uniqueness and generate unique SKU
+            finalProductSku = await generateUniqueSku(baseSku, async (sku) => {
+              return skuExistsGlobally(sku);
+            });
+          } else {
+            // Honor the CSV-provided SKU for new products so the parent SKU is
+            // stable (children keep the same pattern, external references stay
+            // intact). A collision is normally rejected during validate; this
+            // only de-duplicates as a last resort.
+            finalProductSku = await generateUniqueSku(
+              finalProductSku,
+              async (sku) => skuExistsGlobally(sku)
+            );
+          }
         }
         if (finalProductSku) usedSkusInBatch.add(finalProductSku);
 
@@ -1280,13 +1526,18 @@ class BulkImportController {
 
                 const attrDef = attributeMap.get(normalizedKey);
                 if (attrDef && attrDef._id) {
-                  // Store variant attribute as canonical value (slug), not label, for consistency with create/update
+                  // Store the registered canonical value (not the raw CSV cell)
+                  // so imported products never carry a duplicate spelling of an
+                  // existing attribute value. `value`/`label` come from the
+                  // global registry; `registered` is null only when the attribute
+                  // has no allowed values (nothing to canonicalize against).
                   const attrKey = attrDef.name || attrDef.code || normalizedKey;
                   const attrCode = attrDef.code || normalizedKey; // Use code as key, fallback to normalizedKey
                   const valStr = String(value).trim();
-                  const canonicalVal = valStr
-                    .toLowerCase()
-                    .replace(/\s+/g, "-");
+                  const registered = resolveRegisteredValue(attrDef, valStr);
+                  const canonicalVal = registered
+                    ? registered.value
+                    : valStr.toLowerCase().replace(/\s+/g, "-");
                   resolvedAttributes.set(attrKey, canonicalVal);
 
                   // Collect unique variantOptions for Parent Product with ID
@@ -1311,8 +1562,11 @@ class BulkImportController {
                     )
                   ) {
                     // Try to find rich metadata (hex, label) from the parsed frontend options
+                    // Prefer the attribute catalog label so imported products show
+                    // display labels (e.g. "0-3 Months"), never raw slug values.
+                    const catalogLabel = resolveOptionValueLabel(attrDef, canonicalVal);
                     let hexCode = null;
-                    let label = valStr;
+                    let label = catalogLabel || valStr;
 
                     // The frontend can resolve a hex per variant (e.g. catalog
                     // auto-fill) even when the CSV omitted hex_code — prefer
@@ -1347,7 +1601,9 @@ class BulkImportController {
                         );
                         if (feValue) {
                           if (feValue.hex) hexCode = feValue.hex;
-                          if (feValue.label) label = feValue.label;
+                          // Catalog label is authoritative; keep the frontend
+                          // label only when the catalog has no label for it.
+                          if (feValue.label && !catalogLabel) label = feValue.label;
                         }
                       }
                     }
@@ -1486,7 +1742,25 @@ class BulkImportController {
             updateData.title = productData.title;
             updateData.name = productData.title; // Sync name with title
           }
-          if (isProvided(productData.sku)) updateData.sku = productData.sku;
+          const trimmedSku = (productData.sku || "").toString().trim();
+          if (isProvided(productData.sku)) {
+            if (!trimmedSku || usedSkusInBatch.has(trimmedSku)) {
+              // Blank in CSV, or already assigned to this product in this batch
+              // (its own existing SKU) → no-op.
+              updateData.sku = trimmedSku;
+            } else if (await skuExistsGlobally(trimmedSku, finalProductId)) {
+              // Defense-in-depth: validate normally rejects this; never let an
+              // update silently collide with another product's SKU here.
+              const conflictError = new Error(
+                `SKU "${trimmedSku}" already exists on another product.`
+              );
+              conflictError.code = "SKU_CONFLICT";
+              throw conflictError;
+            } else {
+              updateData.sku = trimmedSku;
+              usedSkusInBatch.add(trimmedSku);
+            }
+          }
           if (isProvided(productData.description)) {
             updateData.description = productData.description;
           }
@@ -1554,11 +1828,124 @@ class BulkImportController {
             updateData.filterAttributes = normalizedFilterAttributes;
           }
 
-          // Variants: only replace when the import actually provides them, so a
+          // Variants: only touch when the import actually provides them, so a
           // minimal re-import (parent row only) never wipes existing variants.
+          // When variants ARE provided, MERGE instead of wholesale-replace:
+          // existing variants not listed in the CSV are kept, and variants
+          // whose CSV row provides no images keep their stored images.
           if (embeddedVariants.length > 0) {
-            updateData.variantOptions = finalVariantOptions;
-            updateData.variants = embeddedVariants;
+            let existingProductQuery = Product.findById(productData.csvId).select(
+              "variants variantOptions"
+            );
+            if (isTransactionStarted) {
+              existingProductQuery = existingProductQuery.session(session);
+            }
+            const existingProductData = await existingProductQuery.lean();
+            const existingVariants = existingProductData?.variants || [];
+
+            const csvVariantSkus = new Set(
+              embeddedVariants
+                .map((v) => (v.sku || "").toLowerCase().trim())
+                .filter(Boolean)
+            );
+            const existingVariantById = new Map(
+              existingVariants.map((v) => [String(v.id || v._id), v])
+            );
+
+            // DB variants whose SKU is absent from the CSV are preserved so a
+            // partial re-import never silently deletes variant rows.
+            const keptExistingVariants = existingVariants.filter(
+              (v) => !csvVariantSkus.has((v.sku || "").toLowerCase().trim())
+            );
+
+            // Preserve stored images for variants the CSV re-imports but whose
+            // row carries no image data (mirrors the parent `images.length > 0`
+            // guard above — a partial edit must not erase existing images).
+            for (const ev of embeddedVariants) {
+              if (ev.images && ev.images.length > 0) continue;
+              const existing = existingVariantById.get(String(ev.id));
+              if (
+                existing &&
+                Array.isArray(existing.images) &&
+                existing.images.length > 0
+              ) {
+                ev.images = existing.images;
+              }
+            }
+
+            // Re-include option values contributed by the kept variants so the
+            // merged variantOptions remain a superset for the whole product.
+            for (const kept of keptExistingVariants) {
+              const keptAttrs = kept.attributes || kept.options || {};
+              for (const [key, rawVal] of Object.entries(keptAttrs)) {
+                const normalizedKey = key.toLowerCase().trim();
+                if (
+                  ["sku", "price", "stock", "image", "images"].includes(
+                    normalizedKey
+                  )
+                )
+                  continue;
+
+                const attrDef = attributeMap.get(normalizedKey);
+                if (!attrDef || !attrDef._id) continue;
+                const attrCode = attrDef.code || normalizedKey;
+                if (!uniqueVariantOptions.has(attrCode)) {
+                  uniqueVariantOptions.set(attrCode, {
+                    id: attrCode,
+                    attributeId: attrDef._id,
+                    name: attrDef.name || attrDef.code || normalizedKey,
+                    code: attrCode,
+                    values: [],
+                  });
+                }
+                const opt = uniqueVariantOptions.get(attrCode);
+                const canonicalVal = String(rawVal ?? "")
+                  .trim()
+                  .toLowerCase()
+                  .replace(/\s+/g, "-");
+                if (
+                  !canonicalVal ||
+                  opt.values.some(
+                    (v) => String(v.value).toLowerCase() === canonicalVal
+                  )
+                ) {
+                  continue;
+                }
+                // Reuse rich metadata (label/hex/id) from the stored
+                // variantOptions when available, else fall back to the raw value.
+                const storedOpt = (existingProductData?.variantOptions || []).find(
+                  (o) =>
+                    o.code && o.code.toLowerCase() === attrCode.toLowerCase()
+                );
+                const storedVal = storedOpt?.values
+                  ? storedOpt.values.find(
+                      (val) =>
+                        String(val.value).toLowerCase() === canonicalVal
+                    )
+                  : null;
+                opt.values.push(
+                  storedVal
+                    ? { ...storedVal }
+                    : {
+                        id: Math.random().toString(36).substr(2, 9),
+                        value: canonicalVal,
+                        label:
+                          resolveOptionValueLabel(attrDef, canonicalVal) ||
+                          String(rawVal).trim(),
+                        code: String(rawVal).trim().substring(0, 3).toUpperCase(),
+                        hex: null,
+                      }
+                );
+              }
+            }
+
+            // Recompute AFTER the merge additions above so the kept variants'
+            // option values are included (finalVariantOptions was materialized
+            // earlier from the CSV-only set).
+            updateData.variantOptions = processVariantOptions(
+              Array.from(uniqueVariantOptions.values())
+            );
+            updateData.variants = [...keptExistingVariants, ...embeddedVariants];
             updateData.product_type = productType;
           }
 
@@ -1567,6 +1954,7 @@ class BulkImportController {
             updateData,
             isTransactionStarted ? { session } : {}
           );
+          updatedProductIds.push(productData.csvId);
           logger.info(`  📝 Updated product: ${productData.sku}`);
         } else {
           // Create new product
@@ -1662,24 +2050,39 @@ class BulkImportController {
       );
 
       // Fire-and-forget: keep search index in sync with imported products
-      if (createdProductIds.length > 0) {
-        syncProductsByIds(createdProductIds);
+      const syncedIds = [...createdProductIds, ...updatedProductIds];
+      if (syncedIds.length > 0) {
+        syncProductsByIds(syncedIds);
       }
+
+      const createdProduct = createdProductIds.length;
+      const updatedProduct = products.length - createdProduct;
+      logger.info(
+        `⏱️ [Bulk Import] Commit took ${Date.now() - importStartMs}ms ` +
+          `(${createdProduct} created, ${updatedProduct} updated, ` +
+          `${createdVariantIds.length} new variants) — ` +
+          `${importProductCount} products / ${importVariantCount} variants in batch`
+      );
 
       res.status(200).json(
         ApiResponse.success("Import completed successfully", {
           created: {
-            products: createdProductIds.length,
+            products: createdProduct,
             variants: createdVariantIds.length,
           },
           updated: {
-            products: products.length - createdProductIds.length,
+            products: updatedProduct,
           },
           imagesConverted: convertedImages.length,
         }).toJSON()
       );
     } catch (error) {
       logger.error(`❌ [Bulk Import] Error during commit:`, error.message);
+      logger.error(
+        `⏱️ [Bulk Import] FAILED commit after ${Date.now() - importStartMs}ms ` +
+          `(${createdProductIds.length} created so far) — ` +
+          `${importProductCount} products / ${importVariantCount} variants in batch`
+      );
 
       if (
         error.code === "INVALID_COLLECTIONS" ||
@@ -1694,6 +2097,27 @@ class BulkImportController {
         return res.status(400).json(
           ApiResponse.error(error.message, {
             code: error.code,
+          }).toJSON()
+        );
+      }
+
+      // Defense-in-depth: an update tried to adopt a SKU owned by another
+      // product. Roll back any creates done earlier in this batch.
+      if (error.code === "SKU_CONFLICT") {
+        if (isTransactionStarted) {
+          try {
+            await session.abortTransaction();
+          } catch (_) {}
+        }
+        session.endSession();
+        if (createdProductIds.length > 0) {
+          try {
+            await Product.deleteMany({ _id: { $in: createdProductIds } });
+          } catch (_) {}
+        }
+        return res.status(400).json(
+          ApiResponse.error(error.message, {
+            code: "SKU_CONFLICT",
           }).toJSON()
         );
       }
