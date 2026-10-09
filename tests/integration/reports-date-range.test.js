@@ -50,8 +50,10 @@ async function seed(order) {
 }
 
 // Return a Date for "N days ago in Kolkata" at a given local time so period
-// boundaries (which are Kolkata-local) are predictable.
-function kolkataDaysAgo(days, hour = 12) {
+// boundaries (which are Kolkata-local) are predictable. Hour 1 (UTC) maps to
+// 06:30 IST, keeping "today's" seeds inside the Kolkata day while still being
+// safely in the past for runs at any practical time of day.
+function kolkataDaysAgo(days, hour = 1) {
   const kolkataNow = new Date(
     new Intl.DateTimeFormat("en-US", {
       timeZone: "Asia/Kolkata",
@@ -80,11 +82,11 @@ function kolkataDateDaysAgo(days) {
 
 describe("Report controllers — date-range correctness", () => {
   it("returns correct totals across presets and custom range", async () => {
-    const today = kolkataDaysAgo(0, 12);
-    const yesterday = kolkataDaysAgo(1, 12);
-    const threeDaysAgo = kolkataDaysAgo(3, 12);
-    const tenDaysAgo = kolkataDaysAgo(10, 12);
-    const fortyDaysAgo = kolkataDaysAgo(40, 12);
+    const today = kolkataDaysAgo(0, 1);
+    const yesterday = kolkataDaysAgo(1, 1);
+    const threeDaysAgo = kolkataDaysAgo(3, 1);
+    const tenDaysAgo = kolkataDaysAgo(10, 1);
+    const fortyDaysAgo = kolkataDaysAgo(40, 1);
 
     // Spread seeded orders so each bracket has distinct volume:
     // today: 2 orders (1 paid PHONEPE 200, 1 pending COD 100)
@@ -105,40 +107,40 @@ describe("Report controllers — date-range correctness", () => {
     {
       const all = await callCtrl(getRevenueOverTime, { period: "all" });
       expect(all.success).toBe(true);
-      // Revenue counts paid online OR all COD (not cancelled/returned).
-      // Paid PHONEPE 200 + COD 100 (today, delivered) + RAZORPAY 300 (yesterday)
-      // + COD 400 (10d, delivered) + COD 60 (40d, RETURNED -> excluded) + cancelled 50 (excluded)
-      // = 200 + 100 + 300 + 400 = 1000
+      // Revenue counts PAID orders that are not cancelled/returned:
+      // Paid PHONEPE 200 (today) + RAZORPAY 300 (yesterday). Excluded:
+      // pending COD 100/400 (unpaid), paid-but-cancelled 50, returned COD 60
+      // = 200 + 300 = 500
       const seriesTotal = all.series.reduce((a, s) => a + (s.total || 0), 0);
-      expect(seriesTotal).toBe(1000);
-      expect(all.summary.revenue).toBe(1000);
-      expect(all.summary.orders).toBe(4);
-      // COD pending (COD & not paid & not excl): today COD 100 + 10d COD 400 = 500
+      expect(seriesTotal).toBe(500);
+      expect(all.summary.revenue).toBe(500);
+      expect(all.summary.orders).toBe(2);
+      // COD pending (COD & not paid & not cancelled/returned): today COD 100 + 10d COD 400 = 500
       expect(all.summary.codPending).toBe(500);
 
       const todayRes = await callCtrl(getRevenueOverTime, { period: "today" });
-      expect(todayRes.summary.revenue).toBe(300); // 200 paid + 100 COD (delivered)
-      expect(todayRes.summary.orders).toBe(2);
+      expect(todayRes.summary.revenue).toBe(200); // 200 paid only (COD 100 is unpaid)
+      expect(todayRes.summary.orders).toBe(1);
 
       const yesterdayRes = await callCtrl(getRevenueOverTime, { period: "yesterday" });
       expect(yesterdayRes.summary.revenue).toBe(300); // RAZORPAY paid 300
       expect(yesterdayRes.summary.orders).toBe(1);
 
       const weekRes = await callCtrl(getRevenueOverTime, { period: "week" });
-      // Revenue in transactions up to 7 days ago: today(200+100) + yesterday(300) + 3d(cancelled excl) + 10d COD 400
-      // week window is last 7 days (>= 6 days ago) -> includes today, yesterday, 3d, 10d? 
-      // 7-day window from todayStart: start = todayStart - 6 days. 10d ago is outside. So 200+100+300 = 600
-      expect(weekRes.summary.revenue).toBe(600);
+      // Revenue in the last-7-days window (>= 6 days ago): today(200) + yesterday(300).
+      // 3d cancelled order is paid but excluded; 10d COD is unpaid.
+      expect(weekRes.summary.revenue).toBe(500);
+      expect(weekRes.summary.orders).toBe(2);
 
       const custom = await callCtrl(getRevenueOverTime, {
         period: "custom",
         from: kolkataDateDaysAgo(0),
         to: kolkataDateDaysAgo(0),
       });
-      // custom range = exactly today (Kolkata) -> same as "today": 300 revenue, 2 orders
+      // custom range = exactly today (Kolkata) -> same as "today": 200 revenue, 1 order
       expect(custom.success).toBe(true);
-      expect(custom.summary.revenue).toBe(300);
-      expect(custom.summary.orders).toBe(2);
+      expect(custom.summary.revenue).toBe(200);
+      expect(custom.summary.orders).toBe(1);
     }
 
     //
@@ -250,11 +252,11 @@ describe("Report controllers — date-range correctness", () => {
         search: "",
       });
       expect(cust.success).toBe(true);
-      // lifetimeSpent counts paid online (regardless of status) + valid COD.
-      // User has paid PHONEPE 200 (delivered) + PHONEPE 50 (cancelled -> still paid) = 250.
+      // lifetimeSpent counts paid orders that are not cancelled/returned.
+      // User has paid PHONEPE 200 (delivered) + PHONEPE 50 (cancelled -> excluded) = 200.
       const row = cust.rows.find((r) => r.id === String(user._id));
       expect(row).toBeDefined();
-      expect(row.lifetimeSpent).toBe(250);
+      expect(row.lifetimeSpent).toBe(200);
       expect(row.lifetimeOrders).toBe(2);
       expect(cust.summary.customerCount ?? cust.summary.customers).toBe(1);
     }

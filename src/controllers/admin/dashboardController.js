@@ -136,8 +136,30 @@ exports.getDashboardStats = async (req, res) => {
       // 3. Total Customers (All time - represents current user base)
       const totalCustomers = await User.countDocuments({ role: "user" });
 
-      // 4. Products Count (All time - current inventory)
-      const productsInStock = await Product.countDocuments({});
+      // 4. Inventory counts (current catalog) — product-level availability:
+      // simple products use stock, variant-based products sum variant stock.
+      const allProducts = await Product.find(
+        {},
+        { product_type: 1, stock: 1, stockObj: 1, variants: { stock: 1, stockObj: 1 } },
+      ).lean();
+      const LOW_STOCK_THRESHOLD = 10;
+      const unitStock = (unit) => Number(unit.stockObj?.available ?? unit.stock) || 0;
+      let productsInStock = 0;
+      let outOfStockCount = 0;
+      let lowStockCount = 0;
+      for (const p of allProducts) {
+        const available =
+          Array.isArray(p.variants) && p.variants.length > 0
+            ? p.variants.reduce((s, v) => s + unitStock(v), 0)
+            : unitStock(p);
+        if (available > 0) {
+          productsInStock += 1;
+          if (available <= LOW_STOCK_THRESHOLD) lowStockCount += 1;
+        } else {
+          outOfStockCount += 1;
+        }
+      }
+      const totalProducts = allProducts.length;
 
       // 5. Compute trend percentages (current vs previous period)
       const calcTrend = (current, previous) => {
@@ -558,10 +580,12 @@ exports.getDashboardStats = async (req, res) => {
         count: item.count,
       }));
 
-      // 10. COD Pending - total and over time
+      // 10. COD Pending - total and over time (collectible only: excludes
+      // cancelled/returned, matches orders-by-status + revenue reports)
       const codPendingMatch = {
         paymentMethod: "COD",
-        paymentStatus: "pending",
+        paymentStatus: { $ne: "paid" },
+        orderStatus: { $nin: ["cancelled", "returned"] },
         ...dateMatch,
       };
 
@@ -597,11 +621,12 @@ exports.getDashboardStats = async (req, res) => {
           prevStartDate.setDate(prevStartDate.getDate() - daysCount);
         }
 
-        const [prevCodPendingRevRes] = await Order.aggregate([
+const [prevCodPendingRevRes] = await Order.aggregate([
           {
             $match: {
               paymentMethod: "COD",
-              paymentStatus: "pending",
+              paymentStatus: { $ne: "paid" },
+              orderStatus: { $nin: ["cancelled", "returned"] },
               createdAt: { $gte: prevStartDate, $lt: startDate },
             },
           },
@@ -665,7 +690,10 @@ exports.getDashboardStats = async (req, res) => {
         totalRevenue,
         newOrders,
         totalCustomers,
+        totalProducts,
         productsInStock,
+        outOfStockCount,
+        lowStockCount,
         salesOverTime: formattedSales,
         codPendingRevenue,
         codPendingOrders,

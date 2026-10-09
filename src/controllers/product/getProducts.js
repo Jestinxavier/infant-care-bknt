@@ -3,7 +3,6 @@ const Collection = require("../../models/Collection");
 const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { parseCollectionsInput } = require("../../utils/collectionUtils");
-const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
 
 /**
@@ -232,19 +231,25 @@ const getProductByUrlKey = async (req, res) => {
       }
     }
 
-    // Additional fallback: try to find by slugified name/title
-    // This helps with products that don't have url_key yet
+    // The url_key is retired: the owning product was renamed and pushed its
+    // old key into urlKeyHistory. Resolve it so the storefront can 301.
+    //
+    // This replaces a fallback that matched product titles by prefix regex
+    // (`^<slug with spaces>`), which served an arbitrary product whenever the
+    // slug was only a prefix of an unrelated title -- a wrong price and wrong
+    // buy button at a live URL. Unknown keys must 404 instead.
+    let redirectedTo = null;
     if (!product) {
-      // Try to find by matching slugified title or name
-      const safeSlug = escapeRegex(url_key.replace(/-/g, " "));
-      product = await Product.findOne({
-        $or: [
-          { title: { $regex: new RegExp(`^${safeSlug}`, "i") } },
-          { name: { $regex: new RegExp(`^${safeSlug}`, "i") } },
-        ],
+      const owner = await Product.findOne({
+        "urlKeyHistory.urlKey": url_key,
       })
         .populate("category", "name slug")
         .populate("subCategories", "name slug");
+
+      if (owner) {
+        product = owner;
+        redirectedTo = owner.url_key;
+      }
     }
 
     if (!product) {
@@ -430,6 +435,7 @@ const getProductByUrlKey = async (req, res) => {
 
     res.status(200).json({
       success: true,
+      ...(redirectedTo ? { redirectedTo } : {}),
       ...formattedProduct,
     });
   } catch (err) {

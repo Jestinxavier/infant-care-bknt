@@ -31,8 +31,9 @@ function parseDateRange(from, to) {
  * @access  Private/Admin
  *
  * One row per customer. Order stats are scoped to the selected date range,
- * while lifetime spend/orders and first-order date are all-time. This lets
- * the UI show both "in period" activity and full customer value.
+ * while lifetime spend/orders and first-order date are all-time. Spend only
+ * counts paid, non-cancelled/non-returned orders. New/Returning are
+ * classified from order activity within the selected period.
  */
 exports.getCustomersReport = async (req, res) => {
   try {
@@ -48,7 +49,17 @@ exports.getCustomersReport = async (req, res) => {
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    // limit=0 requests the complete filtered/sorted dataset (report CSV export)
+    const exportAll = String(limit).trim() === "0";
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
+
+    // Paid-only revenue (excludes unpaid COD, cancelled, returned)
+    const PAID_VALID_COND = {
+      $and: [
+        { $eq: ["$paymentStatus", "paid"] },
+        { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
+      ],
+    };
 
     const SORTABLE = new Set([
       "totalSpent",
@@ -64,11 +75,17 @@ exports.getCustomersReport = async (req, res) => {
     const order = sortOrder === "asc" ? 1 : -1;
 
     const customDateRange = parseDateRange(from, to);
-    const cacheKey = customDateRange
-      ? `report:customers:custom:${from || "start"}:${to || "end"}`
-      : `report:customers:${period}`;
+    // Cache key covers the period/range AND the search + sort params because the
+    // cached payload is the complete filtered/sorted dataset (page-independent).
+    const cacheKey = [
+      customDateRange
+        ? `report:customers:custom:${from || "start"}:${to || "end"}`
+        : `report:customers:${period}`,
+      `q:${String(search || "").toLowerCase()}`,
+      `s:${sortKey}:${order}`,
+    ].join(":");
 
-    const result = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
+    const cached = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
       const now = new Date();
       const kolkataDateStr = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Kolkata",
@@ -96,7 +113,20 @@ exports.getCustomersReport = async (req, res) => {
       // All users with role 'user'
       const users = await User.find({ role: "user" }).lean();
       if (users.length === 0) {
-        return buildResponse([], { revenue: 0, orderCount: 0, customers: 0, newCustomers: 0, returningCustomers: 0, repeatRate: 0, avgLtv: 0, avgOrderValue: 0 }, { page: pageNum, limit: limitNum, total: 0, totalPages: 1 });
+        return {
+          rows: [],
+          total: 0,
+          summary: {
+            revenue: 0,
+            orderCount: 0,
+            customers: 0,
+            newCustomers: 0,
+            returningCustomers: 0,
+            repeatRate: 0,
+            avgLtv: 0,
+            avgOrderValue: 0,
+          },
+        };
       }
 
       const allUserIds = users.map((u) => u._id);
@@ -108,23 +138,7 @@ exports.getCustomersReport = async (req, res) => {
           $group: {
             _id: "$userId",
             lifetimeSpent: {
-              $sum: {
-                $cond: [
-                  {
-                    $or: [
-                      { $eq: ["$paymentStatus", "paid"] },
-                      {
-                        $and: [
-                          { $eq: ["$paymentMethod", "COD"] },
-                          { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
-                        ],
-                      },
-                    ],
-                  },
-                  "$totalAmount",
-                  0,
-                ],
-              },
+              $sum: { $cond: [PAID_VALID_COND, "$totalAmount", 0] },
             },
             lifetimeOrders: { $sum: 1 },
             firstOrderDate: { $min: "$createdAt" },
@@ -140,23 +154,7 @@ exports.getCustomersReport = async (req, res) => {
           $group: {
             _id: "$userId",
             periodSpent: {
-              $sum: {
-                $cond: [
-                  {
-                    $or: [
-                      { $eq: ["$paymentStatus", "paid"] },
-                      {
-                        $and: [
-                          { $eq: ["$paymentMethod", "COD"] },
-                          { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
-                        ],
-                      },
-                    ],
-                  },
-                  "$totalAmount",
-                  0,
-                ],
-              },
+              $sum: { $cond: [PAID_VALID_COND, "$totalAmount", 0] },
             },
             periodOrders: { $sum: 1 },
           },
@@ -188,7 +186,12 @@ exports.getCustomersReport = async (req, res) => {
           orderCount: periodOrders,
           totalSpent: periodSpent,
           avgOrderValue: periodOrders > 0 ? periodSpent / periodOrders : 0,
-          customerType: lifetimeOrders > 1 ? "returning" : lifetimeOrders === 1 ? "new" : "inactive",
+          customerType:
+            periodOrders === 0
+              ? "inactive"
+              : lifetimeOrders === periodOrders
+                ? "new"
+                : "returning",
         };
       });
 
@@ -222,11 +225,8 @@ exports.getCustomersReport = async (req, res) => {
       rows.sort(sortFn[sortKey]);
 
       const total = rows.length;
-      const totalPages = Math.ceil(total / limitNum) || 1;
-      const startIdx = (pageNum - 1) * limitNum;
-      const paginated = rows.slice(startIdx, startIdx + limitNum);
 
-      // Summary metrics
+      // Summary metrics (computed over the full filtered dataset, page-independent)
       const active = rows.filter((r) => r.orderCount > 0);
       const newCustomers = rows.filter((r) => r.customerType === "new").length;
       const returningCustomers = rows.filter((r) => r.customerType === "returning").length;
@@ -234,23 +234,40 @@ exports.getCustomersReport = async (req, res) => {
       const orderCount = active.reduce((s, r) => s + r.orderCount, 0);
       const avgOrderValue = orderCount > 0 ? revenue / orderCount : 0;
       const avgLtv = rows.length > 0 ? rows.reduce((s, r) => s + r.lifetimeSpent, 0) / rows.length : 0;
-      const repeatRate = rows.length > 0 ? (returningCustomers / rows.length) * 100 : 0;
+      const repeatRate = active.length > 0 ? (returningCustomers / active.length) * 100 : 0;
 
-      const summary = {
-        revenue,
-        orderCount,
-        customers: active.length,
-        newCustomers,
-        returningCustomers,
-        repeatRate,
-        avgLtv,
-        avgOrderValue,
+      return {
+        rows,
+        total,
+        summary: {
+          revenue,
+          orderCount,
+          customers: active.length,
+          newCustomers,
+          returningCustomers,
+          repeatRate,
+          avgLtv,
+          avgOrderValue,
+        },
       };
-
-      return buildResponse(paginated, summary, { page: pageNum, limit: limitNum, total, totalPages });
     });
 
-    res.status(200).json(result);
+    // Slice the full filtered/sorted dataset for the requested page AFTER the
+    // cache read, so page 2 / export (limit=0) never hit a stale cached page-1 payload.
+    const totalPages = exportAll ? 1 : Math.ceil(cached.total / limitNum) || 1;
+    const startIdx = (pageNum - 1) * limitNum;
+    const paginatedRows = exportAll
+      ? cached.rows
+      : cached.rows.slice(startIdx, startIdx + limitNum);
+
+    res.status(200).json(
+      buildResponse(paginatedRows, cached.summary, {
+        page: pageNum,
+        limit: exportAll ? 0 : limitNum,
+        total: cached.total,
+        totalPages,
+      })
+    );
   } catch (error) {
     const logger = require("../../utils/logger");
     logger.error("Customers report error", { message: error.message });

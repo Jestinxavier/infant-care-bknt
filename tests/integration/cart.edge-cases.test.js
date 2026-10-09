@@ -201,7 +201,7 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
   // ISSUE 3: "Cart modification not allowed" during checkout
   // ══════════════════════════════════════════════════════════════════════════
   describe("Issue #3: Cart modification blocked/auto-recovered during checkout", () => {
-    it("add-item should return 409 when cart is in checkout status", async () => {
+    it("add-item should AUTO-RECOVER a checkout cart into a new active cart", async () => {
       const product = await createTestProduct();
       const cart = await createCartDirectly({
         status: "checkout",
@@ -215,8 +215,12 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
         .set("x-cart-id", cart.cartId)
         .send({ item: { productId: product._id.toString(), quantity: 1 } });
 
-      expect(res.status).toBe(409);
-      expect(res.body.message).toMatch(/not allowed during checkout/i);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // Must be a NEW cart ID (recovered copy)
+      expect(res.body.cart.cartId).not.toBe(cart.cartId);
+      // Locked item + newly added item
+      expect(res.body.cart.items).toHaveLength(2);
     });
 
     it("update-item should AUTO-RECOVER a checkout cart into a new active cart", async () => {
@@ -266,7 +270,7 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
       expect(res.body.cart.items).toHaveLength(0);
     });
 
-    it("clear should be blocked (409) when cart is in checkout", async () => {
+    it("clear should AUTO-RECOVER a checkout cart and clear the recovered cart", async () => {
       const product = await createTestProduct();
       const cart = await createCartDirectly({
         status: "checkout",
@@ -279,10 +283,11 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
         .post("/api/v1/cart/clear")
         .set("x-cart-id", cart.cartId);
 
-      // BUG FOUND: controller checks status before null check, resulting in 409 ✓
-      // This is actually correct behavior – it SHOULD be 409
-      expect(res.status).toBe(409);
-      expect(res.body.message).toMatch(/not allowed during checkout/i);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // Must be a NEW cart ID (recovered copy), cleared of its items
+      expect(res.body.cart.cartId).not.toBe(cart.cartId);
+      expect(res.body.cart.items).toHaveLength(0);
     });
   });
 
@@ -291,18 +296,18 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
   // ══════════════════════════════════════════════════════════════════════════
   describe("Issue #4: Checkout session expiry & idempotency", () => {
     it("start-checkout on a cart with valid existing checkout should return same token (idempotent)", async () => {
-      const userId = new mongoose.Types.ObjectId().toString();
+      const product = await createTestProduct();
       const futureExpiry = new Date(Date.now() + 300_000);
-      await createCartDirectly({
+      const cart = await createCartDirectly({
         status: "checkout",
         checkoutToken: "chk_existing_token",
         checkoutExpiry: futureExpiry,
-        userId,
+        items: [makeItem(product._id)],
       });
 
       const res = await request(app)
         .post("/api/v1/cart/start-checkout")
-        .send({ userId });
+        .send({ cartId: cart.cartId });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -311,18 +316,18 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
     });
 
     it("start-checkout on EXPIRED checkout should issue a fresh token", async () => {
-      const userId = new mongoose.Types.ObjectId().toString();
+      const product = await createTestProduct();
       const pastExpiry = new Date(Date.now() - 60_000); // already expired
-      await createCartDirectly({
+      const cart = await createCartDirectly({
         status: "checkout",
         checkoutToken: "chk_expired_token",
         checkoutExpiry: pastExpiry,
-        userId,
+        items: [makeItem(product._id)],
       });
 
       const res = await request(app)
         .post("/api/v1/cart/start-checkout")
-        .send({ userId });
+        .send({ cartId: cart.cartId });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -331,22 +336,27 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
       expect(res.body.checkoutToken).not.toBe("chk_expired_token");
     });
 
-    it("start-checkout without userId should fail with 400 MISSING_USER_ID", async () => {
+    it("start-checkout without userId or cartId should fail with 400 MISSING_CART", async () => {
       const res = await request(app)
         .post("/api/v1/cart/start-checkout")
         .send({});
 
+      // userId is optional (guest checkout supported) — but with neither a user
+      // nor a cart reference there is nothing to lock.
       expect(res.status).toBe(400);
-      expect(res.body.errorCode).toBe("MISSING_USER_ID");
+      expect(res.body.errorCode).toBe("MISSING_CART");
     });
 
     it("start-checkout should lock an active cart (set status=checkout)", async () => {
-      const userId = new mongoose.Types.ObjectId().toString();
-      const cart = await createCartDirectly({ status: "active", userId });
+      const product = await createTestProduct();
+      const cart = await createCartDirectly({
+        status: "active",
+        items: [makeItem(product._id)],
+      });
 
       const res = await request(app)
         .post("/api/v1/cart/start-checkout")
-        .send({ userId, cartId: cart.cartId });
+        .send({ cartId: cart.cartId });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -364,12 +374,15 @@ describe("Cart Edge Cases – High Priority Bug Coverage", () => {
   // ══════════════════════════════════════════════════════════════════════════
   describe("Issue #5: Cart status transitions are complete and correct", () => {
     it("active → checkout: checkoutToken and checkoutExpiry must be set", async () => {
-      const userId = new mongoose.Types.ObjectId().toString();
-      const cart = await createCartDirectly({ status: "active", userId });
+      const product = await createTestProduct();
+      const cart = await createCartDirectly({
+        status: "active",
+        items: [makeItem(product._id)],
+      });
 
       await request(app)
         .post("/api/v1/cart/start-checkout")
-        .send({ userId, cartId: cart.cartId });
+        .send({ cartId: cart.cartId });
 
       const updated = await Cart.findOne({ cartId: cart.cartId });
       expect(updated.status).toBe("checkout");

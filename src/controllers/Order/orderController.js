@@ -758,6 +758,9 @@ const createOrder = async (req, res) => {
       shippingAddress: shippingAddressData,
       paymentMethod: paymentMethod,
       orderStatus: "pending",
+      statusHistory: [
+        { status: "pending", timestamp: new Date() },
+      ],
       pricingSnapshot: {
         itemsSubtotal: subtotal,
         productDiscount: discountAmount,

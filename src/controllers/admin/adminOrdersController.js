@@ -19,6 +19,135 @@ const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
 const escapeRegex = require("../../utils/escapeRegex");
 
 /**
+ * Build the admin order filter from request data (query or body).
+ * Enforces the role-based date restriction for admin users.
+ * Throws an error with code "DATE_RESTRICTED" when a too-old `from` is given.
+ */
+async function buildOrderFilter(requestData, reqUser) {
+  const {
+    status,
+    paymentStatus,
+    paymentMethod,
+    customerType, // "guest" | "registered"
+    minTotal, // minimum order amount
+    maxTotal, // maximum order amount
+    search,
+    from, // ISO date string (YYYY-MM-DD)
+    to, // ISO date string (YYYY-MM-DD)
+  } = requestData;
+
+  let filter = {};
+
+  // ===== ROLE-BASED DATE RESTRICTIONS =====
+  const userRole = reqUser?.role;
+  if (userRole === "admin") {
+    const restrictionDate = new Date();
+    restrictionDate.setUTCDate(restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS);
+    restrictionDate.setUTCHours(0, 0, 0, 0);
+
+    if (from) {
+      const fromDate = new Date(from);
+      fromDate.setUTCHours(0, 0, 0, 0);
+      if (fromDate < restrictionDate) {
+        const error = new Error(
+          `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+        );
+        error.code = "DATE_RESTRICTED";
+        error.maxDate = restrictionDate.toISOString().split("T")[0];
+        throw error;
+      }
+    } else {
+      filter.createdAt = { $gte: restrictionDate };
+    }
+  }
+
+  // ===== DATE RANGE FILTERING =====
+  // Backend normalization: from (00:00:00 IST) to (23:59:59.999 IST)
+  if (from || to) {
+    filter.createdAt = filter.createdAt || {};
+
+    if (from) {
+      // Construct ISO string with IST offset for start of day
+      const fromDate = new Date(`${from}T00:00:00+05:30`);
+      filter.createdAt.$gte = fromDate;
+    }
+
+    if (to) {
+      // Construct ISO string with IST offset for end of day
+      const toDate = new Date(`${to}T23:59:59.999+05:30`);
+      filter.createdAt.$lte = toDate;
+    }
+  }
+
+  if (status) {
+    filter.orderStatus = status;
+  }
+
+  if (paymentStatus) {
+    filter.paymentStatus = paymentStatus;
+  }
+
+  if (paymentMethod) {
+    filter.paymentMethod = paymentMethod;
+  }
+
+  // Customer type filter (guest vs registered)
+  if (customerType === "guest") {
+    filter.isGuestOrder = true;
+  } else if (customerType === "registered") {
+    filter.isGuestOrder = false;
+  }
+
+  // Order amount range filter
+  const parsedMinTotal = Number(minTotal);
+  const parsedMaxTotal = Number(maxTotal);
+  if (minTotal !== undefined && minTotal !== null && minTotal !== "" && Number.isFinite(parsedMinTotal)) {
+    filter.totalAmount = { ...filter.totalAmount, $gte: parsedMinTotal };
+  }
+  if (maxTotal !== undefined && maxTotal !== null && maxTotal !== "" && Number.isFinite(parsedMaxTotal)) {
+    filter.totalAmount = { ...filter.totalAmount, $lte: parsedMaxTotal };
+  }
+
+  // Advanced Search
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    const searchRegex = new RegExp(safeSearch, "i");
+    // Remove leading '#' for ID searching
+    const sanitizedSearch = search.replace(/^#/, "");
+    const safeSanitized = escapeRegex(sanitizedSearch);
+    const sanitizedRegex = new RegExp(safeSanitized, "i");
+
+    const matchingUsers = await User.find({
+      $or: [
+        { username: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+      ],
+    }).select("_id");
+
+    const matchingUserIds = matchingUsers.map((u) => u._id);
+
+    const searchFilters = [
+      { orderId: sanitizedRegex }, // Search by Order ID (matches "123" or "#123")
+      { userId: { $in: matchingUserIds } }, // Search by Customer (User ID)
+      { "shippingAddress.phone": searchRegex }, // Search by Phone in Shipping Address
+      { "shippingAddress.fullName": searchRegex }, // Search by Name in Shipping Address
+    ];
+
+    // Check if valid ObjectId (using sanitized search in case user pasted #ID)
+    if (mongoose.Types.ObjectId.isValid(sanitizedSearch)) {
+      searchFilters.push({
+        _id: new mongoose.Types.ObjectId(sanitizedSearch),
+      });
+    }
+
+    filter.$or = searchFilters;
+  }
+
+  return filter;
+}
+
+/**
  * Admin: Get all orders (not filtered by user)
  * Supports filtering and pagination
  */
@@ -29,17 +158,8 @@ const getAllOrders = async (req, res) => {
     const {
       page = 1,
       limit = 20,
-      status,
-      paymentStatus,
-      paymentMethod,
-      customerType, // "guest" | "registered"
-      minTotal, // minimum order amount
-      maxTotal, // maximum order amount
       sortBy = "createdAt",
       sortOrder = -1,
-      search,
-      from, // ISO date string (YYYY-MM-DD)
-      to, // ISO date string (YYYY-MM-DD)
     } = requestData;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -47,114 +167,19 @@ const getAllOrders = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Build filter
-    let filter = {};
-
-    // ===== ROLE-BASED DATE RESTRICTIONS =====
-    const userRole = req.user?.role;
-    if (userRole === "admin") {
-      const restrictionDate = new Date();
-      restrictionDate.setUTCDate(restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS);
-      restrictionDate.setUTCHours(0, 0, 0, 0);
-
-      if (from) {
-        const fromDate = new Date(from);
-        fromDate.setUTCHours(0, 0, 0, 0);
-        if (fromDate < restrictionDate) {
-          return res.status(403).json({
-            success: false,
-            errorCode: "DATE_RESTRICTED",
-            message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-            maxDate: restrictionDate.toISOString().split("T")[0],
-          });
-        }
-      } else {
-        filter.createdAt = { $gte: restrictionDate };
-      }
-    }
-
-    // ===== DATE RANGE FILTERING =====
-    // Backend normalization: from (00:00:00 IST) to (23:59:59.999 IST)
-    if (from || to) {
-      filter.createdAt = filter.createdAt || {};
-
-      if (from) {
-        // Construct ISO string with IST offset for start of day
-        const fromDate = new Date(`${from}T00:00:00+05:30`);
-        filter.createdAt.$gte = fromDate;
-      }
-
-      if (to) {
-        // Construct ISO string with IST offset for end of day
-        const toDate = new Date(`${to}T23:59:59.999+05:30`);
-        filter.createdAt.$lte = toDate;
-      }
-    }
-
-    if (status) {
-      filter.orderStatus = status;
-    }
-
-    if (paymentStatus) {
-      filter.paymentStatus = paymentStatus;
-    }
-
-    if (paymentMethod) {
-      filter.paymentMethod = paymentMethod;
-    }
-
-    // Customer type filter (guest vs registered)
-    if (customerType === "guest") {
-      filter.isGuestOrder = true;
-    } else if (customerType === "registered") {
-      filter.isGuestOrder = false;
-    }
-
-    // Order amount range filter
-    const parsedMinTotal = Number(minTotal);
-    const parsedMaxTotal = Number(maxTotal);
-    if (minTotal !== undefined && minTotal !== null && minTotal !== "" && Number.isFinite(parsedMinTotal)) {
-      filter.totalAmount = { ...filter.totalAmount, $gte: parsedMinTotal };
-    }
-    if (maxTotal !== undefined && maxTotal !== null && maxTotal !== "" && Number.isFinite(parsedMaxTotal)) {
-      filter.totalAmount = { ...filter.totalAmount, $lte: parsedMaxTotal };
-    }
-
-    // Advanced Search
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      const searchRegex = new RegExp(safeSearch, "i");
-      // Remove leading '#' for ID searching
-      const sanitizedSearch = search.replace(/^#/, "");
-      const safeSanitized = escapeRegex(sanitizedSearch);
-      const sanitizedRegex = new RegExp(safeSanitized, "i");
-
-      // 1. Find users matching the search term
-      const matchingUsers = await User.find({
-        $or: [
-          { username: searchRegex },
-          { email: searchRegex },
-          { phone: searchRegex },
-        ],
-      }).select("_id");
-
-      const matchingUserIds = matchingUsers.map((u) => u._id);
-
-      // 2. Build Order Search Queries
-      const searchFilters = [
-        { orderId: sanitizedRegex }, // Search by Order ID (matches "123" or "#123")
-        { userId: { $in: matchingUserIds } }, // Search by Customer (User ID)
-        { "shippingAddress.phone": searchRegex }, // Search by Phone in Shipping Address
-        { "shippingAddress.fullName": searchRegex }, // Search by Name in Shipping Address
-      ];
-
-      // Check if valid ObjectId (using sanitized search in case user pasted #ID)
-      if (mongoose.Types.ObjectId.isValid(sanitizedSearch)) {
-        searchFilters.push({
-          _id: new mongoose.Types.ObjectId(sanitizedSearch),
+    let filter;
+    try {
+      filter = await buildOrderFilter(requestData, req.user);
+    } catch (err) {
+      if (err.code === "DATE_RESTRICTED") {
+        return res.status(403).json({
+          success: false,
+          errorCode: "DATE_RESTRICTED",
+          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+          maxDate: err.maxDate,
         });
       }
-
-      filter.$or = searchFilters;
+      throw err;
     }
 
     // Build sort
@@ -281,6 +306,10 @@ const getOrderById = async (req, res) => {
       })
       .populate("userId", "username email phone")
       .populate("deliveryPartner")
+      .populate({
+        path: "statusHistory.updatedBy",
+        select: "username email",
+      })
       .lean();
 
     if (!order) {
@@ -986,6 +1015,207 @@ const markCodOrderAsPaid = async (req, res) => {
   }
 };
 
+const csvCell = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+const orderCsvRow = (cells) => cells.map(csvCell).join(",");
+
+const formatCsvDate = (value) => {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Kolkata",
+  }).format(d);
+};
+
+const lineTotal = (item) => (item.price || 0) * (item.quantity || 1);
+
+function buildOrdersCsv(orders, type) {
+  if (type === "items") {
+    const header = [
+      "Order ID",
+      "Date",
+      "Order Status",
+      "Payment Status",
+      "Payment Method",
+      "Customer",
+      "Customer Phone",
+      "Product",
+      "SKU",
+      "Variant",
+      "Qty",
+      "Unit Price (INR)",
+      "Line Total (INR)",
+    ];
+    const lines = [header.join(",")];
+    for (const o of orders) {
+      const customer =
+        o.userId?.username ||
+        o.userId?.email ||
+        o.shippingAddress?.fullName ||
+        o.guestInfo?.name ||
+        "Guest";
+      const phone =
+        o.userId?.phone || o.shippingAddress?.phone || o.guestInfo?.phone || "";
+      for (const it of o.items || []) {
+        const attrs = Array.isArray(it.variantAttributes)
+          ? it.variantAttributes
+          : Object.entries(it.variantAttributes || {});
+        const variant =
+          it.variantName ||
+          attrs
+            .map(([k, v]) => `${String(k).trim()}: ${String(v).trim()}`)
+            .filter(Boolean)
+            .join("; ");
+        lines.push(
+          orderCsvRow([
+            o.orderId || o._id,
+            formatCsvDate(o.placedAt || o.createdAt),
+            o.orderStatus,
+            o.paymentStatus,
+            o.paymentMethod,
+            customer,
+            phone,
+            it.name,
+            it.variantSku || it.sku || "",
+            variant,
+            it.quantity,
+            it.price,
+            lineTotal(it),
+          ]),
+        );
+      }
+    }
+    return lines.join("\n");
+  }
+
+  const header = [
+    "Order ID",
+    "Date",
+    "Order Status",
+    "Payment Status",
+    "Payment Method",
+    "Customer",
+    "Customer Email",
+    "Customer Phone",
+    "Items",
+    "Total Items",
+    "Subtotal (INR)",
+    "Discount (INR)",
+    "Shipping (INR)",
+    "COD Fee (INR)",
+    "Total (INR)",
+  ];
+  const lines = [header.join(",")];
+  for (const o of orders) {
+    const items = (o.items || [])
+      .map((it) => `${it.name}${it.variantName ? ` (${it.variantName})` : ""} x${it.quantity}`)
+      .join(" | ");
+    const itemCount = (o.items || []).reduce((s, it) => s + (it.quantity || 0), 0);
+    lines.push(
+      orderCsvRow([
+        o.orderId || o._id,
+        formatCsvDate(o.placedAt || o.createdAt),
+        o.orderStatus,
+        o.paymentStatus,
+        o.paymentMethod,
+        o.userId?.username ||
+          o.userId?.email ||
+          o.shippingAddress?.fullName ||
+          o.guestInfo?.name ||
+          "Guest",
+        o.userId?.email,
+        o.userId?.phone || o.shippingAddress?.phone || "",
+        items,
+        itemCount,
+        o.subtotal,
+        o.discount,
+        o.shippingCost,
+        o.codCost || 0,
+        o.totalAmount,
+      ]),
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Admin: Export orders to CSV
+ * Supports a scope (selected orderIds or filter criteria) and two formats:
+ * "orders" (one row per order) or "items" (one row per line item).
+ */
+const exportOrders = async (req, res) => {
+  try {
+    const requestData = req.body || {};
+    const { type = "orders", orderIds } = requestData;
+
+    if (type !== "orders" && type !== "items") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid export type. Use 'orders' or 'items'.",
+      });
+    }
+
+    // Build filter — enforces the same role-based date restriction as listing
+    let filter;
+    try {
+      filter = await buildOrderFilter(requestData, req.user);
+    } catch (err) {
+      if (err.code === "DATE_RESTRICTED") {
+        return res.status(403).json({
+          success: false,
+          errorCode: "DATE_RESTRICTED",
+          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+          maxDate: err.maxDate,
+        });
+      }
+      throw err;
+    }
+
+    if (Array.isArray(orderIds) && orderIds.length > 0) {
+      const ids = orderIds
+        .map((id) =>
+          mongoose.Types.ObjectId.isValid(id)
+            ? new mongoose.Types.ObjectId(id)
+            : null,
+        )
+        .filter(Boolean);
+      if (ids.length > 0) filter._id = { $in: ids };
+    }
+
+    const orders = await Order.find(filter)
+      .populate("userId", "username email phone")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const csv = buildOrdersCsv(orders, type);
+    const date = new Date().toISOString().slice(0, 10);
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${type}_export_${date}.csv"`,
+    );
+    res.status(200).send(csv);
+  } catch (err) {
+    logger.error("Admin order export failed", { error: err.message });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   getAllOrders,
   getOrderById,
@@ -993,4 +1223,5 @@ module.exports = {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
 };

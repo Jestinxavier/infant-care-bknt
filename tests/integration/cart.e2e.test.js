@@ -196,7 +196,7 @@ describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
-    expect(res.body.message).toMatch(/Minimum cart value/);
+    expect(res.body.message).toMatch(/Minimum order value/);
     await Coupon.deleteOne({ _id: highCoupon._id });
 
     // 4b: Max limit caps
@@ -209,8 +209,8 @@ describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
     expect(res.body.success).toBe(true);
 
     let cart = res.body.cart;
-    expect(cart.coupon.code).toBe("SAVE10");
-    expect(cart.coupon.discountAmount).toBe(12000); // Capped from 20000
+    expect(cart.coupons[0].code).toBe("SAVE10");
+    expect(cart.coupons[0].discountAmount).toBe(12000); // Capped from 20000
     expect(cart.total).toBe(188000);
 
     // 4c: Replace coupon
@@ -221,9 +221,13 @@ describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
 
     expect(res.status).toBe(200);
     cart = res.body.cart;
-    expect(cart.coupon.code).toBe("FLAT500");
-    expect(cart.coupon.discountAmount).toBe(500);
-    expect(cart.total).toBe(199500);
+    // Coupons stack (max 2) rather than replace — both must be present
+    expect(cart.coupons).toHaveLength(2);
+    const saveEntry = cart.coupons.find((c) => c.code === "SAVE10");
+    const flatEntry = cart.coupons.find((c) => c.code === "FLAT500");
+    expect(saveEntry.discountAmount).toBe(12000);
+    expect(flatEntry.discountAmount).toBe(500);
+    expect(cart.total).toBe(187500);
 
     // ── STEP 5: COUPON REMOVE ──
     res = await agent
@@ -232,7 +236,7 @@ describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
 
     expect(res.status).toBe(200);
     cart = res.body.cart;
-    expect(cart.coupon).toBeUndefined();
+    expect(cart.coupons).toHaveLength(0);
     expect(cart.total).toBe(200000);
 
     // ── STEP 6: CHECKOUT STAGE ──
@@ -260,5 +264,120 @@ describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
 
     const newDbCart = await Cart.findOne({ cartId: res.body.cart.cartId });
     expect(newDbCart.status).toBe("active");
+
+    // ── STEP 7: FREE GIFT COUPON FLOW ──
+    // 7a: Happy path — trigger product in cart injects the gift item
+    const giftCoupon = await Coupon.create({
+      code: "GIFT10",
+      type: "free_gift",
+      value: 0,
+      minCartValue: 0,
+      freeGift: {
+        triggerProductIds: [p1._id],
+        triggerMinQty: 1,
+        giftType: "product",
+        giftProductId: p2._id,
+        giftQty: 1,
+      },
+      startDate: new Date(Date.now() - 86400000),
+      endDate: new Date(Date.now() + 86400000),
+      isActive: true,
+      perUserLimit: 2,
+    });
+
+    res = await agent
+      .post("/api/v1/cart/add-item")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({
+        item: { productId: p1._id.toString(), quantity: 1 },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.cart.items).toHaveLength(1);
+    expect(res.body.cart.subtotal).toBe(100000);
+
+    res = await agent
+      .post("/api/v1/cart/apply-coupon")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ code: "GIFT10" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    cart = res.body.cart;
+    expect(cart.coupons).toHaveLength(1);
+    expect(cart.coupons[0].code).toBe("GIFT10");
+    expect(cart.coupons[0].type).toBe("free_gift");
+    expect(cart.coupons[0].discountAmount).toBe(0);
+    expect(cart.items).toHaveLength(2);
+
+    const giftItem = cart.items.find((i) => i.isFreeGiftCoupon === true);
+    expect(giftItem).toBeDefined();
+    expect(giftItem.freeGiftCouponCode).toBe("GIFT10");
+    expect(giftItem.productId).toBe(p2._id.toString());
+    expect(giftItem.skuSnapshot).toBe("E2E-MOUSE-001");
+    expect(giftItem.quantity).toBe(1);
+    expect(giftItem.unitPrice).toBe(0);
+    expect(cart.subtotal).toBe(100000); // Gift is zero-priced
+
+    // 7b: Removing the free_gift coupon strips the injected gift item
+    res = await agent
+      .delete("/api/v1/cart/remove-coupon")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ code: "GIFT10" });
+
+    expect(res.status).toBe(200);
+    cart = res.body.cart;
+    expect(cart.coupons).toHaveLength(0);
+    expect(cart.items).toHaveLength(1);
+    expect(cart.items[0].isFreeGiftCoupon).toBeFalsy();
+
+    // 7c: Trigger product not in cart → 400 TRIGGER_PRODUCT_NOT_IN_CART
+    res = await agent
+      .delete("/api/v1/cart/remove-item")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ sku: skuP1 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.cart.items).toHaveLength(0);
+
+    res = await agent
+      .post("/api/v1/cart/apply-coupon")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ code: "GIFT10" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.errorCode).toBe("TRIGGER_PRODUCT_NOT_IN_CART");
+
+    // 7d: Gift out of stock → 400 GIFT_PRODUCT_OUT_OF_STOCK
+    res = await agent
+      .post("/api/v1/cart/add-item")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({
+        item: { productId: p1._id.toString(), quantity: 1 },
+      });
+
+    expect(res.status).toBe(200);
+
+    await Product.updateOne(
+      { _id: p2._id },
+      { stockObj: { available: 0, isInStock: false } },
+    );
+
+    res = await agent
+      .post("/api/v1/cart/apply-coupon")
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ code: "GIFT10" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.errorCode).toBe("GIFT_PRODUCT_OUT_OF_STOCK");
+
+    // Restore gift product stock and clean up
+    await Product.updateOne(
+      { _id: p2._id },
+      { stockObj: { available: 500, isInStock: true } },
+    );
+    await Coupon.deleteOne({ _id: giftCoupon._id });
   });
 });

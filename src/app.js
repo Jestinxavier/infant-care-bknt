@@ -167,6 +167,9 @@ const chatRoutes = require("./routes/chatRoutes");
 const cmsAdminRoutes = require("./features/cms/cms.admin.routes");
 const cmsPublicRoutes = require("./features/cms/cms.routes");
 const cmsProductRoutes = require("./features/product/product.cms.routes");
+// Static Pages CMS (unified draft/publish pages) — admin + public
+const pagesAdminRoutes = require("./features/cms/pages/pages.admin.routes");
+const pagesPublicRoutes = require("./features/cms/pages/pages.public.routes");
 
 // Admin routes - using environment variable for prefix
 const adminRoutes = require("./routes/adminRoutes");
@@ -174,12 +177,14 @@ const deliveryPartnerRoutes = require("./routes/deliveryPartnerRoutes");
 const assetRoutes = require("./routes/asset");
 const attributeRoutes = require("./routes/attributeRoutes");
 const collectionRoutes = require("./routes/collectionRoutes");
+const collectionStorefrontRoutes = require("./routes/collectionStorefrontRoutes");
 const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
 
 // Storefront routes (unchanged)
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/product", productRoutes);
 app.use("/api/v1/category", categoryRoutes);
+app.use("/api/v1/collection", collectionStorefrontRoutes);
 app.use("/api/v1/variants", variantRoutes);
 app.use("/api/v1/filter", filterRoutes);
 app.use("/api/v1/cart", hybridCartRoutes);
@@ -197,6 +202,8 @@ app.use("/api/v1/settings", siteSettingsRoutes); // Public settings endpoint
 app.use("/api/v1/chat", chatRoutes);
 // CMS product routes (lightweight for widgets) - Must be before general /cms route
 app.use("/api/v1/cms/products", cmsProductRoutes);
+// Static Pages CMS public routes (must be mounted before generic /cms/:page)
+app.use("/api/v1/cms", pagesPublicRoutes);
 // Public CMS routes (for frontend)
 app.use("/api/v1/cms", cmsPublicRoutes);
 
@@ -207,6 +214,8 @@ app.use(`/api/v1${ADMIN_PREFIX}`, adminRoutes);
 app.use(`/api/v1${ADMIN_PREFIX}/delivery-partners`, deliveryPartnerRoutes);
 // CMS routes under admin (using new feature-based routes)
 app.use(`/api/v1${ADMIN_PREFIX}/cms`, cmsAdminRoutes);
+// Static Pages CMS under admin (unified draft/publish pages)
+app.use(`/api/v1${ADMIN_PREFIX}/pages`, pagesAdminRoutes);
 // Media routes under admin
 const mediaRoutes = require("./routes/mediaRoutes");
 app.use(`/api/v1${ADMIN_PREFIX}/media`, mediaRoutes);

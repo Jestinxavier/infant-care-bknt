@@ -1,6 +1,6 @@
 const Variant = require("../../models/Variant");
 const logger = require("../../utils/logger");
-const { parser } = require("../../config/cloudinary");
+const { parser } = require("../../config/mediaServer");
 
 const updateVariant = async (req, res) => {
   try {

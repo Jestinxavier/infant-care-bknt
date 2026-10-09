@@ -48,7 +48,7 @@ const tempParser = multer(uploadOptions);
 /**
  * Upload a buffer to the media server.
  * @param {Buffer} buffer - File buffer
- * @param {{ public_id?: string, mimeType?: string, originalName?: string }} opts
+ * @param {{ public_id?: string, mimeType?: string, originalName?: string, quality?: number, maxWidth?: number, lossless?: boolean, resize?: boolean }} opts
  * @returns {Promise<{ url, filename, public_id, width, height, format, size }>}
  */
 async function uploadToMediaServer(buffer, opts = {}) {
@@ -62,6 +62,10 @@ async function uploadToMediaServer(buffer, opts = {}) {
     opts.originalName || 'image.jpg',
   );
   if (opts.public_id) formData.append('public_id', opts.public_id);
+  if (opts.quality) formData.append('quality', String(opts.quality));
+  if (opts.maxWidth) formData.append('maxWidth', String(opts.maxWidth));
+  if (opts.lossless != null) formData.append('lossless', String(opts.lossless));
+  if (opts.resize != null) formData.append('resize', String(opts.resize));
 
   const response = await fetch(`${MEDIA_SERVER_URL}/api/media/upload`, {
     method: 'POST',

@@ -8,6 +8,7 @@ const {
   getRefreshCookieOptions,
 } = require("../../utils/authCookieOptions");
 const logger = require("../../utils/logger");
+const toCamelCase = require("../../utils/toCamelCase");
 
 /**
  * POST /api/v1/orders/guest-convert
@@ -51,9 +52,19 @@ const guestConvert = async (req, res) => {
       });
     }
 
+    // Usernames are stored camelCase; guest names like "Rahul Kumar" become
+    // "rahulKumar".
+    const finalUsername = toCamelCase(username || order.guestInfo.name);
+    if (finalUsername.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a name of at least 3 characters.",
+      });
+    }
+
     // Create the user account
     const newUser = await User.create({
-      username: username || order.guestInfo.name,
+      username: finalUsername,
       email: normalizedEmail,
       password, // hashed by User pre-save hook
       role: "user",

@@ -34,6 +34,12 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin", "super-admin", "developer"],
       default: "user",
     },
+    // Whether an admin/developer account is usable. Suspended accounts are
+    // rejected by requireAdmin and dashboard login.
+    active: {
+      type: Boolean,
+      default: true,
+    },
     // Email Verification Fields (OTP-based)
     isEmailVerified: {
       type: Boolean,

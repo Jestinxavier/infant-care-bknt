@@ -23,6 +23,14 @@ const login = async (req, res) => {
       });
     }
 
+    if (clientType === "dashboard" && user.active === false) {
+      await authService.logoutUser(refreshToken);
+      return res.status(403).json({
+        success: false,
+        message: "Account is disabled. Contact the administrator.",
+      });
+    }
+
     res.cookie(getAuthCookieName(clientType, "access"), accessToken, getAuthCookieOptions());
     res.cookie(getAuthCookieName(clientType, "refresh"), refreshToken, getRefreshCookieOptions());
 

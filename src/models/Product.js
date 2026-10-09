@@ -170,6 +170,25 @@ const filterAttributesSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Canonical product types. Exported so callers compare against these instead
+// of re-declaring string literals.
+const PRODUCT_TYPES = {
+  SIMPLE: "SIMPLE",
+  CONFIGURABLE: "CONFIGURABLE",
+  BUNDLE: "BUNDLE",
+  CHOICE_GROUP: "CHOICE_GROUP",
+};
+
+// Retired url_key history. Appended on rename so the old storefront URL keeps
+// resolving (and 301s) instead of 404ing.
+const urlKeyHistorySchema = new mongoose.Schema(
+  {
+    urlKey: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     // Primary fields
@@ -199,6 +218,11 @@ const productSchema = new mongoose.Schema(
       sparse: true,
     },
 
+    // Every url_key this product previously used. A rename pushes the old key
+    // here so the storefront can 301 the retired URL instead of 404ing.
+    // Read by getProductByUrlKey via "urlKeyHistory.urlKey".
+    urlKeyHistory: [urlKeyHistorySchema],
+
     // SKU (Stock Keeping Unit) - optional for simple products, required for variant-based products
     sku: {
       type: String,
@@ -206,6 +230,10 @@ const productSchema = new mongoose.Schema(
       sparse: true, // Allow null/undefined values and only enforce uniqueness when present
       index: true,
     },
+
+    // Set once an admin fixes the SKU by hand, so bulk imports stop
+    // regenerating it.
+    skuLocked: { type: Boolean, default: false },
 
     status: {
       type: String,
@@ -216,8 +244,8 @@ const productSchema = new mongoose.Schema(
     // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle), CHOICE_GROUP (gift choice)
     product_type: {
       type: String,
-      enum: ["SIMPLE", "CONFIGURABLE", "BUNDLE", "CHOICE_GROUP"],
-      default: "SIMPLE",
+      enum: Object.values(PRODUCT_TYPES),
+      default: PRODUCT_TYPES.SIMPLE,
       index: true,
     },
 
@@ -308,6 +336,38 @@ const productSchema = new mongoose.Schema(
     // SEO fields
     metaTitle: { type: String },
     metaDescription: { type: String },
+    metaKeywords: [{ type: String }],
+
+    // Short merchandising copy shown under the title on the PDP.
+    subtitle: { type: String, trim: true },
+    shortDescription: { type: String, trim: true },
+
+    // Top-level stock mirror. Variant products keep the authoritative count on
+    // their variants; this is the denormalised total used by list/search views.
+    stock: { type: Number, default: 0, min: 0 },
+
+    // Shipping/tax attributes used by checkout and the tax calculator.
+    weight: { type: Number, min: 0 },
+    length: { type: Number, min: 0 },
+    width: { type: Number, min: 0 },
+    height: { type: Number, min: 0 },
+    shippingClass: { type: String },
+    vendor: { type: String, trim: true },
+    manufacturer: { type: String, trim: true },
+    warranty: { type: String, trim: true },
+    currency: { type: String, default: "INR" },
+    taxClass: { type: String, default: "standard" },
+
+    // "hidden" keeps a product out of listings/search while leaving it
+    // reachable by direct URL (unlike "private").
+    visibility: {
+      type: String,
+      enum: ["public", "private", "hidden"],
+      default: "public",
+    },
+
+    // Free-form attributes for storefront modules; not indexed.
+    customAttributes: { type: Map, of: mongoose.Schema.Types.Mixed },
 
     createdAt: { type: Date, default: Date.now },
   },
@@ -315,7 +375,7 @@ const productSchema = new mongoose.Schema(
 );
 
 // Pre-save middleware to sync name with title for backward compatibility
-productSchema.pre("save", function (next) {
+productSchema.pre("save", async function (next) {
   // Always sync name from title (title is primary)
   if (this.title) {
     this.name = this.title;
@@ -356,6 +416,25 @@ productSchema.pre("save", function (next) {
         }
         hashes.add(variant._optionsHash);
       }
+    }
+  }
+
+  // Auto-generate url_key on create so every product has a storefront URL even
+  // when the caller didn't supply one. product.service.js also generates it
+  // explicitly, so this is a backstop for code paths that construct a document
+  // directly (CSV import, scripts, tests).
+  if (this.isNew && !this.url_key && this.title) {
+    try {
+      const { generateUniqueUrlKey } = require("../utils/slugGenerator");
+      // Reuse the registered model rather than recompiling the schema.
+      const ProductModel = mongoose.models.Product || this.constructor;
+      const checkExists = async (urlKey) => {
+        const existing = await ProductModel.findOne({ url_key: urlKey });
+        return !!existing;
+      };
+      this.url_key = await generateUniqueUrlKey(this.title, checkExists);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -535,3 +614,4 @@ productSchema.index(
 );
 
 module.exports = mongoose.model("Product", productSchema);
+module.exports.PRODUCT_TYPES = PRODUCT_TYPES;

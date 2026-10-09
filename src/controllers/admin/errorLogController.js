@@ -3,6 +3,7 @@
 
 const SystemErrorLog = require("../../models/SystemErrorLog");
 const logger = require("../../utils/logger");
+const { hasPermission } = require("../../../resources/permissions");
 
 /**
  * GET /api/v1/admin/error-logs
@@ -65,9 +66,16 @@ const getErrorLogs = async (req, res) => {
     // ── Source list for filter dropdown ──────────────────────────────────────
     const sources = await SystemErrorLog.distinct("source");
 
+    // Read-only admins (no manage:error_logs) get rows without raw internals:
+    // strip stack trace, request metadata and the linked userId server-side.
+    const canManage = hasPermission(req.user?.role, "manage:error_logs");
+    const sanitized = canManage
+      ? logs
+      : logs.map(({ reason, metadata, userId, ...safe }) => safe);
+
     return res.status(200).json({
       success: true,
-      data: logs,
+      data: sanitized,
       pagination: {
         page:       pageNum,
         limit:      limitNum,

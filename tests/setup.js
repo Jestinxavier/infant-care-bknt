@@ -1,7 +1,8 @@
 const { MongoMemoryServer } = require("mongodb-memory-server");
 const mongoose = require("mongoose");
 
-// Increase default timeout — MongoMemoryServer may need to download binary on first run
+// Increase default timeout — MongoMemoryServer may need to download its binary
+// on a cold cache, which can take several minutes on a slow connection.
 jest.setTimeout(120000);
 
 // Mock nanoid as it is ESM-only and causes issues with Jest in CJS projects.
@@ -87,13 +88,35 @@ jest.mock("uuid", () => {
 
 let mongoServer;
 
+/**
+ * Pure-logic suites under tests/unit stub the models they touch and never
+ * query, so booting mongod for them is wasted startup — and it makes the unit
+ * suite fail outright when the MongoMemoryServer binary is missing or corrupt.
+ * A suite can force the database on with a `@requires-mongodb` docblock.
+ */
+const suiteNeedsDatabase = () => {
+  if (process.env.REQUIRE_MONGODB === "1") return true;
+  const testPath = expect.getState().testPath || "";
+  const name = testPath.split(/[\\/]/).pop() || "";
+  const suiteDir = testPath.split(/[\\/]/).slice(-2, -1)[0] || "";
+  if (suiteDir === "unit" && !name.includes("mongodb")) return false;
+  return true;
+};
+
 // Connect to the in-memory database before running tests
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
+  if (!suiteNeedsDatabase()) return;
+
+  // A cold cache means downloading ~200MB of mongod binary. The default hook
+  // timeout is not always enough for that, and a half-finished download is
+  // discarded, so the next run would start over. Give it its own budget.
+  mongoServer = await MongoMemoryServer.create(undefined, undefined, {
+    timeout: Number(process.env.MONGOMS_DOWNLOAD_TIMEOUT || 900000),
+  });
   const uri = mongoServer.getUri();
 
   await mongoose.connect(uri);
-});
+}, Number(process.env.MONGOMS_DOWNLOAD_TIMEOUT || 900000));
 
 // Clean up database between tests
 afterEach(async () => {
