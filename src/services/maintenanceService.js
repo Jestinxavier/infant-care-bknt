@@ -32,6 +32,14 @@ const MESSAGE_MAX_LENGTH = 1000;
 const RETRY_AFTER_FALLBACK_SECONDS = 3600;
 
 let memoryCache = null;
+// Tracks the last reopenAt we auto-disabled, so we persist/notify only once.
+let autoDisabledFor = null;
+
+const isReopenPassed = (reopenAt) => {
+  if (!reopenAt) return false;
+  const ts = new Date(reopenAt).getTime();
+  return !Number.isNaN(ts) && ts <= Date.now();
+};
 
 const buildState = (docs = []) => {
   const map = docs.reduce((acc, doc) => {
@@ -82,24 +90,49 @@ const fallbackState = () => ({
  */
 const getMaintenanceState = async () => {
   const now = Date.now();
+  let state;
+
   if (memoryCache && memoryCache.expiresAt > now) {
-    return memoryCache.state;
+    state = memoryCache.state;
+  } else {
+    state = await cacheGet(CACHE_KEY);
+    if (!state || typeof state !== "object") {
+      try {
+        const docs = await SiteSetting.find({ scope: MAINTENANCE_SCOPE })
+          .select({ _id: 0, key: 1, value: 1, updatedAt: 1 })
+          .lean();
+        state = buildState(docs);
+        await cacheSet(CACHE_KEY, state, CACHE_TTL_SECONDS);
+      } catch (err) {
+        logger.error("[Maintenance] Failed to load state from DB", {
+          message: err.message,
+        });
+        state = fallbackState();
+      }
+    }
   }
 
-  let state = await cacheGet(CACHE_KEY);
-  if (!state || typeof state !== "object") {
-    try {
-      const docs = await SiteSetting.find({ scope: MAINTENANCE_SCOPE })
-        .select({ _id: 0, key: 1, value: 1, updatedAt: 1 })
-        .lean();
-      state = buildState(docs);
-      await cacheSet(CACHE_KEY, state, CACHE_TTL_SECONDS);
-    } catch (err) {
-      logger.error("[Maintenance] Failed to load state from DB", {
-        message: err.message,
+  // Auto-disable once the expected reopen time has passed. Applied on every
+  // read (even cached state) so recovery is immediate; the DB write + frontend
+  // revalidation happen only once per reopen timestamp.
+  if (state && state.enabled && isReopenPassed(state.reopenAt)) {
+    state = { ...state, enabled: false };
+    if (autoDisabledFor !== state.reopenAt) {
+      autoDisabledFor = state.reopenAt;
+      try {
+        await upsertSetting(SITE_SETTING_KEYS.MAINTENANCE_ENABLED, false);
+      } catch (err) {
+        logger.error("[Maintenance] Failed to persist auto-disable", {
+          message: err.message,
+        });
+      }
+      triggerRevalidation({
+        type: "settings",
+        resource: "maintenance",
+        tag: "settings:maintenance",
       });
-      state = fallbackState();
     }
+    await cacheSet(CACHE_KEY, state, CACHE_TTL_SECONDS);
   }
 
   memoryCache = { state, expiresAt: now + MEMORY_TTL_MS };
@@ -114,6 +147,7 @@ const invalidateMaintenanceCache = async () => {
 /** Internal testing helper. */
 const _resetMaintenanceCache = () => {
   memoryCache = null;
+  autoDisabledFor = null;
 };
 
 const computeRetryAfter = (reopenAt) => {

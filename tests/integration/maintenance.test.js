@@ -148,6 +148,16 @@ describe("Maintenance Mode", () => {
     expect([401, 403]).toContain(res.statusCode);
   });
 
+  it("auto-disables once the expected reopen time has passed", async () => {
+    await enable({ reopenAt: new Date(Date.now() - 60_000).toISOString() });
+
+    const state = await request(app).get("/api/v1/settings/maintenance");
+    expect(state.body.maintenance.enabled).toBe(false);
+
+    const after = await request(app).get("/api/v1/wishlist");
+    expect(after.statusCode).not.toEqual(503);
+  });
+
   it("persists title and message across cache resets", async () => {
     await enable({ title: "Scheduled work", message: "We are polishing things" });
     maintenanceService._resetMaintenanceCache();
