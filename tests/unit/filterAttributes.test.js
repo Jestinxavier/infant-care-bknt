@@ -62,9 +62,9 @@ describe("filterAttributes governance", () => {
     ]);
   });
 
-  it("syncs configurable color/size from variants and keeps other attributes", () => {
-    // Manual color overrides the variant-derived color list; size is always
-    // derived from variants.
+  it("overrides variant-option color/size from variants and keeps other attributes", () => {
+    // Color & size are variant dimensions (present in the variant attribute
+    // maps) → derived from variants, manual input ignored to avoid duplicates.
     const synced = syncFilterAttributes({
       productType: "CONFIGURABLE",
       filterAttributes: {
@@ -79,9 +79,48 @@ describe("filterAttributes governance", () => {
       ],
     });
 
-    expect(synced.color).toEqual(["manual-color"]);
+    expect(synced.color).toEqual(["red", "blue"]);
     expect(synced.size).toEqual(["0-3-months", "3-6-months"]);
     expect(synced.material).toEqual(["cotton"]);
+  });
+
+  it("keeps manual non-variant-option attributes (e.g. material when only color is a dimension)", () => {
+    // material is supplied in filterAttributes but NOT a declared variant
+    // option and NOT present in the variants → not a variant dimension →
+    // manual values are preserved.
+    const synced = syncFilterAttributes({
+      productType: "CONFIGURABLE",
+      filterAttributes: {
+        material: ["Cotton"],
+        color: ["manual-color"],
+      },
+      variants: [
+        { attributes: { color: "Red" } },
+        { attributes: { color: "Blue" } },
+      ],
+      variantOptions: [{ code: "color", values: [] }],
+    });
+
+    expect(synced.color).toEqual(["red", "blue"]);
+    expect(synced.material).toEqual(["cotton"]);
+  });
+
+  it("clears variant-option attributes with no values across variants", () => {
+    const synced = syncFilterAttributes({
+      productType: "CONFIGURABLE",
+      filterAttributes: {
+        size: ["manual-stale-size"],
+      },
+      variants: [
+        { attributes: { color: "Red" } },
+        { attributes: { color: "Blue" } },
+      ],
+      variantOptions: [{ code: "color" }, { code: "size" }],
+    });
+
+    // size is declared as a variant option but no variant carries it → cleared
+    expect(synced.size).toEqual([]);
+    expect(synced.color).toEqual(["red", "blue"]);
   });
 
   it("derives configurable color from variants when no manual color is set", () => {
@@ -94,6 +133,24 @@ describe("filterAttributes governance", () => {
         { attributes: { color: "Red", size: "0-3m" } },
         { attributes: { color: "Blue", size: "3-6m" } },
         { attributes: { color: "red", size: "0-3m" } },
+      ],
+    });
+
+    expect(synced.color).toEqual(["red", "blue"]);
+    expect(synced.size).toEqual(["0-3-months", "3-6-months"]);
+  });
+
+  it("recognizes legacy dimensions via variant options maps (no codes)", () => {
+    // Legacy variants store options keyed by display name ("Color") and no
+    // variantOptions codes — the attribute-map keys still drive mapping.
+    const synced = syncFilterAttributes({
+      productType: "CONFIGURABLE",
+      filterAttributes: {
+        color: ["manual-color"],
+      },
+      variants: [
+        { options: { Color: "Red", Size: "0-3m" } },
+        { options: { Color: "Blue", Size: "3-6m" } },
       ],
     });
 

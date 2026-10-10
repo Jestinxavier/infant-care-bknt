@@ -1,7 +1,11 @@
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const mongoose = require("mongoose");
-const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
+const {
+  generateUniqueUrlKey,
+  generateSlug,
+  generateVariantUrlKey,
+} = require("../../utils/slugGenerator");
 const {
   generateUniqueSku,
   generateVariantSku,
@@ -701,16 +705,12 @@ const updateProduct = async (req, res) => {
         }
         variantSku = await ensureUniqueVariantSku(variantSku, index);
 
-        // Generate variant url_key: <parent-url-key>-<color>-<size>-<sku|index> (unique per variant)
+        // Generate variant url_key: <parent-url-key>-<color>-<size> (SEO-friendly)
         let variantUrlKey = v.url_key;
         if (!variantUrlKey && product.url_key) {
-          const attrsObj = Object.fromEntries(attributesMap);
-          const parts = [product.url_key];
-          if (attrsObj.color) parts.push(generateSlug(attrsObj.color));
-          if (attrsObj.size || attrsObj.age)
-            parts.push(generateSlug(attrsObj.size || attrsObj.age));
-          variantUrlKey = parts.join("-");
-          variantUrlKey = `${variantUrlKey}-${variantSku}`;
+          variantUrlKey = generateVariantUrlKey(product.url_key, attrsObj, {
+            fallbackSuffix: variantSku,
+          });
         }
         variantUrlKey = await ensureUniqueVariantUrlKey(variantUrlKey, index);
         const variantName = buildVariantTitle(

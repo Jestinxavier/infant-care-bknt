@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const {
   generateUniqueUrlKey,
   generateSlug,
+  generateVariantUrlKey,
 } = require("../../utils/slugGenerator");
 const {
   generateUniqueSku,
@@ -656,16 +657,12 @@ const createProduct = async (req, res) => {
         }
         variantSku = await ensureUniqueVariantSku(variantSku, index);
 
-        // ✅ Generate unique URL key for variant
+        // ✅ Generate unique URL key for variant (SEO-friendly: parent slug + readable attribute values)
         let variantUrlKey = v.url_key;
         if (!variantUrlKey) {
-          const attrsObj = Object.fromEntries(attributesMap);
-          const colorCode = (attrsObj.color || "").toLowerCase();
-          const sizeCode = (attrsObj.size || attrsObj.age || "").toLowerCase();
-          const baseSlug = `${productUrlKey}${
-            colorCode ? "-" + colorCode : ""
-          }${sizeCode ? "-" + sizeCode : ""}`;
-          variantUrlKey = `${baseSlug}-${variantSku}`;
+          variantUrlKey = generateVariantUrlKey(productUrlKey, attrsObj, {
+            fallbackSuffix: variantSku,
+          });
         }
         variantUrlKey = await ensureUniqueVariantUrlKey(variantUrlKey, index);
         const variantName = buildVariantTitle(

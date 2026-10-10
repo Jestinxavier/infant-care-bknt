@@ -1,6 +1,27 @@
 // utils/formatCartResponse.js
 
 /**
+ * Loose token normalizer for matching attribute values/labels.
+ * Handles case, punctuation, spacing and plural/singular drift between a
+ * stored snapshot and the current catalog (e.g. "0-3-month" vs "0-3-months",
+ * "new born" vs "Newborn").
+ */
+function normalizeAttributeToken(value) {
+  return String(value == null ? "" : value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/s+$/, "");
+}
+
+function attributeTokenMatches(candidate, value) {
+  if (candidate == null || value == null) return false;
+  if (String(candidate).toLowerCase() === String(value).toLowerCase()) {
+    return true;
+  }
+  return normalizeAttributeToken(candidate) === normalizeAttributeToken(value);
+}
+
+/**
  * Resolve attribute values to labels using product's variantOptions.
  * e.g. { size: "M" } → { size: "Medium" }
  * @param {Object|null} attrs - Normalized attributes { code: value }
@@ -21,8 +42,8 @@ function resolveAttributeLabels(attrs, variantOptions) {
     if (option && Array.isArray(option.values)) {
       const found = option.values.find(
         (v) =>
-          (v.value && v.value.toLowerCase() === val.toLowerCase()) ||
-          (v.label && v.label.toLowerCase() === val.toLowerCase())
+          attributeTokenMatches(v.value, val) ||
+          attributeTokenMatches(v.label, val)
       );
       resolved[key] = found?.label || val;
     } else {
@@ -387,4 +408,8 @@ const generatePriceSummary = (cart, formattedItems) => {
   };
 };
 
-module.exports = { formatCartResponse, normalizeAttributesSnapshot };
+module.exports = {
+  formatCartResponse,
+  normalizeAttributesSnapshot,
+  resolveAttributeLabels,
+};

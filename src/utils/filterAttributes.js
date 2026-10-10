@@ -92,6 +92,26 @@ const deriveColorAndSizeFromVariants = (variants) => {
   };
 };
 
+/**
+ * Derive filter attributes (any attribute code) from the variants' own
+ * attribute maps — the variants are the source of truth for attributes that
+ * are also used as variant options (color, size, material, etc.).
+ */
+const deriveAttributesFromVariants = (variants, keys) => {
+  const result = {};
+  (Array.isArray(keys) ? keys : []).forEach((key) => {
+    const seen = new Set();
+    (Array.isArray(variants) ? variants : []).forEach((variant) => {
+      const variantAttributes = variant?.attributes || variant?.options || {};
+      const raw = getAttributeValue(variantAttributes, key);
+      const normalized = normalizeFilterValue(raw, key);
+      if (normalized) seen.add(normalized);
+    });
+    result[key] = Array.from(seen);
+  });
+  return result;
+};
+
 const isConfigurableType = (type) => {
   return String(type || "").trim().toLowerCase() === "configurable";
 };
@@ -100,6 +120,7 @@ const syncFilterAttributes = ({
   productType,
   filterAttributes,
   variants,
+  variantOptions,
   fallbackFilterAttributes,
 }) => {
   const base = {
@@ -111,19 +132,54 @@ const syncFilterAttributes = ({
     return base;
   }
 
-  // For CONFIGURABLE products, `size` is always derived from variants and
-  // never stored from admin input. `color` may be set manually — it falls
-  // back to the derived variant colors only when no manual values are given.
-  delete base.size;
+  // For CONFIGURABLE products, any attribute that is used as a variant option
+  // (color, size, material, etc.) is derived from the variants and overrides
+  // whatever was provided manually — the Metadata section (which renders after
+  // the Variants step) auto-syncs these so the admin doesn't re-enter
+  // duplicates. Attributes NOT used as variant options (e.g. material when not
+  // a dimension) keep their manual values.
+  //
+  // Codes come from (a) variantOptions.code / legacy .name, and (b) the keys
+  // actually present in the variants' own attribute/options maps — the variants
+  // are the source of truth for which dimensions are really in use.
+  const optionCodes = new Set();
+  (Array.isArray(variantOptions) ? variantOptions : []).forEach((o) => {
+    const code = String(o?.code || o?.name || "").trim().toLowerCase();
+    if (code) optionCodes.add(code);
+  });
+  (Array.isArray(variants) ? variants : []).forEach((variant) => {
+    const attrs = mapToObject(variant?.attributes || variant?.options);
+    Object.keys(attrs).forEach((key) => {
+      const code = String(key).trim().toLowerCase();
+      if (code) optionCodes.add(code);
+    });
+  });
 
-  const derived = deriveColorAndSizeFromVariants(variants);
-  const result = {
-    ...base,
-    size: derived.size,
-    ...(base.color && base.color.length > 0
-      ? {}
-      : { color: derived.color }),
-  };
+  const result = { ...base };
+
+  // Override every attribute that is a variant option with the derived values
+  // (variants are the source of truth → empty derived clears stale manual data).
+  // Only known filter keys are overridden — legacy alias keys (e.g. "age" for
+  // size) never leak into the stored filterAttributes.
+  FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+    if (!optionCodes.has(key)) return;
+    const value = deriveAttributesFromVariants(variants, [key])[key] || [];
+    result[key] = value;
+  });
+
+  // Historical compatibility: when no option codes could be identified at all
+  // (name/attributeId-only legacy rows with no variant attribute maps), keep
+  // the old behavior — always derive `size`, and derive `color` only when no
+  // manual values are provided. This branch is unreachable for products that
+  // carry real variants (their attribute maps dictate the codes), so it only
+  // guards empty/edge-cased CONFIGURABLE records.
+  if (optionCodes.size === 0) {
+    const derived = deriveColorAndSizeFromVariants(variants);
+    result.size = derived.size;
+    if (!result.color || result.color.length === 0) {
+      result.color = derived.color;
+    }
+  }
 
   // Deduplicate all filter attribute arrays
   FILTER_ATTRIBUTE_KEYS.forEach((key) => {
@@ -215,6 +271,7 @@ module.exports = {
   normalizeFilterArray,
   normalizeFilterAttributes,
   syncFilterAttributes,
+  deriveAttributesFromVariants,
   buildFilterAttributesQuery,
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
