@@ -4,6 +4,10 @@ const SITE_SETTING_KEYS = {
   SEARCH_POPULAR_TERMS: "search.popular_terms",
   SEARCH_SUGGESTED_PRODUCTS: "search.suggested_products",
   PAYMENT_ACTIVE_GATEWAY: "payment.active_gateway",
+  MAINTENANCE_ENABLED: "maintenance.enabled",
+  MAINTENANCE_TITLE: "maintenance.title",
+  MAINTENANCE_MESSAGE: "maintenance.message",
+  MAINTENANCE_REOPEN_AT: "maintenance.reopen_at",
 };
 
 const SITE_SETTING_DEFINITIONS = {
@@ -74,6 +78,51 @@ const SITE_SETTING_DEFINITIONS = {
     category: "payment",
     aliases: ["payment.active_gateway"],
     defaultValue: "phonepe",
+  },
+  [SITE_SETTING_KEYS.MAINTENANCE_ENABLED]: {
+    key: SITE_SETTING_KEYS.MAINTENANCE_ENABLED,
+    scope: "maintenance",
+    type: "boolean",
+    isPublic: true,
+    label: "Maintenance Mode",
+    description: "Put the storefront into maintenance mode for customers.",
+    category: "maintenance",
+    aliases: ["maintenance.enabled"],
+    defaultValue: false,
+  },
+  [SITE_SETTING_KEYS.MAINTENANCE_TITLE]: {
+    key: SITE_SETTING_KEYS.MAINTENANCE_TITLE,
+    scope: "maintenance",
+    type: "string",
+    isPublic: true,
+    label: "Maintenance Heading",
+    description: "Heading shown on the maintenance page.",
+    category: "maintenance",
+    aliases: ["maintenance.title"],
+    defaultValue: "We'll be back soon",
+  },
+  [SITE_SETTING_KEYS.MAINTENANCE_MESSAGE]: {
+    key: SITE_SETTING_KEYS.MAINTENANCE_MESSAGE,
+    scope: "maintenance",
+    type: "string",
+    isPublic: true,
+    label: "Maintenance Message",
+    description: "Message shown to customers while the store is unavailable.",
+    category: "maintenance",
+    aliases: ["maintenance.message"],
+    defaultValue:
+      "Our store is temporarily unavailable while we make some improvements. We're sorry for the inconvenience and appreciate your patience.",
+  },
+  [SITE_SETTING_KEYS.MAINTENANCE_REOPEN_AT]: {
+    key: SITE_SETTING_KEYS.MAINTENANCE_REOPEN_AT,
+    scope: "maintenance",
+    type: "string",
+    isPublic: true,
+    label: "Expected Reopen Time",
+    description: "Optional date and time when the store is expected to reopen.",
+    category: "maintenance",
+    aliases: ["maintenance.reopen_at"],
+    defaultValue: "",
   },
 };
 

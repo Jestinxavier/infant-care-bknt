@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const verifyToken = require("../middlewares/authMiddleware");
+const { optionalVerifyToken } = require("../middlewares/authMiddleware");
 const requireAdmin = require("../middlewares/adminMiddleware");
 const {
   getAllSettings,
@@ -15,6 +16,8 @@ const {
   getSuggestedProducts,
   getSuggestedProductsAdmin,
   upsertSuggestedProducts,
+  getMaintenanceSettings,
+  updateMaintenanceSettings,
 } = require("../controllers/siteSettingsController");
 const { invalidateCartSettings } = require("../controllers/cart/hybridCartController");
 
@@ -122,6 +125,14 @@ router.get("/suggested-products/admin", verifyToken, requireAdmin, getSuggestedP
 
 // Admin PUT: /api/v1/admin/settings/suggested-products
 router.put("/suggested-products", verifyToken, requireAdmin, upsertSuggestedProducts);
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Maintenance mode routes ──────────────────────────────────────────────────
+// Public: GET /api/v1/settings/maintenance (reports staffBypass for admins)
+router.get("/maintenance", optionalVerifyToken, getMaintenanceSettings);
+
+// Admin PUT: /api/v1/admin/settings/maintenance
+router.put("/maintenance", verifyToken, requireAdmin, updateMaintenanceSettings);
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

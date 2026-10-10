@@ -31,6 +31,7 @@ const siteSettingSchema = new mongoose.Schema(
         "product",
         "search",
         "payment",
+        "maintenance",
       ],
       default: "global",
       index: true,

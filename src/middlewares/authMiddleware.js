@@ -53,3 +53,4 @@ const optionalVerifyToken = (req, res, next) => {
 
 module.exports = verifyToken;
 module.exports.optionalVerifyToken = optionalVerifyToken;
+module.exports.getTokenFromRequest = getTokenFromRequest;
