@@ -40,6 +40,11 @@ const chatSessionSchema = new mongoose.Schema(
     customerName: { type: String, default: "Guest" },
     customerEmail: { type: String, default: null },
     customerPhone: { type: String, default: null },
+    // Additional support details collected during the chat (edited by staff or
+    // extracted automatically by the AI when the customer shares them).
+    orderId: { type: String, default: null },
+    issue: { type: String, default: null },
+    notes: { type: String, default: null },
     endedBy: { type: String, enum: ["customer", "staff"], default: null },
   },
   { timestamps: true }

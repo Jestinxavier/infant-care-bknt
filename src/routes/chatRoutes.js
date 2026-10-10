@@ -17,6 +17,8 @@ const {
   requestHuman,
   saveContact,
   endSession,
+  suggestReplies,
+  updateSessionDetails,
 } = require("../controllers/chat/chatController");
 
 // ── Customer routes (guest + auth) ─────────────────────────────────
@@ -29,6 +31,8 @@ router.post("/session/:sessionId/end", optionalVerifyToken, endSession);
 // ── Admin routes ────────────────────────────────────────────────────
 router.get("/admin/sessions", verifyToken, requireAdmin, getEscalatedSessions);
 router.get("/admin/sessions/:sessionId", verifyToken, requireAdmin, getSessionById);
+router.get("/admin/sessions/:sessionId/suggest-replies", verifyToken, requireAdmin, suggestReplies);
+router.patch("/admin/sessions/:sessionId/details", verifyToken, requireAdmin, updateSessionDetails);
 router.post("/admin/sessions/:sessionId/reply", verifyToken, requireAdmin, staffReply);
 router.post("/admin/sessions/:sessionId/join", verifyToken, requireAdmin, joinSession);
 router.post("/admin/sessions/:sessionId/resolve", verifyToken, requireAdmin, resolveSession);
