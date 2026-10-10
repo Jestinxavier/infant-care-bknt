@@ -44,7 +44,7 @@ const getAllCategories = async (req, res) => {
       { $group: { _id: "$category", count: { $sum: 1 } } },
     ]);
     const productCountMap = new Map(
-      productCountRows.map((row) => [row._id.toString(), row.count])
+      productCountRows.map((row) => [row._id.toString(), row.count]),
     );
 
     const categories = await Category.find(filter)
@@ -61,6 +61,10 @@ const getAllCategories = async (req, res) => {
         out.image = toCloudinaryUrl(out.image) || out.image;
       }
       out.productCount = productCountMap.get(cat._id?.toString()) || 0;
+      if (out.sizeChartImage && typeof out.sizeChartImage === "string") {
+        out.sizeChartImage =
+          toCloudinaryUrl(out.sizeChartImage) || out.sizeChartImage;
+      }
       return out;
     });
 
@@ -80,7 +84,7 @@ const getAllCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -122,6 +126,14 @@ const getCategoryById = async (req, res) => {
       categoryObj.image =
         toCloudinaryUrl(categoryObj.image) || categoryObj.image;
     }
+    if (
+      categoryObj.sizeChartImage &&
+      typeof categoryObj.sizeChartImage === "string"
+    ) {
+      categoryObj.sizeChartImage =
+        toCloudinaryUrl(categoryObj.sizeChartImage) ||
+        categoryObj.sizeChartImage;
+    }
 
     res.status(200).json({
       success: true,
@@ -132,7 +144,7 @@ const getCategoryById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 

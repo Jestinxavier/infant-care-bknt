@@ -11,7 +11,7 @@ const logger = require("../../utils/logger");
 const RAZORPAY_TIMEOUT_MS = 15000;
 
 // Shared Helper: Mark Order as Paid
-const markOrderAsPaid = async (orderId, transactionId, rawResponse) => {
+const markOrderAsPaid = async (orderId, transactionId, rawResponse, req = null) => {
   logger.info(`[RAZORPAY] Marking order ${orderId} as paid with transaction ${transactionId}`);
 
   const order = await Order.findOne({ orderId });
@@ -65,6 +65,12 @@ const markOrderAsPaid = async (orderId, transactionId, rawResponse) => {
 
     emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
       logger.error("❌ [RAZORPAY] Failed to send order confirmation email:", { message: err.message, stack: err.stack })
+    );
+
+    // Meta Conversions API (CAPI) Purchase event
+    const { trackPurchase } = require("../../services/metaConversionService");
+    trackPurchase({ order: updatedOrder, req }).catch((err) =>
+      logger.error("❌ [RAZORPAY] Failed to send Meta CAPI purchase event:", err)
     );
   }
 };
@@ -266,7 +272,7 @@ const verifyPaymentSignature = async (req, res) => {
     }
 
     // Mark as paid
-    await markOrderAsPaid(orderId, razorpay_payment_id, req.body);
+    await markOrderAsPaid(orderId, razorpay_payment_id, req.body, req);
 
     return res.status(200).json({
       success: true,

@@ -105,24 +105,81 @@ const {
 
 // ==================== NOTIFICATIONS ====================
 router.get("/notifications", verifyToken, requireAdmin, getNotifications);
-router.patch("/notifications/read-all", verifyToken, requireAdmin, markAllAsRead);
+router.patch(
+  "/notifications/read-all",
+  verifyToken,
+  requireAdmin,
+  markAllAsRead,
+);
 router.patch("/notifications/:id/read", verifyToken, requireAdmin, markAsRead);
-router.delete("/notifications/:id", verifyToken, requireAdmin, deleteNotification);
+router.delete(
+  "/notifications/:id",
+  verifyToken,
+  requireAdmin,
+  deleteNotification,
+);
 
 // ==================== ERROR LOGS ====================
-router.get("/error-logs", verifyToken, requireAdmin, requirePermission("view:error_logs"), getErrorLogs);
-router.delete("/error-logs", verifyToken, requireAdmin, requirePermission("manage:error_logs"), clearAllErrorLogs);
-router.delete("/error-logs/:id", verifyToken, requireAdmin, requirePermission("manage:error_logs"), deleteErrorLog);
+router.get(
+  "/error-logs",
+  verifyToken,
+  requireAdmin,
+  requirePermission("view:error_logs"),
+  getErrorLogs,
+);
+router.delete(
+  "/error-logs",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:error_logs"),
+  clearAllErrorLogs,
+);
+router.delete(
+  "/error-logs/:id",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:error_logs"),
+  deleteErrorLog,
+);
 
 // ==================== ADMIN USERS ====================
-router.get("/users", verifyToken, requireAdmin, requirePermission("manage:users"), getAdminUsers);
-router.post("/users", verifyToken, requireAdmin, requirePermission("manage:roles"), createAdminUser);
-router.get("/users/audit", verifyToken, requireAdmin, requirePermission("manage:roles"), getAdminUserAudit);
-router.patch("/users/:id", verifyToken, requireAdmin, requirePermission("manage:roles"), updateAdminUser);
-router.delete("/users/:id", verifyToken, requireAdmin, requirePermission("manage:users"), deleteAdminUser);
+router.get(
+  "/users",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:users"),
+  getAdminUsers,
+);
+router.post(
+  "/users",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:roles"),
+  createAdminUser,
+);
+router.get(
+  "/users/audit",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:roles"),
+  getAdminUserAudit,
+);
+router.patch(
+  "/users/:id",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:roles"),
+  updateAdminUser,
+);
+router.delete(
+  "/users/:id",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:users"),
+  deleteAdminUser,
+);
 
 // ==================== PRODUCTS ====================
-
 
 /**
  * @swagger
@@ -351,12 +408,7 @@ router.get(
  *       200:
  *         description: Report retrieved successfully
  */
-router.get(
-  "/reports/customers",
-  verifyToken,
-  requireAdmin,
-  getCustomersReport,
-);
+router.get("/reports/customers", verifyToken, requireAdmin, getCustomersReport);
 
 /**
  * @swagger
@@ -550,7 +602,7 @@ router.post(
   "/products/reindex-search",
   verifyToken,
   requireAdmin,
-  reindexSearchIndex
+  reindexSearchIndex,
 );
 
 /**
@@ -570,12 +622,7 @@ router.post(
  *       200:
  *         description: Product/variant info found
  */
-router.get(
-  "/products/sku-lookup",
-  verifyToken,
-  requireAdmin,
-  skuLookup,
-);
+router.get("/products/sku-lookup", verifyToken, requireAdmin, skuLookup);
 
 router.get(
   "/products/count-filter-value",
@@ -1310,12 +1357,7 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *       404:
  *         description: Order not found
  */
-router.patch(
-  "/orders/mark-paid",
-  verifyToken,
-  requireAdmin,
-  markOrderAsPaid,
-);
+router.patch("/orders/mark-paid", verifyToken, requireAdmin, markOrderAsPaid);
 
 /**
  * @swagger
@@ -1513,7 +1555,12 @@ router.post("/coupons", verifyToken, requireAdmin, createCoupon);
  *     security:
  *       - bearerAuth: []
  */
-router.get("/coupons/product-search", verifyToken, requireAdmin, searchProductsForCoupon);
+router.get(
+  "/coupons/product-search",
+  verifyToken,
+  requireAdmin,
+  searchProductsForCoupon,
+);
 router.patch("/coupons/:id", verifyToken, requireAdmin, updateCoupon);
 router.delete("/coupons/:id", verifyToken, requireAdmin, deleteCoupon);
 

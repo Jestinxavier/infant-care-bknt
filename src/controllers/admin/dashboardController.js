@@ -1,5 +1,6 @@
 const User = require("../../models/user");
 const Product = require("../../models/Product");
+const Category = require("../../models/Category");
 const Order = require("../../models/Order");
 const {
   cacheGetOrSet,
@@ -30,6 +31,76 @@ function parseDateRange(from, to) {
   }
 
   return Object.keys(range).length > 0 ? range : null;
+}
+
+const HEX_OBJECT_ID = /^[0-9a-fA-F]{24}$/;
+function isHexObjectId(value) {
+  return HEX_OBJECT_ID.test(String(value));
+}
+
+/**
+ * Resolve category display names for a set of sold product identifiers.
+ *
+ * Product ids on order items can be the product `_id`, a `url_key`, or a
+ * variant id (legacy data), so we resolve all three in a single bounded query
+ * per key type and then read category names from one `categories` query. This
+ * replaces an $expr/regex $lookup that scanned products per order item.
+ */
+async function resolveCategoryNamesForProductKeys(productKeys) {
+  const uniqueKeys = [...new Set(productKeys.filter(Boolean).map(String))];
+  if (uniqueKeys.length === 0) {
+    return new Map();
+  }
+
+  const objectIdKeys = uniqueKeys.filter(isHexObjectId);
+
+  const products = await Product.find(
+    {
+      $or: [
+        ...(objectIdKeys.length ? [{ _id: { $in: objectIdKeys } }] : []),
+        { url_key: { $in: uniqueKeys } },
+        { "variants.id": { $in: uniqueKeys } },
+      ],
+    },
+    { _id: 1, url_key: 1, category: 1, categoryName: 1, "variants.id": 1 },
+  ).lean();
+
+  const productByKey = new Map();
+  const categoryIds = new Set();
+  for (const product of products) {
+    productByKey.set(String(product._id), product);
+    if (product.url_key) productByKey.set(String(product.url_key), product);
+    for (const variant of product.variants || []) {
+      if (variant.id) productByKey.set(String(variant.id), product);
+    }
+    if (product.category && isHexObjectId(product.category)) {
+      categoryIds.add(String(product.category));
+    }
+  }
+
+  const categories = categoryIds.size
+    ? await Category.find(
+        { _id: { $in: [...categoryIds] } },
+        { name: 1 },
+      ).lean()
+    : [];
+  const categoryNameById = new Map(
+    categories.map((category) => [String(category._id), category.name]),
+  );
+
+  const nameByKey = new Map();
+  for (const key of uniqueKeys) {
+    const product = productByKey.get(key);
+    if (!product) continue;
+    const categoryId = product.category ? String(product.category) : null;
+    nameByKey.set(
+      key,
+      (categoryId && categoryNameById.get(categoryId)) ||
+        product.categoryName ||
+        "Uncategorized",
+    );
+  }
+  return nameByKey;
 }
 
 /**
@@ -487,98 +558,43 @@ exports.getDashboardStats = async (req, res) => {
         0,
       );
 
-      // 9. Sales by Category - Optimized with period filter
-      const categorySalesRaw = await Order.aggregate([
+      // 9. Sales by Category - group sales per product (index-backed), then
+      // resolve each product's category with a couple of bounded lookups.
+      // The previous per-item $expr/regex $lookup against products forced a
+      // collection scan for every order item (~48s on the year/all ranges).
+      const productSalesRaw = await Order.aggregate([
         { $match: salesMatch },
         { $unwind: "$items" },
         {
-          $lookup: {
-            from: "products",
-            let: { pid: "$items.productId" },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $or: [
-                      {
-                        $eq: [
-                          "$_id",
-                          {
-                            $cond: [
-                              {
-                                $regexMatch: {
-                                  input: { $toString: "$$pid" },
-                                  regex: /^[0-9a-fA-F]{24}$/,
-                                },
-                              },
-                              { $toObjectId: "$$pid" },
-                              "$$pid",
-                            ],
-                          },
-                        ],
-                      },
-                      { $eq: ["$url_key", "$$pid"] },
-                      { $in: ["$$pid", "$variants.id"] },
-                    ],
-                  },
-                },
-              },
-            ],
-            as: "product",
-          },
-        },
-        { $unwind: { path: "$product", preserveNullAndEmptyArrays: true } },
-        {
-          $addFields: {
-            categoryIdObj: {
-              $cond: {
-                if: {
-                  $and: [
-                    { $gt: ["$product.category", null] },
-                    { $ne: ["$product.category", ""] },
-                    {
-                      $regexMatch: {
-                        input: { $toString: "$product.category" },
-                        regex: /^[0-9a-fA-F]{24}$/,
-                      },
-                    },
-                  ],
-                },
-                then: { $toObjectId: "$product.category" },
-                else: null,
-              },
-            },
-          },
-        },
-        {
-          $lookup: {
-            from: "categories",
-            localField: "categoryIdObj",
-            foreignField: "_id",
-            as: "categoryDoc",
-          },
-        },
-        { $unwind: { path: "$categoryDoc", preserveNullAndEmptyArrays: true } },
-        {
           $group: {
-            _id: {
-              $ifNull: [
-                "$categoryDoc.name",
-                { $ifNull: ["$product.categoryName", "Uncategorized"] },
-              ],
-            },
+            _id: "$items.productId",
             value: { $sum: { $multiply: ["$items.price", "$items.quantity"] } },
             count: { $sum: "$items.quantity" },
           },
         },
-        { $sort: { value: -1 } },
       ]);
 
-      const categorySales = categorySalesRaw.map((item) => ({
-        name: item._id || "Uncategorized",
-        value: item.value,
-        count: item.count,
-      }));
+      const categoryNameByProductKey = await resolveCategoryNamesForProductKeys(
+        productSalesRaw.map((item) => item._id),
+      );
+
+      const categoryTotals = new Map();
+      for (const item of productSalesRaw) {
+        const name =
+          categoryNameByProductKey.get(String(item._id)) || "Uncategorized";
+        const current = categoryTotals.get(name) || {
+          name,
+          value: 0,
+          count: 0,
+        };
+        current.value += item.value || 0;
+        current.count += item.count || 0;
+        categoryTotals.set(name, current);
+      }
+
+      const categorySales = [...categoryTotals.values()].sort(
+        (a, b) => b.value - a.value,
+      );
 
       // 10. COD Pending - total and over time (collectible only: excludes
       // cancelled/returned, matches orders-by-status + revenue reports)

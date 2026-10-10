@@ -11,6 +11,7 @@ const requestPasswordReset = require("./requestPasswordReset");
 const resetPassword = require("./resetPassword");
 const changePassword = require("./changePassword");
 const { requestPasswordResetOTP, verifyPasswordResetOTP } = require("./forgotPasswordOTP");
+const googleAuth = require("./googleAuth");
 
 module.exports = {
   login,
@@ -29,4 +30,5 @@ module.exports = {
   changePassword,
   requestPasswordResetOTP,
   verifyPasswordResetOTP,
+  googleAuth,
 };

@@ -28,8 +28,36 @@ function writeToFile(filePath, entry) {
   }
 }
 
+function safeStringify(obj, space) {
+  try {
+    return JSON.stringify(obj, null, space);
+  } catch {
+    const seen = new WeakSet();
+    return JSON.stringify(
+      obj,
+      (key, value) => {
+        if (typeof value === "object" && value !== null) {
+          if (seen.has(value)) return "[Circular]";
+          seen.add(value);
+        }
+        return value;
+      },
+      space
+    );
+  }
+}
+
 function write(level, message, context = {}) {
-  const entry = JSON.stringify({ level, message, timestamp: timestamp(), ...context });
+  const safeContext =
+    typeof context === "object" && context !== null
+      ? context
+      : { value: context };
+  const entry = safeStringify({
+    level,
+    message,
+    timestamp: timestamp(),
+    ...safeContext,
+  });
 
   // Always persist to files
   writeToFile(combinedLogPath, entry);
@@ -39,16 +67,22 @@ function write(level, message, context = {}) {
     // JSON lines — parseable by Datadog, Logtail, CloudWatch, etc.
     process.stdout.write(entry + "\n");
   } else {
-    const prefix = {
-      info:  "ℹ️  [INFO]",
-      warn:  "⚠️  [WARN]",
-      error: "❌ [ERROR]",
-      debug: "🔍 [DEBUG]",
-    }[level] || `[${level.toUpperCase()}]`;
+    const prefix =
+      {
+        info: "ℹ️  [INFO]",
+        warn: "⚠️  [WARN]",
+        error: "❌ [ERROR]",
+        debug: "🔍 [DEBUG]",
+      }[level] || `[${level.toUpperCase()}]`;
 
-    const ctxStr = Object.keys(context).length
-      ? "\n  " + JSON.stringify(context, null, 2).split("\n").join("\n  ")
-      : "";
+    let ctxStr = "";
+    if (Object.keys(safeContext).length) {
+      try {
+        ctxStr = "\n  " + safeStringify(safeContext, 2).split("\n").join("\n  ");
+      } catch {
+        ctxStr = `\n  [Context Serialization Error]`;
+      }
+    }
     console.log(`${prefix} ${message}${ctxStr}`);
   }
 }

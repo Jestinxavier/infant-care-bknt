@@ -13,6 +13,9 @@ const updateCategory = async (req, res) => {
       parentCategory,
       removeImage,
       image,
+      hasSizeChart,
+      sizeChartImage,
+      removeSizeChartImage,
     } = req.body;
     const imageFile = req.file; // Uploaded image file
 
@@ -68,6 +71,10 @@ const updateCategory = async (req, res) => {
       category.isActive = isActive;
     }
 
+    if (hasSizeChart !== undefined) {
+      category.hasSizeChart = hasSizeChart === "true" || hasSizeChart === true;
+    }
+
     // Handle image upload/removal
     if (imageFile) {
       // Delete old image if exists
@@ -96,6 +103,22 @@ const updateCategory = async (req, res) => {
         }
       }
       category.image = null; // Clear image field
+    }
+
+    // Handle size chart image URL update/removal
+    if (sizeChartImage && removeSizeChartImage !== "true" && removeSizeChartImage !== true) {
+      category.sizeChartImage = sizeChartImage;
+    } else if (removeSizeChartImage === "true" || removeSizeChartImage === true) {
+      if (category.sizeChartImage) {
+        const publicId = category.sizeChartImage.split("/").pop().split(".")[0];
+        try {
+          const { deleteAssets } = require("../../utils/mediaFinalizer");
+          await deleteAssets([`categories/${publicId}`]);
+        } catch (err) {
+          logger.info("⚠️ Could not delete category size chart image:", err.message);
+        }
+      }
+      category.sizeChartImage = null;
     }
 
     if (parentCategory !== undefined) {
@@ -147,30 +170,43 @@ const updateCategory = async (req, res) => {
       "name slug"
     );
 
-    // Finalize image if present
-    if (updatedCategory.image) {
-      try {
-        const {
-          extractPublicIdsFromObject,
-          finalizeImages,
-        } = require("../../utils/mediaFinalizer");
+    // Finalize images if present
+    try {
+      const {
+        extractPublicIdsFromObject,
+        finalizeImages,
+      } = require("../../utils/mediaFinalizer");
 
-        const imagePublicIds = extractPublicIdsFromObject(
-          updatedCategory.image
-        );
-
+      if (updatedCategory.image) {
+        const imagePublicIds = extractPublicIdsFromObject(updatedCategory.image);
         if (imagePublicIds.length > 0) {
           await finalizeImages(imagePublicIds, "category", updatedCategory._id);
-          logger.info(
-            `✅ [Category] Finalized image for ${updatedCategory.name}`
-          );
+          logger.info(`✅ [Category] Finalized image for ${updatedCategory.name}`);
         }
-      } catch (finalizeError) {
-        logger.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
       }
+
+      if (updatedCategory.sizeChartImage) {
+        const sizeChartPublicIds = extractPublicIdsFromObject(updatedCategory.sizeChartImage);
+        if (sizeChartPublicIds.length > 0) {
+          await finalizeImages(sizeChartPublicIds, "category-size-chart", updatedCategory._id);
+          logger.info(`✅ [Category] Finalized size chart image for ${updatedCategory.name}`);
+        }
+      }
+    } catch (finalizeError) {
+      logger.warn("⚠️ [Category] Failed to finalize images:", finalizeError);
     }
 
     await cacheDel("categories");
+
+    // Trigger Next.js storefront cache revalidation
+    try {
+      const { triggerRevalidation } = require("../../services/revalidateService");
+      await triggerRevalidation({ tag: "group:products" });
+      await triggerRevalidation({ tag: "group:categories" });
+      logger.info(`✅ [Category] Triggered storefront revalidation for update of ${updatedCategory.name}`);
+    } catch (revalErr) {
+      logger.warn("⚠️ [Category] Failed to trigger storefront revalidation:", revalErr.message);
+    }
 
     res.status(200).json({
       success: true,

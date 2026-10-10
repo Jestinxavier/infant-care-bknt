@@ -5,14 +5,20 @@ const emailService = require("../../services/emailService");
 const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
-const { canTransitionStatus } = require("../../features/order/rules/order.rules");
+const {
+  canTransitionStatus,
+} = require("../../features/order/rules/order.rules");
 const { invalidateDashboardCache } = require("./dashboardController");
 const { invalidateSalesReportCache } = require("./salesReportController");
 const { invalidateCustomerReportCache } = require("./customerReportController");
 const { invalidateRevenueReportCache } = require("./revenueReportController");
 const { invalidateOrdersByStatusCache } = require("./ordersByStatusController");
-const { invalidateReturnsCancellationsCache } = require("./returnsCancellationsController");
-const { invalidatePaymentMethodSplitCache } = require("./paymentMethodSplitController");
+const {
+  invalidateReturnsCancellationsCache,
+} = require("./returnsCancellationsController");
+const {
+  invalidatePaymentMethodSplitCache,
+} = require("./paymentMethodSplitController");
 const logger = require("../../utils/logger");
 const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
 
@@ -42,7 +48,9 @@ async function buildOrderFilter(requestData, reqUser) {
   const userRole = reqUser?.role;
   if (userRole === "admin") {
     const restrictionDate = new Date();
-    restrictionDate.setUTCDate(restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS);
+    restrictionDate.setUTCDate(
+      restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
+    );
     restrictionDate.setUTCHours(0, 0, 0, 0);
 
     if (from) {
@@ -101,10 +109,20 @@ async function buildOrderFilter(requestData, reqUser) {
   // Order amount range filter
   const parsedMinTotal = Number(minTotal);
   const parsedMaxTotal = Number(maxTotal);
-  if (minTotal !== undefined && minTotal !== null && minTotal !== "" && Number.isFinite(parsedMinTotal)) {
+  if (
+    minTotal !== undefined &&
+    minTotal !== null &&
+    minTotal !== "" &&
+    Number.isFinite(parsedMinTotal)
+  ) {
     filter.totalAmount = { ...filter.totalAmount, $gte: parsedMinTotal };
   }
-  if (maxTotal !== undefined && maxTotal !== null && maxTotal !== "" && Number.isFinite(parsedMaxTotal)) {
+  if (
+    maxTotal !== undefined &&
+    maxTotal !== null &&
+    maxTotal !== "" &&
+    Number.isFinite(parsedMaxTotal)
+  ) {
     filter.totalAmount = { ...filter.totalAmount, $lte: parsedMaxTotal };
   }
 
@@ -223,7 +241,11 @@ const getAllOrders = async (req, res) => {
             phone: order.userId.phone,
           }
         : null,
-      customerName: order.userId?.username || order.userId?.email || order.shippingAddress?.fullName || "Guest",
+      customerName:
+        order.userId?.username ||
+        order.userId?.email ||
+        order.shippingAddress?.fullName ||
+        "Guest",
       customerEmail: order.userId?.email,
       customerPhone: order.userId?.phone,
       date: order.placedAt || order.createdAt,
@@ -264,7 +286,7 @@ const getAllOrders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -353,7 +375,7 @@ const getOrderById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -421,7 +443,10 @@ const updateOrderStatus = async (req, res) => {
       }
 
       // Enforce state machine: only allow valid forward/backward transitions
-      if (status !== currentOrder.orderStatus && !canTransitionStatus(currentOrder.orderStatus, status)) {
+      if (
+        status !== currentOrder.orderStatus &&
+        !canTransitionStatus(currentOrder.orderStatus, status)
+      ) {
         return res.status(422).json({
           success: false,
           errorCode: "INVALID_TRANSITION",
@@ -519,7 +544,11 @@ const updateOrderStatus = async (req, res) => {
         else {
           const foundPartner = await mongoose
             .model("DeliveryPartner")
-            .findOne({ name: { $regex: new RegExp(`^${escapeRegex(partnerName)}$`, "i") } });
+            .findOne({
+              name: {
+                $regex: new RegExp(`^${escapeRegex(partnerName)}$`, "i"),
+              },
+            });
 
           if (foundPartner) {
             updateFields.deliveryPartner = foundPartner._id;
@@ -539,7 +568,7 @@ const updateOrderStatus = async (req, res) => {
             [];
           // Check if "Tracking URL" already exists
           const existingUrlIndex = currentInfo.findIndex(
-            (item) => item.key && item.key.toLowerCase() === "tracking url"
+            (item) => item.key && item.key.toLowerCase() === "tracking url",
           );
 
           if (existingUrlIndex >= 0) {
@@ -633,7 +662,10 @@ const updateOrderStatus = async (req, res) => {
       try {
         await restoreOrderStock(currentOrder);
       } catch (restoreErr) {
-        logger.error("Failed to restore stock on order cancel/return", { orderId: currentOrder._id, error: restoreErr.message });
+        logger.error("Failed to restore stock on order cancel/return", {
+          orderId: currentOrder._id,
+          error: restoreErr.message,
+        });
         return res.status(500).json({
           success: false,
           message:
@@ -653,7 +685,7 @@ const updateOrderStatus = async (req, res) => {
     const order = await Order.findOneAndUpdate(
       updateMatchCondition,
       { $set: updateFields },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email")
       .populate("deliveryPartner")
@@ -662,7 +694,8 @@ const updateOrderStatus = async (req, res) => {
     if (!order) {
       return res.status(409).json({
         success: false,
-        message: "Order was modified by another request. Please refresh and try again.",
+        message:
+          "Order was modified by another request. Please refresh and try again.",
       });
     }
 
@@ -681,25 +714,39 @@ const updateOrderStatus = async (req, res) => {
       currentOrder.orderStatus !== status
     ) {
       invalidateDashboardCache().catch((err) =>
-        logger.error("Dashboard cache invalidation failed", { error: err.message })
+        logger.error("Dashboard cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateSalesReportCache().catch((err) =>
-        logger.error("Sales report cache invalidation failed", { error: err.message })
+        logger.error("Sales report cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateCustomerReportCache().catch((err) =>
-        logger.error("Customers report cache invalidation failed", { error: err.message })
+        logger.error("Customers report cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateRevenueReportCache().catch((err) =>
-        logger.error("Revenue report cache invalidation failed", { error: err.message })
+        logger.error("Revenue report cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateOrdersByStatusCache().catch((err) =>
-        logger.error("Orders by status cache invalidation failed", { error: err.message })
+        logger.error("Orders by status cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateReturnsCancellationsCache().catch((err) =>
-        logger.error("Returns cancellations cache invalidation failed", { error: err.message })
+        logger.error("Returns cancellations cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidatePaymentMethodSplitCache().catch((err) =>
-        logger.error("Payment method split cache invalidation failed", { error: err.message })
+        logger.error("Payment method split cache invalidation failed", {
+          error: err.message,
+        }),
       );
     }
 
@@ -707,7 +754,10 @@ const updateOrderStatus = async (req, res) => {
     const emailRecipient =
       order.userId ||
       (order.isGuestOrder && order.guestInfo?.email
-        ? { email: order.guestInfo.email, username: order.guestInfo.name || "Customer" }
+        ? {
+            email: order.guestInfo.email,
+            username: order.guestInfo.name || "Customer",
+          }
         : null);
 
     // Send shipment email if status changed to shipped
@@ -719,7 +769,10 @@ const updateOrderStatus = async (req, res) => {
       emailService
         .sendShipmentEmail(emailRecipient, order)
         .catch((err) =>
-          logger.error("Shipment email failed", { orderId: order._id, error: err.message })
+          logger.error("Shipment email failed", {
+            orderId: order._id,
+            error: err.message,
+          }),
         );
     }
 
@@ -729,10 +782,8 @@ const updateOrderStatus = async (req, res) => {
     //    (paymentStatus: pending|failed + orderStatus: pending)
     const skipCancelEmail =
       req.body.skipCancelEmail === true ||
-      (
-        ["pending", "failed"].includes(currentOrder.paymentStatus) &&
-        currentOrder.orderStatus === "pending"
-      );
+      (["pending", "failed"].includes(currentOrder.paymentStatus) &&
+        currentOrder.orderStatus === "pending");
 
     if (
       status === "cancelled" &&
@@ -743,15 +794,21 @@ const updateOrderStatus = async (req, res) => {
       emailService
         .sendOrderCancelledEmail(emailRecipient, order)
         .catch((err) =>
-          logger.error("Order cancelled email failed", { orderId: order._id, error: err.message })
+          logger.error("Order cancelled email failed", {
+            orderId: order._id,
+            error: err.message,
+          }),
         );
     }
   } catch (err) {
-    logger.error("Admin error updating order status", { error: err.message, stack: err.stack });
+    logger.error("Admin error updating order status", {
+      error: err.message,
+      stack: err.stack,
+    });
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -797,12 +854,13 @@ const sendOrderInvoice = async (req, res) => {
         .json({ success: false, message: "Order not found" });
     }
 
-    if (!order.userId || !order.userId.email) {
-      // Fallback to guest email if stored on order (if applicable) or error
-      // Assuming order.customerEmail might exist for guest checkout in future, but for now strict user check
+    const recipient = await emailService.getOrderRecipient(order);
+
+    if (!recipient?.email) {
       return res.status(400).json({
         success: false,
-        message: "User email not found for this order. Cannot send invoice.",
+        message:
+          "Customer email not found for this order. Cannot send invoice.",
       });
     }
 
@@ -813,7 +871,7 @@ const sendOrderInvoice = async (req, res) => {
     // Our population matches that mostly.
 
     // Send Email
-    await emailService.sendInvoiceEmail(order.userId, order);
+    await emailService.sendInvoiceEmail(recipient, order);
 
     res.status(200).json({
       success: true,
@@ -824,7 +882,7 @@ const sendOrderInvoice = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -837,16 +895,28 @@ const markOrderAsPaid = async (req, res) => {
     const { orderId, phonepeTransactionId } = req.body;
 
     if (!orderId) {
-      return res.status(400).json({ success: false, message: "Order ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order ID is required" });
     }
     if (!phonepeTransactionId || !String(phonepeTransactionId).trim()) {
-      return res.status(400).json({ success: false, message: "PhonePe Transaction ID is required" });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "PhonePe Transaction ID is required",
+        });
     }
 
     // Resolve order
     const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
     let query = mongoose.Types.ObjectId.isValid(orderId)
-      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      ? {
+          $or: [
+            { _id: orderId },
+            { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+          ],
+        }
       : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
 
     const order = await Order.findOne(query)
@@ -854,18 +924,25 @@ const markOrderAsPaid = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
     }
 
     // Guard: only allow for PhonePe/Razorpay + pending payment
-    if (order.paymentMethod !== PAYMENT_METHODS.PHONEPE && order.paymentMethod !== PAYMENT_METHODS.RAZORPAY) {
+    if (
+      order.paymentMethod !== PAYMENT_METHODS.PHONEPE &&
+      order.paymentMethod !== PAYMENT_METHODS.RAZORPAY
+    ) {
       return res.status(400).json({
         success: false,
         message: `This order uses ${order.paymentMethod}. Manual paid marking is only for online (PhonePe/Razorpay) orders.`,
       });
     }
     if (order.paymentStatus === "paid") {
-      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order is already marked as paid." });
     }
 
     // Build status history entry
@@ -887,27 +964,30 @@ const markOrderAsPaid = async (req, res) => {
           statusHistory: history,
         },
       },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email phone")
       .lean();
 
     if (!updated) {
-      return res.status(500).json({ success: false, message: "Failed to update order" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to update order" });
     }
 
     res.status(200).json({
       success: true,
-      message: "Order marked as paid and confirmed. Invoice email will be sent.",
+      message:
+        "Order marked as paid and confirmed. Invoice email will be sent.",
       order: { ...updated, _id: updated._id?.toString() },
     });
 
     // Send invoice email asynchronously (don't block the response)
-    if (updated.userId?.email) {
-      emailService
-        .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => logger.error("❌ Invoice email failed after mark-paid:", err.message));
-    }
+    emailService
+      .sendOrderConfirmationEmail(updated)
+      .catch((err) =>
+        logger.error("❌ Invoice email failed after mark-paid:", err.message),
+      );
   } catch (err) {
     logger.error("❌ Admin Error marking order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -923,13 +1003,20 @@ const markCodOrderAsPaid = async (req, res) => {
     const { orderId } = req.body;
 
     if (!orderId) {
-      return res.status(400).json({ success: false, message: "Order ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order ID is required" });
     }
 
     // Resolve order
     const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
     let query = mongoose.Types.ObjectId.isValid(orderId)
-      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      ? {
+          $or: [
+            { _id: orderId },
+            { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+          ],
+        }
       : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
 
     const order = await Order.findOne(query)
@@ -937,7 +1024,9 @@ const markCodOrderAsPaid = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
     }
 
     // Guard: only allow for COD + pending payment
@@ -948,7 +1037,9 @@ const markCodOrderAsPaid = async (req, res) => {
       });
     }
     if (order.paymentStatus === "paid") {
-      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order is already marked as paid." });
     }
 
     // Build status history entry
@@ -968,13 +1059,15 @@ const markCodOrderAsPaid = async (req, res) => {
           statusHistory: history,
         },
       },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email phone")
       .lean();
 
     if (!updated) {
-      return res.status(500).json({ success: false, message: "Failed to update order" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to update order" });
     }
 
     res.status(200).json({
@@ -985,29 +1078,51 @@ const markCodOrderAsPaid = async (req, res) => {
 
     // Revenue changed — flush the dashboard cache
     invalidateDashboardCache().catch((err) =>
-      logger.error("Dashboard cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error("Dashboard cache invalidation failed after COD mark-paid", {
+        error: err.message,
+      }),
     );
     invalidateSalesReportCache().catch((err) =>
-      logger.error("Sales report cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Sales report cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidateCustomerReportCache().catch((err) =>
-      logger.error("Customers report cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Customers report cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidateRevenueReportCache().catch((err) =>
-      logger.error("Revenue report cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Revenue report cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidateOrdersByStatusCache().catch((err) =>
-      logger.error("Orders by status cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Orders by status cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidatePaymentMethodSplitCache().catch((err) =>
-      logger.error("Payment method split cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Payment method split cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
 
     // Send invoice email asynchronously (don't block the response)
     if (updated.userId?.email) {
       emailService
         .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => logger.error("❌ Invoice email failed after COD mark-paid:", err.message));
+        .catch((err) =>
+          logger.error(
+            "❌ Invoice email failed after COD mark-paid:",
+            err.message,
+          ),
+        );
     }
   } catch (err) {
     logger.error("❌ Admin Error marking COD order as paid:", err);
@@ -1119,9 +1234,15 @@ function buildOrdersCsv(orders, type) {
   const lines = [header.join(",")];
   for (const o of orders) {
     const items = (o.items || [])
-      .map((it) => `${it.name}${it.variantName ? ` (${it.variantName})` : ""} x${it.quantity}`)
+      .map(
+        (it) =>
+          `${it.name}${it.variantName ? ` (${it.variantName})` : ""} x${it.quantity}`,
+      )
       .join(" | ");
-    const itemCount = (o.items || []).reduce((s, it) => s + (it.quantity || 0), 0);
+    const itemCount = (o.items || []).reduce(
+      (s, it) => s + (it.quantity || 0),
+      0,
+    );
     lines.push(
       orderCsvRow([
         o.orderId || o._id,

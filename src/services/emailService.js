@@ -30,7 +30,7 @@ const loadTemplate = (templateName, data = {}) => {
 
   // Same logo URL for all templates (no attachment, consistent branding)
   const EMAIL_LOGO_URL =
-    "https://res.cloudinary.com/dkosvbrgw/image/upload/v1771013464/assets/55ff283583f31819ce1c8afd4cd9793238fb0cc7872fa46124888a67e43bca7b.png";
+    "https://dashboard.infantscare.in/logo-invoice.png";
   data.emailLogoDataUrl = EMAIL_LOGO_URL;
 
   /**
@@ -120,9 +120,15 @@ const createTransporter = () => {
   });
 };
 
-/* =====================================================
-   ✅ Universal Send Function
-===================================================== */
+const stripHtml = (html) => {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Remove styles
+    .replace(/<[^>]*>/g, "") // Strip HTML tags
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ") // Collapse whitespace
+    .replace(/\s*\n\s*/g, "\n") // Collapse lines
+    .trim();
+};
 
 /**
  * Send email using template
@@ -139,6 +145,7 @@ const sendTemplateEmail = async ({
   const transporter = createTransporter();
 
   const html = loadTemplate(template, data);
+  const text = stripHtml(html);
 
   const mailOptions = {
     from: `"${process.env.EMAIL_FROM_NAME || "Infants Care"}" <${
@@ -147,6 +154,7 @@ const sendTemplateEmail = async ({
     to,
     subject,
     html,
+    text,
   };
   if (attachments && attachments.length > 0) {
     mailOptions.attachments = attachments;
@@ -172,7 +180,7 @@ const generateOTP = () =>
 const sendOTPEmail = async (user, otp) => {
   return sendTemplateEmail({
     to: user.email,
-    subject: "🔐 Your Verification Code - Infants Care",
+    subject: "Your Verification Code - Infants Care",
     template: "otp-verification",
     data: {
       username: user.username || "Customer",
@@ -187,7 +195,7 @@ const sendOTPEmail = async (user, otp) => {
 const sendWelcomeEmail = async (user) => {
   return sendTemplateEmail({
     to: user.email,
-    subject: "🎉 Email Verified Successfully!",
+    subject: "Email Verified Successfully! - Infants Care",
     template: "email-verified",
     data: {
       username: user.username || "Customer",
@@ -205,7 +213,7 @@ const sendPasswordResetEmail = async (user, resetToken) => {
 
   return sendTemplateEmail({
     to: user.email,
-    subject: "🔒 Password Reset Request",
+    subject: "Password Reset Request - Infants Care",
     template: "password-reset",
     data: {
       username: user.username || "Customer",
@@ -234,9 +242,82 @@ const sendAdminCredentialsEmail = async (user, password) => {
 };
 
 /**
+ * Helper to resolve user/recipient object for email sending.
+ * Works seamlessly for both registered users and guest users.
+ * @param {import('../models/Order').default|Object} order
+ * @returns {Promise<{ username: string, email: string }|null>}
+ */
+const getOrderRecipient = async (order) => {
+  if (!order) return null;
+
+  // 1. Check guestInfo
+  if (order.guestInfo?.email) {
+    return {
+      username:
+        order.guestInfo.name ||
+        order.shippingAddress?.fullName ||
+        order.shippingAddress?.name ||
+        "Customer",
+      email: order.guestInfo.email,
+    };
+  }
+
+  // 2. Check populated userId object
+  if (order.userId && typeof order.userId === "object" && order.userId.email) {
+    return {
+      username:
+        order.userId.username ||
+        order.shippingAddress?.fullName ||
+        order.shippingAddress?.name ||
+        "Customer",
+      email: order.userId.email,
+    };
+  }
+
+  // 3. Lookup userId by ID
+  if (order.userId) {
+    try {
+      const User = require("../models/user");
+      const user = await User.findById(order.userId).select("username email").lean();
+      if (user?.email) {
+        return {
+          username:
+            user.username ||
+            order.shippingAddress?.fullName ||
+            order.shippingAddress?.name ||
+            "Customer",
+          email: user.email,
+        };
+      }
+    } catch {
+      // Fallthrough
+    }
+  }
+
+  // 4. Fallback: shippingAddress email
+  if (order.shippingAddress?.email) {
+    return {
+      username:
+        order.shippingAddress.fullName ||
+        order.shippingAddress.name ||
+        "Customer",
+      email: order.shippingAddress.email,
+    };
+  }
+
+  return null;
+};
+
+/**
  * ✅ Send Shipment Email
  */
 const sendShipmentEmail = async (user, order) => {
+  let recipient = user;
+  if (!recipient?.email && order) {
+    recipient = await getOrderRecipient(order);
+  }
+  if (!recipient?.email) return;
+
   const trackingUrl =
     order.trackingId && order.deliveryPartner?.trackingUrlTemplate
       ? order.deliveryPartner.trackingUrlTemplate.replace(
@@ -252,11 +333,11 @@ const sendShipmentEmail = async (user, order) => {
   }));
 
   return sendTemplateEmail({
-    to: user.email,
-    subject: `📦 Order #${order.orderId.toUpperCase()} Shipped`,
+    to: recipient.email,
+    subject: `Order #${order.orderId.toUpperCase()} Shipped - Infants Care`,
     template: "shipment-notification",
     data: {
-      username: user.username || "Customer",
+      username: recipient.username || "Customer",
       orderId: order.orderId.toUpperCase(),
       trackingId: order.trackingId,
       trackingUrl,
@@ -271,7 +352,11 @@ const sendShipmentEmail = async (user, order) => {
  * ✅ Send Order Cancelled Email
  */
 const sendOrderCancelledEmail = async (user, order) => {
-  if (!user?.email) return;
+  let recipient = user;
+  if (!recipient?.email && order) {
+    recipient = await getOrderRecipient(order);
+  }
+  if (!recipient?.email) return;
 
   const items = (order.items || []).map((item) => ({
     productName: item.productId?.name || item.productName || item.name,
@@ -280,11 +365,11 @@ const sendOrderCancelledEmail = async (user, order) => {
   }));
 
   return sendTemplateEmail({
-    to: user.email,
-    subject: `Order #${(order.orderId || "").toUpperCase()} Cancelled`,
+    to: recipient.email,
+    subject: `Order #${(order.orderId || "").toUpperCase()} Cancelled - Infants Care`,
     template: "order-cancelled",
     data: {
-      username: user.username || "Customer",
+      username: recipient.username || "Customer",
       orderId: (order.orderId || "").toUpperCase(),
       items,
     },
@@ -295,6 +380,12 @@ const sendOrderCancelledEmail = async (user, order) => {
  * ✅ Send Invoice Email
  */
 const sendInvoiceEmail = async (user, order) => {
+  let recipient = user;
+  if (!recipient?.email && order) {
+    recipient = await getOrderRecipient(order);
+  }
+  if (!recipient?.email) return;
+
   const fromAddressSetting = await SiteSetting.findOne({
     key: SITE_SETTING_KEYS.ORDER_FROM_ADDRESS,
   }).lean();
@@ -374,11 +465,11 @@ const sendInvoiceEmail = async (user, order) => {
   }
 
   return sendTemplateEmail({
-    to: user.email,
-    subject: `🧾 Invoice for Order #${order.orderId.toUpperCase()}`,
+    to: recipient.email,
+    subject: `Invoice for Order #${order.orderId.toUpperCase()} - Infants Care`,
     template: "invoice",
     data: {
-      username: user.username || "Customer",
+      username: recipient.username || "Customer",
       orderId: order.orderId.toUpperCase(),
       orderDate,
       orderStatus: order.orderStatus || order.status,
@@ -410,24 +501,24 @@ const sendInvoiceEmail = async (user, order) => {
   });
 };
 
-/* =====================================================
-   ✅ EXPORTS
-===================================================== */
-
 /**
  * ✅ Send Refund Initiated Email
  */
 const sendRefundInitiatedEmail = async (user, order, refundAmountPaise) => {
-  if (!user?.email) return;
+  let recipient = user;
+  if (!recipient?.email && order) {
+    recipient = await getOrderRecipient(order);
+  }
+  if (!recipient?.email) return;
 
   const refundAmountRupees = (refundAmountPaise / 100).toFixed(2);
 
   return sendTemplateEmail({
-    to: user.email,
-    subject: `✅ Refund of ₹${refundAmountRupees} Initiated — Order #${(order.orderId || "").toUpperCase()}`,
+    to: recipient.email,
+    subject: `Refund of ₹${refundAmountRupees} Initiated — Order #${(order.orderId || "").toUpperCase()} - Infants Care`,
     template: "refund-initiated",
     data: {
-      username: user.username || "Customer",
+      username: recipient.username || "Customer",
       orderId: (order.orderId || "").toUpperCase(),
       refundAmount: refundAmountRupees,
       refundReason: order.refundReason || "",
@@ -464,16 +555,9 @@ const sendGuestOrderConfirmationEmail = async (guestInfo, order) => {
  * Safe to call fire-and-forget with .catch().
  */
 const sendOrderConfirmationEmail = async (order) => {
-  if (order.isGuestOrder && order.guestInfo?.email) {
-    return sendInvoiceEmail(
-      { username: order.guestInfo.name || "Customer", email: order.guestInfo.email },
-      order,
-    );
-  }
-  if (order.userId) {
-    const User = require("../models/user");
-    const user = await User.findById(order.userId).select("username email").lean();
-    if (user?.email) return sendInvoiceEmail(user, order);
+  const recipient = await getOrderRecipient(order);
+  if (recipient?.email) {
+    return sendInvoiceEmail(recipient, order);
   }
 };
 
@@ -489,4 +573,5 @@ module.exports = {
   sendRefundInitiatedEmail,
   sendGuestOrderConfirmationEmail,
   sendOrderConfirmationEmail,
+  getOrderRecipient,
 };
