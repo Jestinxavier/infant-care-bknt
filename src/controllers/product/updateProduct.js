@@ -28,6 +28,7 @@ const {
 } = require("../../utils/filterAttributes");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
+const { normalizeDesignId } = require("../../utils/designId");
 const { triggerRevalidation } = require("../../services/revalidateService");
 const { syncProductsByIds } = require("../../services/searchIndexService");
 
@@ -131,6 +132,7 @@ const updateProduct = async (req, res) => {
       // Quantity-based tier pricing
       quantityRules,
       filterAttributes,
+      designId,
       // Legacy fields
       name,
     } = parsedBody;
@@ -402,6 +404,12 @@ const updateProduct = async (req, res) => {
     }
     if (url_key !== undefined) product.url_key = url_key;
     if (subtitle !== undefined) product.subtitle = subtitle;
+    // Optional design-family identifier. Empty string/null clears it
+    // (product stops sharing reviews). Canonicalized so formatting variants
+    // of the same design collapse to one value.
+    if (designId !== undefined) {
+      product.designId = normalizeDesignId(designId);
+    }
     if (shortDescription !== undefined)
       product.shortDescription = shortDescription;
     if (

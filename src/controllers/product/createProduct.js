@@ -29,6 +29,7 @@ const {
 } = require("../../utils/filterAttributes");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
+const { normalizeDesignId } = require("../../utils/designId");
 const { syncProductsByIds } = require("../../services/searchIndexService");
 
 /**
@@ -227,6 +228,7 @@ const createProduct = async (req, res) => {
       // Quantity-based tier pricing
       quantityRules,
       filterAttributes,
+      designId,
     } = parsedBody;
 
     // Use title or name (backward compatibility)
@@ -648,11 +650,11 @@ const createProduct = async (req, res) => {
 
         // ✅ Auto-generate variant SKU when missing (align with product.service)
         let variantSku = v.sku;
+        const attrsObj = Object.fromEntries(attributesMap);
         if (
           !variantSku ||
           (typeof variantSku === "string" && !variantSku.trim())
         ) {
-          const attrsObj = Object.fromEntries(attributesMap);
           variantSku = generateVariantSku(productSku, attrsObj);
         }
         variantSku = await ensureUniqueVariantSku(variantSku, index);
@@ -885,6 +887,9 @@ const createProduct = async (req, res) => {
             }))
           : [],
       filterAttributes: sanitizedFilterAttributes,
+      // Optional design-family identifier for shared reviews. Canonicalized so
+      // formatting variants of the same design collapse to one value.
+      designId: normalizeDesignId(designId) || undefined,
       // DO NOT allow rating fields to be set manually
       averageRating: 0,
       totalReviews: 0,

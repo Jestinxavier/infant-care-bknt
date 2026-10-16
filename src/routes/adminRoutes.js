@@ -9,6 +9,7 @@ const {
   searchProducts,
   skuLookup,
   countFilterValue,
+  getDesignFamilies,
   reindexSearchIndex,
   getAllOrders,
   getOrderById,
@@ -629,6 +630,26 @@ router.get(
   verifyToken,
   requireAdmin,
   countFilterValue,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/design-families:
+ *   get:
+ *     summary: "[Admin] List existing design families"
+ *     description: Distinct designId values with sample product + member count (for the product form datalist)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Design families retrieved successfully
+ */
+router.get(
+  "/products/design-families",
+  verifyToken,
+  requireAdmin,
+  getDesignFamilies,
 );
 
 // Import bulk import controller

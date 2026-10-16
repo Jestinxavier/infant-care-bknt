@@ -6,6 +6,7 @@ const Product = require("../../src/models/Product");
 const Category = require("../../src/models/Category");
 const User = require("../../src/models/user");
 const { generateCartId } = require("../../src/utils/cartIdGenerator");
+const { extractAccessToken } = require("../helpers/authHelpers");
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ describe("Cart Merge Integration Tests (POST /cart/merge)", () => {
       email: testUser.email,
       password: testUser.password,
     });
-    userToken = res.body.accessToken;
+    userToken = extractAccessToken(res);
 
     // 4. Get User ID reliably from DB
     const userDoc = await User.findOne({ email: testUser.email });

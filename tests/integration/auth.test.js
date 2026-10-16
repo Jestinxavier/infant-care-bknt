@@ -79,7 +79,11 @@ describe("Auth API", () => {
 
       expect(res.statusCode).toEqual(200);
       expect(res.body.success).toBe(true);
-      expect(res.body).toHaveProperty("accessToken");
+      // Tokens are delivered as httpOnly cookies (access_token), not in the body
+      const accessCookie = (res.headers["set-cookie"] || []).find((c) =>
+        c.startsWith("access_token="),
+      );
+      expect(accessCookie).toBeTruthy();
     });
 
     it("should fail login with incorrect password", async () => {

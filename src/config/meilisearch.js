@@ -1,4 +1,4 @@
-const { MeiliSearch } = require("meilisearch");
+const { Meilisearch } = require("meilisearch");
 const logger = require("../utils/logger");
 
 /**
@@ -15,7 +15,7 @@ let client = null;
 
 if (process.env.MEILISEARCH_HOST) {
   try {
-    client = new MeiliSearch({
+    client = new Meilisearch({
       host: process.env.MEILISEARCH_HOST,
       apiKey: process.env.MEILISEARCH_API_KEY || "",
     });

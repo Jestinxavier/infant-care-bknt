@@ -6,6 +6,7 @@ const Product = require("../../src/models/Product");
 const User = require("../../src/models/user");
 const Cart = require("../../src/models/Cart");
 const Coupon = require("../../src/models/Coupon");
+const { extractAccessToken } = require("../helpers/authHelpers");
 
 describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
   let userToken;
@@ -41,7 +42,7 @@ describe("Cart End-to-End Flow (Add, Update, Delete, Coupon, Checkout)", () => {
       password: testUser.password,
     });
     console.log("LOGIN RESPONSE", loginRes.body);
-    userToken = loginRes.body.accessToken;
+    userToken = extractAccessToken(loginRes);
     userId = (await User.findOne({ email: testUser.email }))._id;
 
     // 2. Setup Category

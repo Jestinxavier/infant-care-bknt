@@ -327,6 +327,17 @@ const productSchema = new mongoose.Schema(
       default: [],
       index: true,
     },
+    // Optional design-family identifier. Products sharing the same designId
+    // (same garment/fabric/fit/construction across prints) pool their approved
+    // reviews for the storefront "Reviews from similar designs" section.
+    // Absent/null = product behaves exactly as before (no sharing).
+    designId: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      index: true,
+      sparse: true,
+    },
     badgeCollection: {
       type: String,
       default: null,

@@ -1,6 +1,7 @@
 const SiteSetting = require("../models/SiteSetting");
 const Product = require("../models/Product");
 const logger = require("../utils/logger");
+const { getPricing } = require("../utils/productPricing");
 const {
   SITE_SETTING_KEYS,
   getSiteSettingDefinition,
@@ -420,7 +421,9 @@ const SUGGESTED_VIEW_ALL_MAX_LENGTH = 200;
 async function resolveProductSuggestions(productIds = []) {
   if (!productIds.length) return [];
   const docs = await Product.find({ _id: { $in: productIds }, status: "published" })
-    .select("_id title url_key images pricing price category")
+    .select(
+      "_id title url_key images pricing price offerPrice offerStartAt offerEndAt category variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt"
+    )
     .populate("category", "name")
     .lean();
 
@@ -431,12 +434,14 @@ async function resolveProductSuggestions(productIds = []) {
     .map((p) => {
       const rawImage = p.images?.[0];
       const image = typeof rawImage === "string" ? rawImage : "";
-      const price = p.pricing?.price || p.price || 0;
+      const { regular_price, offer_price } = getPricing(p);
       return {
         id: String(p._id),
         title: p.title || "",
         url_key: p.url_key || "",
-        price,
+        price: offer_price ?? regular_price,
+        regular_price,
+        offer_price,
         image,
         category: p.category?.name || "",
       };

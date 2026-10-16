@@ -3,6 +3,7 @@ const app = require("../../src/app");
 const mongoose = require("mongoose");
 const Category = require("../../src/models/Category");
 const User = require("../../src/models/user");
+const { extractAccessToken } = require("../helpers/authHelpers");
 
 describe("Product API", () => {
     let adminToken;
@@ -33,7 +34,7 @@ describe("Product API", () => {
                 password: "Password123!"
             });
 
-        adminToken = loginRes.body.accessToken;
+        adminToken = extractAccessToken(loginRes);
     });
 
     describe("POST /api/v1/product/create", () => {

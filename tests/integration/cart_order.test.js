@@ -5,6 +5,7 @@ const Category = require("../../src/models/Category");
 const Product = require("../../src/models/Product");
 const User = require("../../src/models/user");
 const Cart = require("../../src/models/Cart");
+const { extractAccessToken } = require("../helpers/authHelpers");
 
 describe.skip("Cart & Orders API", () => {
   // SKIPPED: Order creation uses MongoDB transactions which require a replica set.
@@ -74,9 +75,10 @@ describe.skip("Cart & Orders API", () => {
         otp: testUser.otp,
       });
 
-    if (registerRes.body.accessToken) {
+    const registerToken = extractAccessToken(registerRes);
+    if (registerToken) {
       // New user registered
-      userToken = registerRes.body.accessToken;
+      userToken = registerToken;
       userId = registerRes.body.user?.id;
     } else {
       // User already exists, login
@@ -84,7 +86,7 @@ describe.skip("Cart & Orders API", () => {
         email: testUser.email,
         password: testUser.password,
       });
-      userToken = loginRes.body.accessToken;
+      userToken = extractAccessToken(loginRes);
       userId = loginRes.body.user?.id;
     }
   });

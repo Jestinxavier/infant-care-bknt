@@ -527,10 +527,52 @@ const countFilterValue = async (req, res) => {
   }
 };
 
+/**
+ * Admin: List existing design families (distinct designId values) with a
+ * sample product + member count. Powers the product form's design-family
+ * datalist/autocomplete and the review-sharing admin surface.
+ */
+const getDesignFamilies = async (req, res) => {
+  try {
+    const groups = await Product.aggregate([
+      { $match: { designId: { $type: "string", $ne: "" } } },
+      { $group: { _id: "$designId", count: { $sum: 1 } } },
+      { $project: { _id: 0, designId: "$_id", count: 1 } },
+      { $sort: { designId: 1 } },
+    ]);
+
+    const families = await Promise.all(
+      groups.map(async (g) => {
+        const sample = await Product.findOne(
+          { designId: g.designId },
+          { title: 1, url_key: 1, images: 1 },
+        )
+          .sort({ updatedAt: -1 })
+          .lean();
+        return {
+          designId: g.designId,
+          count: g.count,
+          sampleTitle: sample?.title || null,
+          image: Array.isArray(sample?.images) ? sample.images[0] : null,
+        };
+      }),
+    );
+
+    res.status(200).json({ success: true, families });
+  } catch (err) {
+    logger.error("❌ Admin Error fetching design families:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   getAllProducts,
   getProductById,
   searchProducts,
   skuLookup,
   countFilterValue,
+  getDesignFamilies,
 };

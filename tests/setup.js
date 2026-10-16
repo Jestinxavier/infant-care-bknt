@@ -62,20 +62,21 @@ jest.mock("multer-storage-cloudinary", () => {
 // The app only constructs a client when MEILISEARCH_HOST is set, which never
 // happens in tests, so a stub is enough for modules that require it.
 jest.mock("meilisearch", () => {
-  class MeiliSearch {
+  class Meilisearch {
     constructor() {}
     index() {
       return {
-        addDocuments: jest.fn(),
-        updateDocuments: jest.fn(),
-        deleteDocuments: jest.fn(),
-        deleteAllDocuments: jest.fn(),
+        updateSettings: jest.fn().mockResolvedValue({ taskUid: 0 }),
+        addDocuments: jest.fn().mockResolvedValue({ taskUid: 0 }),
+        updateDocuments: jest.fn().mockResolvedValue({ taskUid: 0 }),
+        deleteDocuments: jest.fn().mockResolvedValue({ taskUid: 0 }),
+        deleteAllDocuments: jest.fn().mockResolvedValue({ taskUid: 0 }),
         search: jest.fn().mockResolvedValue({ hits: [] }),
         getDocuments: jest.fn().mockResolvedValue([]),
       };
     }
   }
-  return { MeiliSearch };
+  return { Meilisearch };
 });
 
 // uuid v14 is ESM-only; provide a v4 stub (used by chatController).
