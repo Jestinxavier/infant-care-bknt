@@ -141,6 +141,10 @@ app.post("/api/webhooks/razorpay", ...razorpayWebhookMiddleware);
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
+// Maintenance mode guard (runs before all storefront routes; admin/webhook/settings exempt)
+const maintenanceGuard = require("./middlewares/maintenanceMiddleware");
+app.use(maintenanceGuard);
+
 // Routes
 const authRoutes = require("./routes/auth");
 const productRoutes = require("./routes/product");

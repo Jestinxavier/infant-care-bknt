@@ -566,6 +566,68 @@ const upsertSuggestedProducts = async (req, res) => {
   }
 };
 
+// ─── Maintenance mode ─────────────────────────────────────────────────────────
+
+const maintenanceService = require("../services/maintenanceService");
+
+/**
+ * GET /api/v1/settings/maintenance
+ * Public maintenance state; reports `staffBypass` when an admin token is sent.
+ */
+const getMaintenanceSettings = async (req, res) => {
+  try {
+    const state = await maintenanceService.getMaintenanceState();
+    const staffBypass = req.user
+      ? await maintenanceService.resolveStaffBypass(req)
+      : false;
+
+    res.json({
+      success: true,
+      maintenance: maintenanceService.toPublicPayload(state, staffBypass),
+    });
+  } catch (error) {
+    logger.error("Error fetching maintenance settings:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch maintenance settings",
+    });
+  }
+};
+
+/**
+ * PUT /api/v1/admin/settings/maintenance
+ * Upsert maintenance settings (admin only).
+ */
+const updateMaintenanceSettings = async (req, res) => {
+  try {
+    const state = await maintenanceService.updateMaintenanceSettings(
+      req.body || {}
+    );
+    const staffBypass = await maintenanceService.resolveStaffBypass(req);
+
+    res.json({
+      success: true,
+      message: state.enabled
+        ? "Maintenance mode enabled"
+        : "Maintenance mode updated",
+      maintenance: maintenanceService.toPublicPayload(state, staffBypass),
+    });
+  } catch (error) {
+    if (error && error.statusCode) {
+      return res.status(error.statusCode).json(
+        typeof error.toJSON === "function"
+          ? error.toJSON()
+          : { success: false, message: error.message }
+      );
+    }
+    logger.error("Error updating maintenance settings:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update maintenance settings",
+    });
+  }
+};
+
 // ──────────────────────────────────────────────────────────────────────────────
 
 function normalizePopularSearches(rawSearches = []) {
@@ -622,4 +684,6 @@ module.exports = {
   getSuggestedProducts,
   getSuggestedProductsAdmin,
   upsertSuggestedProducts,
+  getMaintenanceSettings,
+  updateMaintenanceSettings,
 };
