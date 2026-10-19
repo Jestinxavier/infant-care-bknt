@@ -24,14 +24,12 @@ function parseDateRange(from, to) {
   return Object.keys(range).length > 0 ? range : null;
 }
 
-// Sales revenue match — paid online OR COD (not cancelled/returned)
+// Sales revenue match — paid orders only (not cancelled/returned).
+// Unpaid COD is captured separately as codPending below.
 function revenueMatch(dateMatch) {
   return {
     orderStatus: { $nin: ["cancelled", "returned"] },
-    $or: [
-      { paymentStatus: "paid" },
-      { paymentMethod: "COD" },
-    ],
+    paymentStatus: "paid",
     ...dateMatch,
   };
 }
@@ -43,8 +41,8 @@ function revenueMatch(dateMatch) {
  *
  * Buckets revenue & orders by day (default) or month across the selected
  * range, plus the same for the preceding period for comparison. Revenue is
- * counted for paid online orders plus COD orders that are not cancelled or
- * returned.
+ * counted for paid orders only (not cancelled/returned). Unpaid COD that is
+ * still collectible is reported separately per bucket as codPending.
  */
 exports.getRevenueOverTime = async (req, res) => {
   try {
@@ -100,7 +98,16 @@ exports.getRevenueOverTime = async (req, res) => {
 
       const dateMatch = { createdAt: { $gte: startDate, $lte: endDate } };
 
-      const [current, previous] = await Promise.all([
+      // Collectible-but-unpaid COD in the selected range (separate from
+      // revenue, which now only counts paid orders).
+      const codPendingMatch = {
+        paymentMethod: "COD",
+        paymentStatus: { $ne: "paid" },
+        orderStatus: { $nin: ["cancelled", "returned"] },
+        ...dateMatch,
+      };
+
+      const [current, previous, codPendingAgg] = await Promise.all([
         Order.aggregate([
           { $match: revenueMatch(dateMatch) },
           {
@@ -117,20 +124,6 @@ exports.getRevenueOverTime = async (req, res) => {
                   },
               total: { $sum: "$totalAmount" },
               orders: { $sum: 1 },
-              codPending: {
-                $sum: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $eq: ["$paymentMethod", "COD"] },
-                        { $ne: ["$paymentStatus", "paid"] },
-                      ],
-                    },
-                    "$totalAmount",
-                    0,
-                  ],
-                },
-              },
             },
           },
           { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
@@ -155,6 +148,25 @@ exports.getRevenueOverTime = async (req, res) => {
             },
           },
         ]),
+        Order.aggregate([
+          { $match: codPendingMatch },
+          {
+            $group: {
+              _id: byMonth
+                ? {
+                    year: { $year: "$createdAt" },
+                    month: { $month: "$createdAt" },
+                  }
+                : {
+                    year: { $year: "$createdAt" },
+                    month: { $month: "$createdAt" },
+                    day: { $dayOfMonth: "$createdAt" },
+                  },
+              total: { $sum: "$totalAmount" },
+            },
+          },
+          { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+        ]),
       ]);
 
       const labelFor = (id) => {
@@ -164,11 +176,15 @@ exports.getRevenueOverTime = async (req, res) => {
         return `${y}-${m}-${d}`;
       };
 
+      const codPendingByKey = new Map(
+        codPendingAgg.map((r) => [labelFor(r._id), r.total || 0]),
+      );
+
       const series = current.map((r) => ({
         key: labelFor(r._id),
         total: Number(r.total) || 0,
         orders: r.orders || 0,
-        codPending: Number(r.codPending) || 0,
+        codPending: Number(codPendingByKey.get(labelFor(r._id))) || 0,
       }));
 
       // Build previous-period comparison when the range is not custom "today"
@@ -219,10 +235,13 @@ exports.getRevenueOverTime = async (req, res) => {
         (acc, r) => {
           acc.revenue += Number(r.total) || 0;
           acc.orders += r.orders || 0;
-          acc.codPending += Number(r.codPending) || 0;
           return acc;
         },
-        { revenue: 0, orders: 0, codPending: 0 },
+        { revenue: 0, orders: 0 },
+      );
+      summary.codPending = codPendingAgg.reduce(
+        (acc, r) => acc + (Number(r.total) || 0),
+        0,
       );
 
       const prevSummary = previousSeries.reduce(

@@ -17,6 +17,7 @@ const {
   changePassword,
   requestPasswordResetOTP,
   verifyPasswordResetOTP,
+  googleAuth,
 } = require("../controllers/auth");
 const {
   registerValidation,
@@ -840,5 +841,36 @@ router.post("/verify-password-reset-otp", loginLimiter, verifyPasswordResetOTP);
  *         description: Unauthorized
  */
 router.post("/change-password", verifyToken, changePassword);
+
+/**
+ * @swagger
+ * /api/v1/auth/google:
+ *   post:
+ *     summary: Google OAuth Sign In / Sign Up
+ *     description: Authenticate or register a user using a Google OAuth credential (ID token) or access token.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               credential:
+ *                 type: string
+ *                 description: Google ID token (JWT)
+ *               idToken:
+ *                 type: string
+ *                 description: Google ID token (JWT)
+ *               accessToken:
+ *                 type: string
+ *                 description: Google OAuth access token
+ *     responses:
+ *       200:
+ *         description: Google authentication successful
+ *       400:
+ *         description: Invalid Google token or authentication failed
+ */
+router.post("/google", loginLimiter, googleAuth);
 
 module.exports = router;

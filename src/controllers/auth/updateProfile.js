@@ -1,11 +1,15 @@
 const User = require("../../models/user");
 const logger = require("../../utils/logger");
+const toCamelCase = require("../../utils/toCamelCase");
 
 const updateProfile = async (req, res) => {
   try {
     // req.user is set by authMiddleware after token verification
     const userId = req.user.id;
-    const { username, email, phone } = req.body;
+    const { username: rawUsername, email, phone } = req.body;
+
+    // Usernames are always persisted camelCase ("John Doe" -> "johnDoe").
+    const username = rawUsername ? toCamelCase(rawUsername) : rawUsername;
 
     // Find user
     const user = await User.findById(userId);
@@ -24,6 +28,12 @@ const updateProfile = async (req, res) => {
 
     // Check if username is being changed and if it's already taken
     if (username && username !== user.username) {
+      if (username.length < 3) {
+        return res.status(400).json({
+          success: false,
+          message: "Username must be at least 3 characters"
+        });
+      }
       const existingUser = await User.findOne({ username });
       if (existingUser) {
         return res.status(400).json({

@@ -12,6 +12,7 @@ const User = require("../../src/models/user");
 const Address = require("../../src/models/Address");
 const Product = require("../../src/models/Product");
 const mongoose = require("mongoose");
+const { extractAccessToken } = require("../helpers/authHelpers");
 
 describe("Order API", () => {
   // Test credentials from frontend constants
@@ -63,9 +64,8 @@ describe("Order API", () => {
         password: TEST_CREDENTIALS.password,
       });
 
-      if (loginRes.body.accessToken) {
-        authToken = loginRes.body.accessToken;
-      } else {
+      authToken = extractAccessToken(loginRes);
+      if (!authToken) {
         console.log("⚠️ Login failed:", loginRes.body);
       }
     }

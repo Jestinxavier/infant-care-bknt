@@ -5,18 +5,165 @@ const emailService = require("../../services/emailService");
 const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
-const { canTransitionStatus } = require("../../features/order/rules/order.rules");
+const {
+  canTransitionStatus,
+} = require("../../features/order/rules/order.rules");
 const { invalidateDashboardCache } = require("./dashboardController");
 const { invalidateSalesReportCache } = require("./salesReportController");
 const { invalidateCustomerReportCache } = require("./customerReportController");
 const { invalidateRevenueReportCache } = require("./revenueReportController");
 const { invalidateOrdersByStatusCache } = require("./ordersByStatusController");
-const { invalidateReturnsCancellationsCache } = require("./returnsCancellationsController");
-const { invalidatePaymentMethodSplitCache } = require("./paymentMethodSplitController");
+const {
+  invalidateReturnsCancellationsCache,
+} = require("./returnsCancellationsController");
+const {
+  invalidatePaymentMethodSplitCache,
+} = require("./paymentMethodSplitController");
 const logger = require("../../utils/logger");
 const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
 
 const escapeRegex = require("../../utils/escapeRegex");
+
+/**
+ * Build the admin order filter from request data (query or body).
+ * Enforces the role-based date restriction for admin users.
+ * Throws an error with code "DATE_RESTRICTED" when a too-old `from` is given.
+ */
+async function buildOrderFilter(requestData, reqUser) {
+  const {
+    status,
+    paymentStatus,
+    paymentMethod,
+    customerType, // "guest" | "registered"
+    minTotal, // minimum order amount
+    maxTotal, // maximum order amount
+    search,
+    from, // ISO date string (YYYY-MM-DD)
+    to, // ISO date string (YYYY-MM-DD)
+  } = requestData;
+
+  let filter = {};
+
+  // ===== ROLE-BASED DATE RESTRICTIONS =====
+  const userRole = reqUser?.role;
+  if (userRole === "admin") {
+    const restrictionDate = new Date();
+    restrictionDate.setUTCDate(
+      restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
+    );
+    restrictionDate.setUTCHours(0, 0, 0, 0);
+
+    if (from) {
+      const fromDate = new Date(from);
+      fromDate.setUTCHours(0, 0, 0, 0);
+      if (fromDate < restrictionDate) {
+        const error = new Error(
+          `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+        );
+        error.code = "DATE_RESTRICTED";
+        error.maxDate = restrictionDate.toISOString().split("T")[0];
+        throw error;
+      }
+    } else {
+      filter.createdAt = { $gte: restrictionDate };
+    }
+  }
+
+  // ===== DATE RANGE FILTERING =====
+  // Backend normalization: from (00:00:00 IST) to (23:59:59.999 IST)
+  if (from || to) {
+    filter.createdAt = filter.createdAt || {};
+
+    if (from) {
+      // Construct ISO string with IST offset for start of day
+      const fromDate = new Date(`${from}T00:00:00+05:30`);
+      filter.createdAt.$gte = fromDate;
+    }
+
+    if (to) {
+      // Construct ISO string with IST offset for end of day
+      const toDate = new Date(`${to}T23:59:59.999+05:30`);
+      filter.createdAt.$lte = toDate;
+    }
+  }
+
+  if (status) {
+    filter.orderStatus = status;
+  }
+
+  if (paymentStatus) {
+    filter.paymentStatus = paymentStatus;
+  }
+
+  if (paymentMethod) {
+    filter.paymentMethod = paymentMethod;
+  }
+
+  // Customer type filter (guest vs registered)
+  if (customerType === "guest") {
+    filter.isGuestOrder = true;
+  } else if (customerType === "registered") {
+    filter.isGuestOrder = false;
+  }
+
+  // Order amount range filter
+  const parsedMinTotal = Number(minTotal);
+  const parsedMaxTotal = Number(maxTotal);
+  if (
+    minTotal !== undefined &&
+    minTotal !== null &&
+    minTotal !== "" &&
+    Number.isFinite(parsedMinTotal)
+  ) {
+    filter.totalAmount = { ...filter.totalAmount, $gte: parsedMinTotal };
+  }
+  if (
+    maxTotal !== undefined &&
+    maxTotal !== null &&
+    maxTotal !== "" &&
+    Number.isFinite(parsedMaxTotal)
+  ) {
+    filter.totalAmount = { ...filter.totalAmount, $lte: parsedMaxTotal };
+  }
+
+  // Advanced Search
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    const searchRegex = new RegExp(safeSearch, "i");
+    // Remove leading '#' for ID searching
+    const sanitizedSearch = search.replace(/^#/, "");
+    const safeSanitized = escapeRegex(sanitizedSearch);
+    const sanitizedRegex = new RegExp(safeSanitized, "i");
+
+    const matchingUsers = await User.find({
+      $or: [
+        { username: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+      ],
+    }).select("_id");
+
+    const matchingUserIds = matchingUsers.map((u) => u._id);
+
+    const searchFilters = [
+      { orderId: sanitizedRegex }, // Search by Order ID (matches "123" or "#123")
+      { userId: { $in: matchingUserIds } }, // Search by Customer (User ID)
+      { "shippingAddress.phone": searchRegex }, // Search by Phone in Shipping Address
+      { "shippingAddress.fullName": searchRegex }, // Search by Name in Shipping Address
+    ];
+
+    // Check if valid ObjectId (using sanitized search in case user pasted #ID)
+    if (mongoose.Types.ObjectId.isValid(sanitizedSearch)) {
+      searchFilters.push({
+        _id: new mongoose.Types.ObjectId(sanitizedSearch),
+      });
+    }
+
+    filter.$or = searchFilters;
+  }
+
+  return filter;
+}
 
 /**
  * Admin: Get all orders (not filtered by user)
@@ -29,17 +176,8 @@ const getAllOrders = async (req, res) => {
     const {
       page = 1,
       limit = 20,
-      status,
-      paymentStatus,
-      paymentMethod,
-      customerType, // "guest" | "registered"
-      minTotal, // minimum order amount
-      maxTotal, // maximum order amount
       sortBy = "createdAt",
       sortOrder = -1,
-      search,
-      from, // ISO date string (YYYY-MM-DD)
-      to, // ISO date string (YYYY-MM-DD)
     } = requestData;
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -47,114 +185,19 @@ const getAllOrders = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Build filter
-    let filter = {};
-
-    // ===== ROLE-BASED DATE RESTRICTIONS =====
-    const userRole = req.user?.role;
-    if (userRole === "admin") {
-      const restrictionDate = new Date();
-      restrictionDate.setUTCDate(restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS);
-      restrictionDate.setUTCHours(0, 0, 0, 0);
-
-      if (from) {
-        const fromDate = new Date(from);
-        fromDate.setUTCHours(0, 0, 0, 0);
-        if (fromDate < restrictionDate) {
-          return res.status(403).json({
-            success: false,
-            errorCode: "DATE_RESTRICTED",
-            message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-            maxDate: restrictionDate.toISOString().split("T")[0],
-          });
-        }
-      } else {
-        filter.createdAt = { $gte: restrictionDate };
-      }
-    }
-
-    // ===== DATE RANGE FILTERING =====
-    // Backend normalization: from (00:00:00 IST) to (23:59:59.999 IST)
-    if (from || to) {
-      filter.createdAt = filter.createdAt || {};
-
-      if (from) {
-        // Construct ISO string with IST offset for start of day
-        const fromDate = new Date(`${from}T00:00:00+05:30`);
-        filter.createdAt.$gte = fromDate;
-      }
-
-      if (to) {
-        // Construct ISO string with IST offset for end of day
-        const toDate = new Date(`${to}T23:59:59.999+05:30`);
-        filter.createdAt.$lte = toDate;
-      }
-    }
-
-    if (status) {
-      filter.orderStatus = status;
-    }
-
-    if (paymentStatus) {
-      filter.paymentStatus = paymentStatus;
-    }
-
-    if (paymentMethod) {
-      filter.paymentMethod = paymentMethod;
-    }
-
-    // Customer type filter (guest vs registered)
-    if (customerType === "guest") {
-      filter.isGuestOrder = true;
-    } else if (customerType === "registered") {
-      filter.isGuestOrder = false;
-    }
-
-    // Order amount range filter
-    const parsedMinTotal = Number(minTotal);
-    const parsedMaxTotal = Number(maxTotal);
-    if (minTotal !== undefined && minTotal !== null && minTotal !== "" && Number.isFinite(parsedMinTotal)) {
-      filter.totalAmount = { ...filter.totalAmount, $gte: parsedMinTotal };
-    }
-    if (maxTotal !== undefined && maxTotal !== null && maxTotal !== "" && Number.isFinite(parsedMaxTotal)) {
-      filter.totalAmount = { ...filter.totalAmount, $lte: parsedMaxTotal };
-    }
-
-    // Advanced Search
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      const searchRegex = new RegExp(safeSearch, "i");
-      // Remove leading '#' for ID searching
-      const sanitizedSearch = search.replace(/^#/, "");
-      const safeSanitized = escapeRegex(sanitizedSearch);
-      const sanitizedRegex = new RegExp(safeSanitized, "i");
-
-      // 1. Find users matching the search term
-      const matchingUsers = await User.find({
-        $or: [
-          { username: searchRegex },
-          { email: searchRegex },
-          { phone: searchRegex },
-        ],
-      }).select("_id");
-
-      const matchingUserIds = matchingUsers.map((u) => u._id);
-
-      // 2. Build Order Search Queries
-      const searchFilters = [
-        { orderId: sanitizedRegex }, // Search by Order ID (matches "123" or "#123")
-        { userId: { $in: matchingUserIds } }, // Search by Customer (User ID)
-        { "shippingAddress.phone": searchRegex }, // Search by Phone in Shipping Address
-        { "shippingAddress.fullName": searchRegex }, // Search by Name in Shipping Address
-      ];
-
-      // Check if valid ObjectId (using sanitized search in case user pasted #ID)
-      if (mongoose.Types.ObjectId.isValid(sanitizedSearch)) {
-        searchFilters.push({
-          _id: new mongoose.Types.ObjectId(sanitizedSearch),
+    let filter;
+    try {
+      filter = await buildOrderFilter(requestData, req.user);
+    } catch (err) {
+      if (err.code === "DATE_RESTRICTED") {
+        return res.status(403).json({
+          success: false,
+          errorCode: "DATE_RESTRICTED",
+          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+          maxDate: err.maxDate,
         });
       }
-
-      filter.$or = searchFilters;
+      throw err;
     }
 
     // Build sort
@@ -198,7 +241,11 @@ const getAllOrders = async (req, res) => {
             phone: order.userId.phone,
           }
         : null,
-      customerName: order.userId?.username || order.userId?.email || order.shippingAddress?.fullName || "Guest",
+      customerName:
+        order.userId?.username ||
+        order.userId?.email ||
+        order.shippingAddress?.fullName ||
+        "Guest",
       customerEmail: order.userId?.email,
       customerPhone: order.userId?.phone,
       date: order.placedAt || order.createdAt,
@@ -239,7 +286,7 @@ const getAllOrders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -281,6 +328,10 @@ const getOrderById = async (req, res) => {
       })
       .populate("userId", "username email phone")
       .populate("deliveryPartner")
+      .populate({
+        path: "statusHistory.updatedBy",
+        select: "username email",
+      })
       .lean();
 
     if (!order) {
@@ -324,7 +375,7 @@ const getOrderById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -392,7 +443,10 @@ const updateOrderStatus = async (req, res) => {
       }
 
       // Enforce state machine: only allow valid forward/backward transitions
-      if (status !== currentOrder.orderStatus && !canTransitionStatus(currentOrder.orderStatus, status)) {
+      if (
+        status !== currentOrder.orderStatus &&
+        !canTransitionStatus(currentOrder.orderStatus, status)
+      ) {
         return res.status(422).json({
           success: false,
           errorCode: "INVALID_TRANSITION",
@@ -497,7 +551,11 @@ const updateOrderStatus = async (req, res) => {
         else {
           const foundPartner = await mongoose
             .model("DeliveryPartner")
-            .findOne({ name: { $regex: new RegExp(`^${escapeRegex(partnerName)}$`, "i") } });
+            .findOne({
+              name: {
+                $regex: new RegExp(`^${escapeRegex(partnerName)}$`, "i"),
+              },
+            });
 
           if (foundPartner) {
             updateFields.deliveryPartner = foundPartner._id;
@@ -517,7 +575,7 @@ const updateOrderStatus = async (req, res) => {
             [];
           // Check if "Tracking URL" already exists
           const existingUrlIndex = currentInfo.findIndex(
-            (item) => item.key && item.key.toLowerCase() === "tracking url"
+            (item) => item.key && item.key.toLowerCase() === "tracking url",
           );
 
           if (existingUrlIndex >= 0) {
@@ -611,7 +669,10 @@ const updateOrderStatus = async (req, res) => {
       try {
         await restoreOrderStock(currentOrder);
       } catch (restoreErr) {
-        logger.error("Failed to restore stock on order cancel/return", { orderId: currentOrder._id, error: restoreErr.message });
+        logger.error("Failed to restore stock on order cancel/return", {
+          orderId: currentOrder._id,
+          error: restoreErr.message,
+        });
         return res.status(500).json({
           success: false,
           message:
@@ -631,7 +692,7 @@ const updateOrderStatus = async (req, res) => {
     const order = await Order.findOneAndUpdate(
       updateMatchCondition,
       { $set: updateFields },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email")
       .populate("deliveryPartner")
@@ -640,7 +701,8 @@ const updateOrderStatus = async (req, res) => {
     if (!order) {
       return res.status(409).json({
         success: false,
-        message: "Order was modified by another request. Please refresh and try again.",
+        message:
+          "Order was modified by another request. Please refresh and try again.",
       });
     }
 
@@ -659,25 +721,39 @@ const updateOrderStatus = async (req, res) => {
       currentOrder.orderStatus !== status
     ) {
       invalidateDashboardCache().catch((err) =>
-        logger.error("Dashboard cache invalidation failed", { error: err.message })
+        logger.error("Dashboard cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateSalesReportCache().catch((err) =>
-        logger.error("Sales report cache invalidation failed", { error: err.message })
+        logger.error("Sales report cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateCustomerReportCache().catch((err) =>
-        logger.error("Customers report cache invalidation failed", { error: err.message })
+        logger.error("Customers report cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateRevenueReportCache().catch((err) =>
-        logger.error("Revenue report cache invalidation failed", { error: err.message })
+        logger.error("Revenue report cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateOrdersByStatusCache().catch((err) =>
-        logger.error("Orders by status cache invalidation failed", { error: err.message })
+        logger.error("Orders by status cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidateReturnsCancellationsCache().catch((err) =>
-        logger.error("Returns cancellations cache invalidation failed", { error: err.message })
+        logger.error("Returns cancellations cache invalidation failed", {
+          error: err.message,
+        }),
       );
       invalidatePaymentMethodSplitCache().catch((err) =>
-        logger.error("Payment method split cache invalidation failed", { error: err.message })
+        logger.error("Payment method split cache invalidation failed", {
+          error: err.message,
+        }),
       );
     }
 
@@ -685,7 +761,10 @@ const updateOrderStatus = async (req, res) => {
     const emailRecipient =
       order.userId ||
       (order.isGuestOrder && order.guestInfo?.email
-        ? { email: order.guestInfo.email, username: order.guestInfo.name || "Customer" }
+        ? {
+            email: order.guestInfo.email,
+            username: order.guestInfo.name || "Customer",
+          }
         : null);
 
     // Send shipment email if status changed to shipped
@@ -697,7 +776,10 @@ const updateOrderStatus = async (req, res) => {
       emailService
         .sendShipmentEmail(emailRecipient, order)
         .catch((err) =>
-          logger.error("Shipment email failed", { orderId: order._id, error: err.message })
+          logger.error("Shipment email failed", {
+            orderId: order._id,
+            error: err.message,
+          }),
         );
     }
 
@@ -707,10 +789,8 @@ const updateOrderStatus = async (req, res) => {
     //    (paymentStatus: pending|failed + orderStatus: pending)
     const skipCancelEmail =
       req.body.skipCancelEmail === true ||
-      (
-        ["pending", "failed"].includes(currentOrder.paymentStatus) &&
-        currentOrder.orderStatus === "pending"
-      );
+      (["pending", "failed"].includes(currentOrder.paymentStatus) &&
+        currentOrder.orderStatus === "pending");
 
     if (
       status === "cancelled" &&
@@ -721,15 +801,21 @@ const updateOrderStatus = async (req, res) => {
       emailService
         .sendOrderCancelledEmail(emailRecipient, order)
         .catch((err) =>
-          logger.error("Order cancelled email failed", { orderId: order._id, error: err.message })
+          logger.error("Order cancelled email failed", {
+            orderId: order._id,
+            error: err.message,
+          }),
         );
     }
   } catch (err) {
-    logger.error("Admin error updating order status", { error: err.message, stack: err.stack });
+    logger.error("Admin error updating order status", {
+      error: err.message,
+      stack: err.stack,
+    });
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -775,12 +861,13 @@ const sendOrderInvoice = async (req, res) => {
         .json({ success: false, message: "Order not found" });
     }
 
-    if (!order.userId || !order.userId.email) {
-      // Fallback to guest email if stored on order (if applicable) or error
-      // Assuming order.customerEmail might exist for guest checkout in future, but for now strict user check
+    const recipient = await emailService.getOrderRecipient(order);
+
+    if (!recipient?.email) {
       return res.status(400).json({
         success: false,
-        message: "User email not found for this order. Cannot send invoice.",
+        message:
+          "Customer email not found for this order. Cannot send invoice.",
       });
     }
 
@@ -791,7 +878,7 @@ const sendOrderInvoice = async (req, res) => {
     // Our population matches that mostly.
 
     // Send Email
-    await emailService.sendInvoiceEmail(order.userId, order);
+    await emailService.sendInvoiceEmail(recipient, order);
 
     res.status(200).json({
       success: true,
@@ -802,7 +889,7 @@ const sendOrderInvoice = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -815,16 +902,28 @@ const markOrderAsPaid = async (req, res) => {
     const { orderId, phonepeTransactionId } = req.body;
 
     if (!orderId) {
-      return res.status(400).json({ success: false, message: "Order ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order ID is required" });
     }
     if (!phonepeTransactionId || !String(phonepeTransactionId).trim()) {
-      return res.status(400).json({ success: false, message: "PhonePe Transaction ID is required" });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "PhonePe Transaction ID is required",
+        });
     }
 
     // Resolve order
     const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
     let query = mongoose.Types.ObjectId.isValid(orderId)
-      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      ? {
+          $or: [
+            { _id: orderId },
+            { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+          ],
+        }
       : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
 
     const order = await Order.findOne(query)
@@ -832,18 +931,25 @@ const markOrderAsPaid = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
     }
 
     // Guard: only allow for PhonePe/Razorpay + pending payment
-    if (order.paymentMethod !== PAYMENT_METHODS.PHONEPE && order.paymentMethod !== PAYMENT_METHODS.RAZORPAY) {
+    if (
+      order.paymentMethod !== PAYMENT_METHODS.PHONEPE &&
+      order.paymentMethod !== PAYMENT_METHODS.RAZORPAY
+    ) {
       return res.status(400).json({
         success: false,
         message: `This order uses ${order.paymentMethod}. Manual paid marking is only for online (PhonePe/Razorpay) orders.`,
       });
     }
     if (order.paymentStatus === "paid") {
-      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order is already marked as paid." });
     }
 
     // Build status history entry
@@ -865,27 +971,30 @@ const markOrderAsPaid = async (req, res) => {
           statusHistory: history,
         },
       },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email phone")
       .lean();
 
     if (!updated) {
-      return res.status(500).json({ success: false, message: "Failed to update order" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to update order" });
     }
 
     res.status(200).json({
       success: true,
-      message: "Order marked as paid and confirmed. Invoice email will be sent.",
+      message:
+        "Order marked as paid and confirmed. Invoice email will be sent.",
       order: { ...updated, _id: updated._id?.toString() },
     });
 
     // Send invoice email asynchronously (don't block the response)
-    if (updated.userId?.email) {
-      emailService
-        .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => logger.error("❌ Invoice email failed after mark-paid:", err.message));
-    }
+    emailService
+      .sendOrderConfirmationEmail(updated)
+      .catch((err) =>
+        logger.error("❌ Invoice email failed after mark-paid:", err.message),
+      );
   } catch (err) {
     logger.error("❌ Admin Error marking order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -901,13 +1010,20 @@ const markCodOrderAsPaid = async (req, res) => {
     const { orderId } = req.body;
 
     if (!orderId) {
-      return res.status(400).json({ success: false, message: "Order ID is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order ID is required" });
     }
 
     // Resolve order
     const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
     let query = mongoose.Types.ObjectId.isValid(orderId)
-      ? { $or: [{ _id: orderId }, { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } }] }
+      ? {
+          $or: [
+            { _id: orderId },
+            { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
+          ],
+        }
       : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
 
     const order = await Order.findOne(query)
@@ -915,7 +1031,9 @@ const markCodOrderAsPaid = async (req, res) => {
       .lean();
 
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
     }
 
     // Guard: only allow for COD + pending payment
@@ -926,7 +1044,9 @@ const markCodOrderAsPaid = async (req, res) => {
       });
     }
     if (order.paymentStatus === "paid") {
-      return res.status(400).json({ success: false, message: "Order is already marked as paid." });
+      return res
+        .status(400)
+        .json({ success: false, message: "Order is already marked as paid." });
     }
 
     // Build status history entry
@@ -946,13 +1066,15 @@ const markCodOrderAsPaid = async (req, res) => {
           statusHistory: history,
         },
       },
-      { new: true }
+      { new: true },
     )
       .populate("userId", "username email phone")
       .lean();
 
     if (!updated) {
-      return res.status(500).json({ success: false, message: "Failed to update order" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to update order" });
     }
 
     res.status(200).json({
@@ -963,33 +1085,262 @@ const markCodOrderAsPaid = async (req, res) => {
 
     // Revenue changed — flush the dashboard cache
     invalidateDashboardCache().catch((err) =>
-      logger.error("Dashboard cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error("Dashboard cache invalidation failed after COD mark-paid", {
+        error: err.message,
+      }),
     );
     invalidateSalesReportCache().catch((err) =>
-      logger.error("Sales report cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Sales report cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidateCustomerReportCache().catch((err) =>
-      logger.error("Customers report cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Customers report cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidateRevenueReportCache().catch((err) =>
-      logger.error("Revenue report cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Revenue report cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidateOrdersByStatusCache().catch((err) =>
-      logger.error("Orders by status cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Orders by status cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
     invalidatePaymentMethodSplitCache().catch((err) =>
-      logger.error("Payment method split cache invalidation failed after COD mark-paid", { error: err.message })
+      logger.error(
+        "Payment method split cache invalidation failed after COD mark-paid",
+        { error: err.message },
+      ),
     );
 
     // Send invoice email asynchronously (don't block the response)
     if (updated.userId?.email) {
       emailService
         .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) => logger.error("❌ Invoice email failed after COD mark-paid:", err.message));
+        .catch((err) =>
+          logger.error(
+            "❌ Invoice email failed after COD mark-paid:",
+            err.message,
+          ),
+        );
     }
   } catch (err) {
     logger.error("❌ Admin Error marking COD order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+const csvCell = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+const orderCsvRow = (cells) => cells.map(csvCell).join(",");
+
+const formatCsvDate = (value) => {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Kolkata",
+  }).format(d);
+};
+
+const lineTotal = (item) => (item.price || 0) * (item.quantity || 1);
+
+function buildOrdersCsv(orders, type) {
+  if (type === "items") {
+    const header = [
+      "Order ID",
+      "Date",
+      "Order Status",
+      "Payment Status",
+      "Payment Method",
+      "Customer",
+      "Customer Phone",
+      "Product",
+      "SKU",
+      "Variant",
+      "Qty",
+      "Unit Price (INR)",
+      "Line Total (INR)",
+    ];
+    const lines = [header.join(",")];
+    for (const o of orders) {
+      const customer =
+        o.userId?.username ||
+        o.userId?.email ||
+        o.shippingAddress?.fullName ||
+        o.guestInfo?.name ||
+        "Guest";
+      const phone =
+        o.userId?.phone || o.shippingAddress?.phone || o.guestInfo?.phone || "";
+      for (const it of o.items || []) {
+        const attrs = Array.isArray(it.variantAttributes)
+          ? it.variantAttributes
+          : Object.entries(it.variantAttributes || {});
+        const variant =
+          it.variantName ||
+          attrs
+            .map(([k, v]) => `${String(k).trim()}: ${String(v).trim()}`)
+            .filter(Boolean)
+            .join("; ");
+        lines.push(
+          orderCsvRow([
+            o.orderId || o._id,
+            formatCsvDate(o.placedAt || o.createdAt),
+            o.orderStatus,
+            o.paymentStatus,
+            o.paymentMethod,
+            customer,
+            phone,
+            it.name,
+            it.variantSku || it.sku || "",
+            variant,
+            it.quantity,
+            it.price,
+            lineTotal(it),
+          ]),
+        );
+      }
+    }
+    return lines.join("\n");
+  }
+
+  const header = [
+    "Order ID",
+    "Date",
+    "Order Status",
+    "Payment Status",
+    "Payment Method",
+    "Customer",
+    "Customer Email",
+    "Customer Phone",
+    "Items",
+    "Total Items",
+    "Subtotal (INR)",
+    "Discount (INR)",
+    "Shipping (INR)",
+    "COD Fee (INR)",
+    "Total (INR)",
+  ];
+  const lines = [header.join(",")];
+  for (const o of orders) {
+    const items = (o.items || [])
+      .map(
+        (it) =>
+          `${it.name}${it.variantName ? ` (${it.variantName})` : ""} x${it.quantity}`,
+      )
+      .join(" | ");
+    const itemCount = (o.items || []).reduce(
+      (s, it) => s + (it.quantity || 0),
+      0,
+    );
+    lines.push(
+      orderCsvRow([
+        o.orderId || o._id,
+        formatCsvDate(o.placedAt || o.createdAt),
+        o.orderStatus,
+        o.paymentStatus,
+        o.paymentMethod,
+        o.userId?.username ||
+          o.userId?.email ||
+          o.shippingAddress?.fullName ||
+          o.guestInfo?.name ||
+          "Guest",
+        o.userId?.email,
+        o.userId?.phone || o.shippingAddress?.phone || "",
+        items,
+        itemCount,
+        o.subtotal,
+        o.discount,
+        o.shippingCost,
+        o.codCost || 0,
+        o.totalAmount,
+      ]),
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Admin: Export orders to CSV
+ * Supports a scope (selected orderIds or filter criteria) and two formats:
+ * "orders" (one row per order) or "items" (one row per line item).
+ */
+const exportOrders = async (req, res) => {
+  try {
+    const requestData = req.body || {};
+    const { type = "orders", orderIds } = requestData;
+
+    if (type !== "orders" && type !== "items") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid export type. Use 'orders' or 'items'.",
+      });
+    }
+
+    // Build filter — enforces the same role-based date restriction as listing
+    let filter;
+    try {
+      filter = await buildOrderFilter(requestData, req.user);
+    } catch (err) {
+      if (err.code === "DATE_RESTRICTED") {
+        return res.status(403).json({
+          success: false,
+          errorCode: "DATE_RESTRICTED",
+          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+          maxDate: err.maxDate,
+        });
+      }
+      throw err;
+    }
+
+    if (Array.isArray(orderIds) && orderIds.length > 0) {
+      const ids = orderIds
+        .map((id) =>
+          mongoose.Types.ObjectId.isValid(id)
+            ? new mongoose.Types.ObjectId(id)
+            : null,
+        )
+        .filter(Boolean);
+      if (ids.length > 0) filter._id = { $in: ids };
+    }
+
+    const orders = await Order.find(filter)
+      .populate("userId", "username email phone")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const csv = buildOrdersCsv(orders, type);
+    const date = new Date().toISOString().slice(0, 10);
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${type}_export_${date}.csv"`,
+    );
+    res.status(200).send(csv);
+  } catch (err) {
+    logger.error("Admin order export failed", { error: err.message });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
   }
 };
 
@@ -1000,4 +1351,5 @@ module.exports = {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
 };

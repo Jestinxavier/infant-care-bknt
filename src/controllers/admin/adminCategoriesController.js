@@ -1,4 +1,5 @@
 const Category = require("../../models/Category");
+const Product = require("../../models/Product");
 const { toCloudinaryUrl } = require("../../utils/cloudinaryUrlUtils");
 const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
@@ -30,6 +31,22 @@ const getAllCategories = async (req, res) => {
 
     const total = await Category.countDocuments(filter);
 
+    // Product counts per category (published, sellable types only) so the
+    // CMS product widgets can show counts and hide categories without products.
+    const productCountRows = await Product.aggregate([
+      {
+        $match: {
+          status: "published",
+          product_type: { $in: ["SIMPLE", "CONFIGURABLE"] },
+          category: { $type: "objectId" },
+        },
+      },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+    ]);
+    const productCountMap = new Map(
+      productCountRows.map((row) => [row._id.toString(), row.count]),
+    );
+
     const categories = await Category.find(filter)
       .populate("parentCategory", "name slug")
       .sort({ displayOrder: 1, name: 1 })
@@ -42,6 +59,11 @@ const getAllCategories = async (req, res) => {
       const out = { ...cat, _id: cat._id?.toString() };
       if (out.image && typeof out.image === "string") {
         out.image = toCloudinaryUrl(out.image) || out.image;
+      }
+      out.productCount = productCountMap.get(cat._id?.toString()) || 0;
+      if (out.sizeChartImage && typeof out.sizeChartImage === "string") {
+        out.sizeChartImage =
+          toCloudinaryUrl(out.sizeChartImage) || out.sizeChartImage;
       }
       return out;
     });
@@ -62,7 +84,7 @@ const getAllCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -104,6 +126,14 @@ const getCategoryById = async (req, res) => {
       categoryObj.image =
         toCloudinaryUrl(categoryObj.image) || categoryObj.image;
     }
+    if (
+      categoryObj.sizeChartImage &&
+      typeof categoryObj.sizeChartImage === "string"
+    ) {
+      categoryObj.sizeChartImage =
+        toCloudinaryUrl(categoryObj.sizeChartImage) ||
+        categoryObj.sizeChartImage;
+    }
 
     res.status(200).json({
       success: true,
@@ -114,7 +144,7 @@ const getCategoryById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 

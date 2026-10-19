@@ -65,10 +65,25 @@ const uploadAsset = [
       }
 
       // Upload to media server using hash as public_id for deduplication
+      // Per-origin encoding: CMS/banners keep near-full resolution at high
+      // quality. maxWidth must cover 2x sources (a 1920px-wide hero banner is
+      // displayed full-bleed, so retina screens need ~3840px to stay sharp) —
+      // capping this lower silently shrinks 2x uploads back down.
+      const originQuality = {
+        cms: { quality: 96, maxWidth: 4000, lossless: true },
+        product: { quality: 88, maxWidth: 2000 },
+        category: { quality: 88, maxWidth: 1600 },
+        avatar: { quality: 85, maxWidth: 800 },
+        review: { quality: 88, maxWidth: 1600 },
+      };
+      const uploadOptions = {
+        ...(originQuality[origin.source] || { quality: 85, maxWidth: 1200 }),
+      };
       const uploadResult = await uploadToMediaServer(file.buffer, {
         mimeType: file.mimetype,
         originalName: file.originalname,
         public_id: hash,
+        ...uploadOptions,
       });
 
       const asset = await Asset.create({

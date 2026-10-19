@@ -2,6 +2,7 @@ require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const User = require("../src/models/user");
 const { sendAdminCredentialsEmail } = require("../src/services/emailService");
+const toCamelCase = require("../src/utils/toCamelCase");
 
 /**
  * Generate a secure random password
@@ -50,8 +51,12 @@ const createAdmin = async () => {
     console.log("✅ Connected to MongoDB");
 
     // Admin details
-    const adminEmail = "xavierjestin@gmail.com";
-    const adminUsername = "admin";
+    const adminEmail = process.env.ADMIN_EMAIL || "xavierjestin@gmail.com";
+    // Usernames are stored camelCase — a raw name like "Xavier Jestin" is
+    // normalized to "xavierJestin" before it is persisted.
+    const adminUsername = toCamelCase(
+      process.env.ADMIN_USERNAME || process.env.ADMIN_NAME || "admin"
+    );
     const adminPassword = generateSecurePassword(16); // Generate 16-character secure password
 
     // Check if admin already exists

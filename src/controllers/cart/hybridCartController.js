@@ -2386,7 +2386,7 @@ const removeCoupon = async (req, res) => {
       });
     }
 
-    const { code } = req.body;
+    const { code } = req.body || {};
     if (code) {
       const upperCode = code.toUpperCase();
       const removedCoupon = (cart.coupons || []).find((c) => c.code === upperCode);

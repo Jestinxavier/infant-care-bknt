@@ -4,8 +4,17 @@ const { cacheDel } = require("../../utils/redisCache");
 
 const createCategory = async (req, res) => {
   try {
-    const { name, code, displayOrder, parentCategory, removeImage, image } =
-      req.body;
+    const {
+      name,
+      code,
+      displayOrder,
+      parentCategory,
+      removeImage,
+      image,
+      hasSizeChart,
+      sizeChartImage,
+      removeSizeChartImage,
+    } = req.body;
     const imageFile = req.file; // Uploaded image file (if using multer)
 
     if (!name || name.trim() === "") {
@@ -40,6 +49,7 @@ const createCategory = async (req, res) => {
       code: code.trim().toLowerCase(),
       displayOrder: displayOrder || 0,
       isActive: true,
+      hasSizeChart: hasSizeChart === "true" || hasSizeChart === true,
     };
 
     if (parentCategory) {
@@ -68,28 +78,49 @@ const createCategory = async (req, res) => {
       categoryData.image = image; // Direct URL from FormData
     }
 
+    // Handle size chart image URL
+    if (sizeChartImage && removeSizeChartImage !== "true" && removeSizeChartImage !== true) {
+      categoryData.sizeChartImage = sizeChartImage;
+    }
+
     const category = await Category.create(categoryData);
 
-    // Finalize image if present
+    // Finalize images if present
     try {
+      const {
+        extractPublicIdsFromObject,
+        finalizeImages,
+      } = require("../../utils/mediaFinalizer");
+
       if (category.image) {
-        const {
-          extractPublicIdsFromObject,
-          finalizeImages,
-        } = require("../../utils/mediaFinalizer");
-
         const imagePublicIds = extractPublicIdsFromObject(category.image);
-
         if (imagePublicIds.length > 0) {
           await finalizeImages(imagePublicIds, "category", category._id);
           logger.info(`✅ [Category] Finalized image for ${category.name}`);
         }
       }
+
+      if (category.sizeChartImage) {
+        const sizeChartPublicIds = extractPublicIdsFromObject(category.sizeChartImage);
+        if (sizeChartPublicIds.length > 0) {
+          await finalizeImages(sizeChartPublicIds, "category-size-chart", category._id);
+          logger.info(`✅ [Category] Finalized size chart image for ${category.name}`);
+        }
+      }
     } catch (finalizeError) {
-      logger.warn("⚠️ [Category] Failed to finalize image:", finalizeError);
+      logger.warn("⚠️ [Category] Failed to finalize images:", finalizeError);
     }
 
     await cacheDel("categories");
+
+    // Trigger Next.js storefront cache revalidation
+    try {
+      const { triggerRevalidation } = require("../../services/revalidateService");
+      await triggerRevalidation({ tag: "group:categories" });
+      logger.info(`✅ [Category] Triggered storefront revalidation for creation of ${category.name}`);
+    } catch (revalErr) {
+      logger.warn("⚠️ [Category] Failed to trigger storefront revalidation:", revalErr.message);
+    }
 
     res.status(201).json({
       success: true,

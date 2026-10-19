@@ -49,6 +49,14 @@ const categorySchema = new mongoose.Schema(
       type: String,
       default: null, // URL to Cloudinary image
     },
+    hasSizeChart: {
+      type: Boolean,
+      default: false,
+    },
+    sizeChartImage: {
+      type: String,
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,

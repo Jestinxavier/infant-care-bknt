@@ -16,6 +16,7 @@ const {
   generateUniqueSku,
 } = require("../../utils/skuGenerator");
 const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
+const { normalizeDesignId } = require("../../utils/designId");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 const {
   parseCollectionsInput,
@@ -762,6 +763,24 @@ class BulkImportController {
           field: "badge",
           message: "Badge must be one of the selected collections",
         });
+      }
+
+      // design_id (parent-level) is canonicalized so the same design typed with
+      // different formatting pools under one value. Surface the rewrite so the
+      // admin can see why a value changed.
+      const rawDesignId =
+        product.designId !== undefined && product.designId !== null
+          ? String(product.designId).trim()
+          : "";
+      if (rawDesignId) {
+        const normalizedDesignId = normalizeDesignId(rawDesignId);
+        if (normalizedDesignId && normalizedDesignId !== rawDesignId) {
+          warnings.push({
+            row: rowNum,
+            field: "design_id",
+            message: `design_id normalized to "${normalizedDesignId}" (formatting differences are ignored when grouping designs).`,
+          });
+        }
       }
 
       // Collect temp images from product
@@ -1840,6 +1859,11 @@ class BulkImportController {
           if (isNonEmptyObject(normalizedFilterAttributes)) {
             updateData.filterAttributes = normalizedFilterAttributes;
           }
+          // design_id is parent-level. Only touch it when the CSV provides a
+          // value so a minimal re-import never wipes an existing family.
+          if (isProvided(productData.designId)) {
+            updateData.designId = normalizeDesignId(productData.designId);
+          }
 
           // Variants: only touch when the import actually provides them, so a
           // minimal re-import (parent row only) never wipes existing variants.
@@ -2020,6 +2044,7 @@ class BulkImportController {
             filterAttributes: sanitizeIncomingFilterAttributes(
               productData.filterAttributes
             ),
+            designId: normalizeDesignId(productData.designId) || undefined,
             variantOptions: finalVariantOptions, // ✅ UPDATED with attributeId
             variants: embeddedVariants, // ✅ UPDATED strict variants
           };

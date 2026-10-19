@@ -206,7 +206,8 @@ const guestLookupLimiter = rateLimit({
 // GET /api/v1/orders - Get all orders for user
 router.get("/", verifyToken, getOrders);
 
-// GET /api/v1/orders/guest-lookup?orderId=&email= (rate-limited, no auth)
+// GET /api/v1/orders/guest-lookup?orderId=&email=&phone= (rate-limited, no auth)
+// Verifies a single guest order by order number + (email OR phone).
 router.get("/guest-lookup", guestLookupLimiter, guestOrderLookup);
 
 // GET /api/v1/orders/payment-status/:orderId — public, returns only payment+order status

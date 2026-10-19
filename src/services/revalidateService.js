@@ -8,10 +8,10 @@ const REVALIDATION_TIMEOUT_MS = 5000;
  */
 const triggerRevalidation = async ({ type, resource, tag } = {}) => {
   const frontendUrl = process.env.FRONTEND_URL;
-  const revalidateKey = process.env.NEXT_REVALIDATE_KEY;
+  const revalidateKey = process.env.NEXT_REVALIDATE_KEY || process.env.REVALIDATE_SECRET;
 
   if (!frontendUrl || !revalidateKey) {
-    logger.warn("[Revalidation] Missing FRONTEND_URL or NEXT_REVALIDATE_KEY — skipping");
+    logger.warn("[Revalidation] Missing FRONTEND_URL, NEXT_REVALIDATE_KEY or REVALIDATE_SECRET — skipping");
     return;
   }
 

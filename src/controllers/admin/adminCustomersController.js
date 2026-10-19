@@ -52,8 +52,8 @@ const getAllCustomers = async (req, res) => {
 
     const userIds = users.map((u) => u._id);
 
-    // Aggregate order stats per user — count all orders, but only sum
-    // spent for confirmed purchases (paid online or COD not cancelled)
+// Aggregate order stats per user — count all orders, but only sum
+    // spent for confirmed purchases (paid, not cancelled/returned)
     const orderStats =
       userIds.length === 0
         ? []
@@ -66,14 +66,9 @@ const getAllCustomers = async (req, res) => {
                   $sum: {
                     $cond: [
                       {
-                        $or: [
+                        $and: [
                           { $eq: ["$paymentStatus", "paid"] },
-                          {
-                            $and: [
-                              { $eq: ["$paymentMethod", "COD"] },
-                              { $ne: ["$orderStatus", "cancelled"] },
-                            ],
-                          },
+                          { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
                         ],
                       },
                       "$totalAmount",
@@ -198,12 +193,13 @@ const getCustomerById = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // Calculate stats — only count real spend (paid online or COD not cancelled)
+    // Calculate stats — only count real spend (paid, not cancelled/returned)
     const totalSpent = orders.reduce((sum, order) => {
-      const isPaid = order.paymentStatus === "paid";
-      const isCodCommitted =
-        order.paymentMethod === "COD" && order.orderStatus !== "cancelled";
-      return isPaid || isCodCommitted ? sum + (order.totalAmount || 0) : sum;
+      const isPaidValid =
+        order.paymentStatus === "paid" &&
+        order.orderStatus !== "cancelled" &&
+        order.orderStatus !== "returned";
+      return isPaidValid ? sum + (order.totalAmount || 0) : sum;
     }, 0);
     const orderCount = orders.length;
 

@@ -196,7 +196,7 @@ const formatCartResponse = (
       return sum + (ld?.amount ?? 0);
     }, 0);
 
-    const isUnavailable = !!(product && product.status !== "published");
+    const isUnavailable = !product || product.status !== "published";
 
     const itemObj = {
       _id: (item._id && item._id.toString()) || null, // Item ID (embedded document ID, needed for updates)
@@ -227,7 +227,10 @@ const formatCartResponse = (
         : null,
       // Display snapshots (fall back to populated product data for legacy items
       // that were saved before imageSnapshot was written correctly)
-      titleSnapshot: item.titleSnapshot || product?.title || "",
+      titleSnapshot:
+        item.titleSnapshot ||
+        product?.title ||
+        (isUnavailable ? item.skuSnapshot || "Item no longer available" : ""),
       imageSnapshot: item.imageSnapshot || extractImageUrl(product?.images?.[0]),
       skuSnapshot: item.skuSnapshot || product?.sku || null,
       attributesSnapshot: resolveAttributeLabels(

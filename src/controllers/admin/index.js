@@ -4,6 +4,7 @@ const {
   searchProducts,
   skuLookup,
   countFilterValue,
+  getDesignFamilies,
 } = require("./adminProductsController");
 const { reindexSearchIndex } = require("./adminSearchController");
 const {
@@ -13,6 +14,7 @@ const {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
 } = require("./adminOrdersController");
 const {
   getAllCategories,
@@ -36,6 +38,7 @@ module.exports = {
   searchProducts,
   skuLookup,
   countFilterValue,
+  getDesignFamilies,
   reindexSearchIndex,
 
   // Orders
@@ -45,6 +48,7 @@ module.exports = {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
 
   // Customers
   getAllCustomers,

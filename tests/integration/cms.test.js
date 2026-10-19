@@ -2,6 +2,7 @@ const request = require("supertest");
 const app = require("../../src/app");
 const mongoose = require("mongoose");
 const User = require("../../src/models/user");
+const { extractAccessToken } = require("../helpers/authHelpers");
 
 describe("CMS API", () => {
     let adminToken;
@@ -26,7 +27,7 @@ describe("CMS API", () => {
                 password: "Password123!"
             });
 
-        adminToken = loginRes.body.accessToken;
+        adminToken = extractAccessToken(loginRes);
     });
 
     describe("Public CMS Access", () => {

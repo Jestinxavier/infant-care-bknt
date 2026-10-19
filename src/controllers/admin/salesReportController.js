@@ -48,6 +48,8 @@ exports.getSalesByProduct = async (req, res) => {
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    // limit=0 requests the complete filtered/sorted dataset (report CSV export)
+    const exportAll = String(limit).trim() === "0";
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
 
     // Clamp allowed sort fields
@@ -124,7 +126,20 @@ exports.getSalesByProduct = async (req, res) => {
             orders: { $addToSet: "$_id" },
           },
         },
-        { $project: { orders: { $size: "$orders" } } },
+        {
+          $project: {
+            _id: 1,
+            name: 1,
+            variantName: 1,
+            image: 1,
+            urlKey: 1,
+            price: 1,
+            regularPrice: 1,
+            unitsSold: 1,
+            revenue: 1,
+            orders: { $size: "$orders" },
+          },
+        },
       ]);
 
       // Attach best-effort live product metadata (category + current stock).
@@ -144,6 +159,10 @@ exports.getSalesByProduct = async (req, res) => {
         products.map((p) => [
           String(p._id),
           {
+            name: p.name || p.title || null,
+            sku: p.sku || null,
+            image: p.images?.[0] || null,
+            urlKey: p.url_key || null,
             categoryName: p.categoryName || null,
             currentStock:
               p.stockObj?.available ??
@@ -164,11 +183,11 @@ exports.getSalesByProduct = async (req, res) => {
         return {
           productId: r._id?.productId ? String(r._id.productId) : null,
           variantId: r._id?.variantId ? String(r._id.variantId) : null,
-          name: r.name || "Unknown Product",
+          name: r.name || meta.name || "Unknown Product",
           variantName: variantLabel,
-          sku: r._id?.sku || "",
-          image: r.image || null,
-          urlKey: r.urlKey || null,
+          sku: r._id?.sku || meta.sku || "",
+          image: r.image || meta.image || null,
+          urlKey: r.urlKey || meta.urlKey || null,
           category: meta.categoryName || "Uncategorized",
           currentStock: meta.currentStock ?? 0,
           price: Number(r.price) || 0,
@@ -203,9 +222,11 @@ exports.getSalesByProduct = async (req, res) => {
       rows.sort(sortFn[sortKey]);
 
       const total = rows.length;
-      const totalPages = Math.ceil(total / limitNum) || 1;
+      const totalPages = exportAll ? 1 : Math.ceil(total / limitNum) || 1;
       const startIdx = (pageNum - 1) * limitNum;
-      const paginated = rows.slice(startIdx, startIdx + limitNum);
+      const paginated = exportAll
+        ? rows
+        : rows.slice(startIdx, startIdx + limitNum);
 
       const summary = rows.reduce(
         (acc, r) => {
@@ -221,7 +242,12 @@ exports.getSalesByProduct = async (req, res) => {
         success: true,
         rows: paginated,
         summary,
-        pagination: { page: pageNum, limit: limitNum, total, totalPages },
+        pagination: {
+          page: pageNum,
+          limit: exportAll ? 0 : limitNum,
+          total,
+          totalPages,
+        },
       };
     });
 

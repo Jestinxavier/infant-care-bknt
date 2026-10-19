@@ -18,7 +18,9 @@ const requireAdmin = async (req, res, next) => {
     }
 
     // Fetch user from database to check role
-    const user = await User.findById(userId).select("role email username");
+    const user = await User.findById(userId).select(
+      "role email username active"
+    );
 
     if (!user) {
       return res.status(401).json({
@@ -31,6 +33,13 @@ const requireAdmin = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: "Access denied. Admin role required.",
+      });
+    }
+    // Suspended accounts are blocked from all admin routes.
+    if (user.active === false) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Account is disabled.",
       });
     }
 

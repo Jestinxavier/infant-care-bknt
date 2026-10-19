@@ -3,7 +3,6 @@ const Collection = require("../../models/Collection");
 const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { parseCollectionsInput } = require("../../utils/collectionUtils");
-const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
 
 /**
@@ -36,7 +35,15 @@ const getAllProducts = async (req, res) => {
       pack = filters.pack,
       minPrice = filters.minPrice,
       maxPrice = filters.maxPrice,
-      inStock = filters.inStock || requestData.inStock,
+      inStock = filters.inStock !== undefined &&
+      filters.inStock !== null &&
+      filters.inStock !== ""
+        ? filters.inStock === "true" || filters.inStock === true
+        : requestData.inStock !== undefined &&
+            requestData.inStock !== null &&
+            requestData.inStock !== ""
+          ? requestData.inStock === "true" || requestData.inStock === true
+          : true,
       collection = filters.collection,
     } = { ...requestData, ...filters };
 
@@ -83,7 +90,7 @@ const getAllProducts = async (req, res) => {
           {
             _id: {
               $in: categoriesToResolve.filter((id) =>
-                /^[0-9a-fA-F]{24}$/.test(id)
+                /^[0-9a-fA-F]{24}$/.test(id),
               ),
             },
           },
@@ -132,7 +139,7 @@ const getAllProducts = async (req, res) => {
           {
             _id: {
               $in: subCatsToResolve.filter((id) =>
-                /^[0-9a-fA-F]{24}$/.test(id)
+                /^[0-9a-fA-F]{24}$/.test(id),
               ),
             },
           },
@@ -140,7 +147,7 @@ const getAllProducts = async (req, res) => {
         isActive: true,
       });
       serviceFilters.subCategories = resolvedSubDocs.map((d) =>
-        d._id.toString()
+        d._id.toString(),
       );
     }
 
@@ -183,7 +190,7 @@ const getAllProducts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -212,8 +219,22 @@ const getProductByUrlKey = async (req, res) => {
         { "variants.url_key": url_key }, // Variant
       ],
     })
-      .populate("category", "name slug")
-      .populate("subCategories", "name slug");
+      .populate({
+        path: "category",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      })
+      .populate({
+        path: "subCategories",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      });
 
     // Find the specific variant if slug matches a variant url_key
     let variantFromUrl = null;
@@ -227,24 +248,58 @@ const getProductByUrlKey = async (req, res) => {
       // Check if it's a valid ObjectId format
       if (/^[0-9a-fA-F]{24}$/.test(url_key)) {
         product = await Product.findById(url_key)
-          .populate("category", "name slug")
-          .populate("subCategories", "name slug");
+          .populate({
+            path: "category",
+            select: "name slug hasSizeChart sizeChartImage parentCategory",
+            populate: {
+              path: "parentCategory",
+              select: "name slug hasSizeChart sizeChartImage",
+            },
+          })
+          .populate({
+            path: "subCategories",
+            select: "name slug hasSizeChart sizeChartImage parentCategory",
+            populate: {
+              path: "parentCategory",
+              select: "name slug hasSizeChart sizeChartImage",
+            },
+          });
       }
     }
 
-    // Additional fallback: try to find by slugified name/title
-    // This helps with products that don't have url_key yet
+    // The url_key is retired: the owning product was renamed and pushed its
+    // old key into urlKeyHistory. Resolve it so the storefront can 301.
+    //
+    // This replaces a fallback that matched product titles by prefix regex
+    // (`^<slug with spaces>`), which served an arbitrary product whenever the
+    // slug was only a prefix of an unrelated title -- a wrong price and wrong
+    // buy button at a live URL. Unknown keys must 404 instead.
+    let redirectedTo = null;
     if (!product) {
-      // Try to find by matching slugified title or name
-      const safeSlug = escapeRegex(url_key.replace(/-/g, " "));
-      product = await Product.findOne({
-        $or: [
-          { title: { $regex: new RegExp(`^${safeSlug}`, "i") } },
-          { name: { $regex: new RegExp(`^${safeSlug}`, "i") } },
-        ],
+      const owner = await Product.findOne({
+        "urlKeyHistory.urlKey": url_key,
       })
-        .populate("category", "name slug")
-        .populate("subCategories", "name slug");
+        .populate({
+          path: "category",
+          select: "name slug hasSizeChart sizeChartImage parentCategory",
+          populate: {
+            path: "parentCategory",
+            select: "name slug hasSizeChart sizeChartImage",
+          },
+        })
+        .populate({
+          path: "subCategories",
+          select: "name slug hasSizeChart sizeChartImage parentCategory",
+          populate: {
+            path: "parentCategory",
+            select: "name slug hasSizeChart sizeChartImage",
+          },
+        });
+
+      if (owner) {
+        product = owner;
+        redirectedTo = owner.url_key;
+      }
     }
 
     if (!product) {
@@ -274,7 +329,7 @@ const getProductByUrlKey = async (req, res) => {
       };
       product.url_key = await generateUniqueUrlKey(
         product.title || product.name,
-        checkUrlKeyExists
+        checkUrlKeyExists,
       );
       await product.save();
     }
@@ -363,7 +418,7 @@ const getProductByUrlKey = async (req, res) => {
             allChildrenInStock = false;
             return item;
           }
-        }
+        },
       );
 
       // Update bundle stock based on child products
@@ -380,7 +435,7 @@ const getProductByUrlKey = async (req, res) => {
       productObj.bundle_config.gift_slot.options?.length > 0
     ) {
       const giftSkus = productObj.bundle_config.gift_slot.options.map(
-        (o) => o.sku
+        (o) => o.sku,
       );
 
       // Fetch images for these SKUs
@@ -430,6 +485,7 @@ const getProductByUrlKey = async (req, res) => {
 
     res.status(200).json({
       success: true,
+      ...(redirectedTo ? { redirectedTo } : {}),
       ...formattedProduct,
     });
   } catch (err) {
@@ -437,7 +493,7 @@ const getProductByUrlKey = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -466,8 +522,22 @@ const getProductById = async (req, res) => {
     }
 
     const product = await Product.findById(productId)
-      .populate("category", "name slug")
-      .populate("subCategories", "name slug");
+      .populate({
+        path: "category",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      })
+      .populate({
+        path: "subCategories",
+        select: "name slug hasSizeChart sizeChartImage parentCategory",
+        populate: {
+          path: "parentCategory",
+          select: "name slug hasSizeChart sizeChartImage",
+        },
+      });
 
     if (!product) {
       return res.status(404).json({
@@ -512,7 +582,7 @@ const getProductById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -525,7 +595,7 @@ const getVariantById = async (req, res) => {
 
     const variant = await Variant.findById(variantId).populate(
       "productId",
-      "name description category averageRating totalReviews"
+      "name description category averageRating totalReviews",
     );
 
     if (!variant) {
@@ -544,7 +614,7 @@ const getVariantById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Internal Server Error",
-          });
+    });
   }
 };
 
@@ -593,7 +663,7 @@ const collectSearchKeywords = (product = {}) => {
   pushKeyword(product.badgeCollection);
 
   (Array.isArray(product.collections) ? product.collections : []).forEach(
-    pushKeyword
+    pushKeyword,
   );
 
   const filterAttributes =
@@ -621,7 +691,7 @@ const collectSearchKeywords = (product = {}) => {
       pushKeyword(token);
       const synonyms = SEARCH_INDEX_TERM_SYNONYMS[token] || [];
       synonyms.forEach(pushKeyword);
-    }
+    },
   );
 
   return Array.from(keywordSet);
@@ -630,14 +700,36 @@ const collectSearchKeywords = (product = {}) => {
 const getSearchIndex = async (req, res) => {
   logger.info("🔍 Search Index API called");
   try {
-    if (_searchIndexCache && Date.now() - _searchIndexCacheAt < SEARCH_INDEX_TTL_MS) {
+    if (
+      _searchIndexCache &&
+      Date.now() - _searchIndexCacheAt < SEARCH_INDEX_TTL_MS
+    ) {
       return res.status(200).json(_searchIndexCache);
     }
 
-    // Fetch only published products with minimal fields
-    const products = await Product.find({ status: "published" })
+    // Fetch only published and in-stock products with minimal fields
+    const products = await Product.find({
+      status: "published",
+      $or: [
+        { "stockObj.available": { $gt: 0 } },
+        {
+          "stockObj.available": { $exists: false },
+          "stockObj.isInStock": true,
+        },
+        { stockObj: { $exists: false }, stock: { $gt: 0 } },
+        { "variants.stockObj.available": { $gt: 0 } },
+        {
+          "variants.stockObj.available": { $exists: false },
+          "variants.stockObj.isInStock": true,
+        },
+        {
+          "variants.stockObj": { $exists: false },
+          "variants.stock": { $gt: 0 },
+        },
+      ],
+    })
       .select(
-        "title name url_key images pricing price category status sku variants collections badgeCollection filterAttributes"
+        "title name url_key images pricing price category status sku variants collections badgeCollection filterAttributes",
       )
       .populate("category", "name slug")
       .lean();

@@ -269,6 +269,7 @@ function transformForDashboard(product, options = {}) {
     sku,
     collections,
     badgeCollection,
+    designId: product.designId || null,
 
     // Full variant list (only when requested for CSV export)
     ...(includeVariants

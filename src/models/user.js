@@ -34,6 +34,12 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin", "super-admin", "developer"],
       default: "user",
     },
+    // Whether an admin/developer account is usable. Suspended accounts are
+    // rejected by requireAdmin and dashboard login.
+    active: {
+      type: Boolean,
+      default: true,
+    },
     // Email Verification Fields (OTP-based)
     isEmailVerified: {
       type: Boolean,
@@ -59,6 +65,15 @@ const userSchema = new mongoose.Schema(
     avatar: {
       type: String,
       default: null,
+    },
+    googleId: {
+      type: String,
+      default: null,
+    },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
     },
     createdAt: {
       type: Date,
@@ -116,6 +131,7 @@ userSchema.methods.comparePassword = async function (password) {
 };
 
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+userSchema.index({ googleId: 1 }, { sparse: true });
 // Role index — used by admin dashboard countDocuments({ role: "user" })
 userSchema.index({ role: 1 });
 // Email OTP lookup — used during registration verification

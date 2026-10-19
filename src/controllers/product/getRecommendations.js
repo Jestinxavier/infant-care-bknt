@@ -12,7 +12,17 @@ const getRecommendations = async (req, res) => {
         .json({ success: false, message: "category is required" });
     }
 
-    const matchQuery = { status: "published" };
+    const matchQuery = {
+      status: "published",
+      $or: [
+        { "stockObj.available": { $gt: 0 } },
+        { "stockObj.available": { $exists: false }, "stockObj.isInStock": true },
+        { "stockObj": { $exists: false }, "stock": { $gt: 0 } },
+        { "variants.stockObj.available": { $gt: 0 } },
+        { "variants.stockObj.available": { $exists: false }, "variants.stockObj.isInStock": true },
+        { "variants.stockObj": { $exists: false }, "variants.stock": { $gt: 0 } }
+      ]
+    };
 
     if (mongoose.Types.ObjectId.isValid(category)) {
       matchQuery.category = new mongoose.Types.ObjectId(category);

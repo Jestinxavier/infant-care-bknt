@@ -1,6 +1,7 @@
 const Product = require("../../models/Product");
 const redis = require("../../config/redis");
 const logger = require("../../utils/logger");
+const { getPricing } = require("../../utils/productPricing");
 const {
   getProductsIndex,
   isMeilisearchEnabled,
@@ -11,9 +12,26 @@ const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 10;
 const MIN_QUERY_LENGTH = 2;
 
-const CACHE_PREFIX = "search:suggest:v2";
+const CACHE_PREFIX = "search:suggest:v3";
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const isValidObjectId = (id) => /^[a-f0-9]{24}$/i.test(String(id));
+
+const toSuggestion = (product, category = null) => {
+  const { regular_price, offer_price } = getPricing(product);
+  return {
+    id: String(product._id),
+    title: product.title || product.name || "",
+    url_key: product.url_key,
+    price: offer_price ?? regular_price,
+    regular_price,
+    offer_price,
+    image:
+      typeof product.images?.[0] === "string" ? product.images[0] : "",
+    category: category || product.category?.name || "Uncategorized",
+  };
+};
 
 /**
  * Meilisearch-backed suggest (typo tolerance + prefix + synonyms).
@@ -26,14 +44,42 @@ const suggestViaMeilisearch = async (normalized, limit) => {
     filter: 'status = "published"',
   });
 
-  const products = (result.hits || []).map((hit) => ({
-    id: hit.id,
-    title: hit.title || "",
-    url_key: hit.url_key,
-    price: hit.price || 0,
-    image: hit.image || "",
-    category: hit.category || "Uncategorized",
-  }));
+  const hits = result.hits || [];
+
+  // Meilisearch owns ranking/typo-tolerance; hydrate authoritative MRP/offer
+  // pricing from Mongo (the index only stores a single, often stale price and
+  // nothing for variant-priced products). Limit ≤ 10 → one tiny $in query.
+  const pricingById = new Map();
+  const ids = hits
+    .map((hit) => hit.id)
+    .filter((id) => isValidObjectId(id));
+  if (ids.length > 0) {
+    const docs = await Product.find({ _id: { $in: ids } })
+      .select(
+        "price offerPrice offerStartAt offerEndAt pricing variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt"
+      )
+      .lean();
+    for (const doc of docs) {
+      pricingById.set(String(doc._id), getPricing(doc));
+    }
+  }
+
+  const products = hits.map((hit) => {
+    const pricing = pricingById.get(String(hit.id)) || {
+      regular_price: hit.price || 0,
+      offer_price: null,
+    };
+    return {
+      id: hit.id,
+      title: hit.title || "",
+      url_key: hit.url_key,
+      price: pricing.offer_price ?? pricing.regular_price ?? 0,
+      regular_price: pricing.regular_price ?? 0,
+      offer_price: pricing.offer_price ?? null,
+      image: hit.image || "",
+      category: hit.category || "Uncategorized",
+    };
+  });
 
   const payload = {
     success: true,
@@ -46,8 +92,8 @@ const suggestViaMeilisearch = async (normalized, limit) => {
   // carries sku/skus attributes for this purpose.
   if (/^[a-z0-9-]+$/.test(normalized) && products.length > 0) {
     const firstHitSkus = [
-      ...(result.hits[0].sku ? [result.hits[0].sku] : []),
-      ...(result.hits[0].skus || []),
+      ...(hits[0].sku ? [hits[0].sku] : []),
+      ...(hits[0].skus || []),
     ];
     if (
       firstHitSkus.some((sku) => String(sku).toLowerCase() === normalized)
@@ -87,7 +133,7 @@ const SEARCHABLE_PATHS = [
 ];
 
 const BASE_SELECT =
-  "title name url_key images pricing price sku categoryName categoryCode collections badgeCollection filterAttributes variants.sku variants.name variants.pricing variants.price category";
+  "title name url_key images pricing price offerPrice offerStartAt offerEndAt sku categoryName categoryCode collections badgeCollection filterAttributes variants.sku variants.name variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt category";
 
 const buildTokenRegexes = (tokens) =>
   tokens.map((token, i) => {

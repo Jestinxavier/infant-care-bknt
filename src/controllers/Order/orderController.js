@@ -37,6 +37,7 @@ const createOrder = async (req, res) => {
       newAddress,
       paymentMethod: requestedPaymentMethod,
       cartId: requestedCartId,
+      metaContext,
     } = req.body;
     paymentMethod = requestedPaymentMethod;
     cartId = requestedCartId;
@@ -758,6 +759,9 @@ const createOrder = async (req, res) => {
       shippingAddress: shippingAddressData,
       paymentMethod: paymentMethod,
       orderStatus: "pending",
+      statusHistory: [
+        { status: "pending", timestamp: new Date() },
+      ],
       pricingSnapshot: {
         itemsSubtotal: subtotal,
         productDiscount: discountAmount,
@@ -766,6 +770,17 @@ const createOrder = async (req, res) => {
         codCost: codCost,
         total: totalAmount,
         snapshotAt: new Date(),
+      },
+      metaTracking: {
+        fbp: metaContext?.fbp || req.cookies?._fbp || null,
+        fbc: metaContext?.fbc || req.cookies?._fbc || null,
+        eventSourceUrl: metaContext?.eventSourceUrl || null,
+        clientIp: req.headers["x-forwarded-for"]
+          ? (typeof req.headers["x-forwarded-for"] === "string"
+              ? req.headers["x-forwarded-for"].split(",")[0].trim()
+              : req.headers["x-forwarded-for"][0])
+          : req.ip || null,
+        clientUserAgent: req.headers["user-agent"] || null,
       },
     });
 
@@ -1058,11 +1073,18 @@ const createOrder = async (req, res) => {
       logger.error("❌ Failed to send order confirmation email:", { message: err.message, stack: err.stack })
     );
 
+    // Meta Conversions API (CAPI) Purchase event
+    const { trackPurchase } = require("../../services/metaConversionService");
+    trackPurchase({ order, req, metaContext }).catch((err) =>
+      logger.error("❌ [META CAPI] Failed to track purchase for COD order:", err)
+    );
+
     return res.status(201).json({
       success: true,
       message: "Order placed successfully",
       paymentMode: "cod",
       orderId: order.orderId,
+      totalAmount: order.totalAmount || order.pricing?.payableAmount || order.pricing?.grandTotal || order.payableAmount || 0,
       isGuestOrder: isGuest,
       requiresPayment: false,
     });

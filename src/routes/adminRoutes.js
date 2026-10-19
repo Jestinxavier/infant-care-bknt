@@ -2,12 +2,14 @@ const express = require("express");
 const router = express.Router();
 const verifyToken = require("../middlewares/authMiddleware");
 const requireAdmin = require("../middlewares/adminMiddleware");
+const requirePermission = require("../middlewares/permissionMiddleware");
 const {
   getAllProducts,
   getProductById,
   searchProducts,
   skuLookup,
   countFilterValue,
+  getDesignFamilies,
   reindexSearchIndex,
   getAllOrders,
   getOrderById,
@@ -15,6 +17,7 @@ const {
   sendOrderInvoice,
   markOrderAsPaid,
   markCodOrderAsPaid,
+  exportOrders,
   getAllCategories,
   getCategoryById,
   getAllCustomers,
@@ -60,7 +63,7 @@ const {
   deleteProduct,
   bulkDeleteProducts,
 } = require("../controllers/product");
-const { parser } = require("../config/cloudinary");
+const { parser, uploadFilesMiddleware } = require("../config/mediaServer");
 const parseMultipartBody = require("../middlewares/parseMultipartBody");
 
 // Import existing category controllers for create/update/delete
@@ -93,20 +96,91 @@ const {
   deleteErrorLog,
   clearAllErrorLogs,
 } = require("../controllers/admin/errorLogController");
+const {
+  getAdminUsers,
+  createAdminUser,
+  updateAdminUser,
+  deleteAdminUser,
+  getAdminUserAudit,
+} = require("../controllers/admin/adminUserController");
 
 // ==================== NOTIFICATIONS ====================
 router.get("/notifications", verifyToken, requireAdmin, getNotifications);
-router.patch("/notifications/read-all", verifyToken, requireAdmin, markAllAsRead);
+router.patch(
+  "/notifications/read-all",
+  verifyToken,
+  requireAdmin,
+  markAllAsRead,
+);
 router.patch("/notifications/:id/read", verifyToken, requireAdmin, markAsRead);
-router.delete("/notifications/:id", verifyToken, requireAdmin, deleteNotification);
+router.delete(
+  "/notifications/:id",
+  verifyToken,
+  requireAdmin,
+  deleteNotification,
+);
 
 // ==================== ERROR LOGS ====================
-router.get("/error-logs", verifyToken, requireAdmin, getErrorLogs);
-router.delete("/error-logs", verifyToken, requireAdmin, clearAllErrorLogs);
-router.delete("/error-logs/:id", verifyToken, requireAdmin, deleteErrorLog);
+router.get(
+  "/error-logs",
+  verifyToken,
+  requireAdmin,
+  requirePermission("view:error_logs"),
+  getErrorLogs,
+);
+router.delete(
+  "/error-logs",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:error_logs"),
+  clearAllErrorLogs,
+);
+router.delete(
+  "/error-logs/:id",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:error_logs"),
+  deleteErrorLog,
+);
+
+// ==================== ADMIN USERS ====================
+router.get(
+  "/users",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:users"),
+  getAdminUsers,
+);
+router.post(
+  "/users",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:roles"),
+  createAdminUser,
+);
+router.get(
+  "/users/audit",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:roles"),
+  getAdminUserAudit,
+);
+router.patch(
+  "/users/:id",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:roles"),
+  updateAdminUser,
+);
+router.delete(
+  "/users/:id",
+  verifyToken,
+  requireAdmin,
+  requirePermission("manage:users"),
+  deleteAdminUser,
+);
 
 // ==================== PRODUCTS ====================
-
 
 /**
  * @swagger
@@ -335,12 +409,7 @@ router.get(
  *       200:
  *         description: Report retrieved successfully
  */
-router.get(
-  "/reports/customers",
-  verifyToken,
-  requireAdmin,
-  getCustomersReport,
-);
+router.get("/reports/customers", verifyToken, requireAdmin, getCustomersReport);
 
 /**
  * @swagger
@@ -534,7 +603,7 @@ router.post(
   "/products/reindex-search",
   verifyToken,
   requireAdmin,
-  reindexSearchIndex
+  reindexSearchIndex,
 );
 
 /**
@@ -554,18 +623,33 @@ router.post(
  *       200:
  *         description: Product/variant info found
  */
-router.get(
-  "/products/sku-lookup",
-  verifyToken,
-  requireAdmin,
-  skuLookup,
-);
+router.get("/products/sku-lookup", verifyToken, requireAdmin, skuLookup);
 
 router.get(
   "/products/count-filter-value",
   verifyToken,
   requireAdmin,
   countFilterValue,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/products/design-families:
+ *   get:
+ *     summary: "[Admin] List existing design families"
+ *     description: Distinct designId values with sample product + member count (for the product form datalist)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Design families retrieved successfully
+ */
+router.get(
+  "/products/design-families",
+  verifyToken,
+  requireAdmin,
+  getDesignFamilies,
 );
 
 // Import bulk import controller
@@ -735,13 +819,14 @@ router.post(
   (req, res, next) => {
     parser.any()(req, res, function (err) {
       if (err) {
-        logger.error("❌ Multer/Cloudinary Error:", err);
+        logger.error("❌ Multer/Upload Error:", err);
         return res.status(400).json({ message: "Upload error", error: err });
       }
       logger.info("✅ Multer parsing done");
       next();
     });
   },
+  uploadFilesMiddleware,
   createProduct,
 );
 
@@ -879,6 +964,7 @@ router.patch(
   verifyToken,
   requireAdmin,
   (req, res, next) => parser.any()(req, res, next),
+  uploadFilesMiddleware,
   parseMultipartBody,
   updateProduct,
 );
@@ -1041,6 +1127,54 @@ router.delete("/products/:productId", verifyToken, requireAdmin, deleteProduct);
  */
 router.get("/orders", verifyToken, requireAdmin, getAllOrders);
 router.post("/orders", verifyToken, requireAdmin, getAllOrders);
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/export:
+ *   post:
+ *     summary: "[Admin] Export orders to CSV"
+ *     description: Export matching orders as CSV in 'orders' (one row per order) or 'items' (one row per line item) format. Accepts the same filter criteria as the orders list, or explicit orderIds.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               type:
+ *                 type: string
+ *                 enum: [orders, items]
+ *                 default: orders
+ *               orderIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               status:
+ *                 type: string
+ *               paymentStatus:
+ *                 type: string
+ *               paymentMethod:
+ *                 type: string
+ *               search:
+ *                 type: string
+ *               from:
+ *                 type: string
+ *               to:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: CSV file stream
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ */
+// NOTE: Must be registered before "/orders/:orderId" so "export" is not treated as an order ID.
+router.post("/orders/export", verifyToken, requireAdmin, exportOrders);
+router.get("/orders/export", verifyToken, requireAdmin, exportOrders);
 
 /**
  * @swagger
@@ -1268,12 +1402,7 @@ router.post("/orders/:orderId", verifyToken, requireAdmin, getOrderById);
  *       404:
  *         description: Order not found
  */
-router.patch(
-  "/orders/mark-paid",
-  verifyToken,
-  requireAdmin,
-  markOrderAsPaid,
-);
+router.patch("/orders/mark-paid", verifyToken, requireAdmin, markOrderAsPaid);
 
 /**
  * @swagger
@@ -1471,7 +1600,12 @@ router.post("/coupons", verifyToken, requireAdmin, createCoupon);
  *     security:
  *       - bearerAuth: []
  */
-router.get("/coupons/product-search", verifyToken, requireAdmin, searchProductsForCoupon);
+router.get(
+  "/coupons/product-search",
+  verifyToken,
+  requireAdmin,
+  searchProductsForCoupon,
+);
 router.patch("/coupons/:id", verifyToken, requireAdmin, updateCoupon);
 router.delete("/coupons/:id", verifyToken, requireAdmin, deleteCoupon);
 

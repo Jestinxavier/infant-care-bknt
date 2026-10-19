@@ -10,6 +10,7 @@ const {
   sendWelcomeEmail,
 } = require("./emailService");
 const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../resources/constants");
+const toCamelCase = require("../utils/toCamelCase");
 
 /**
  * Step 1: Request OTP - Only email needed
@@ -114,7 +115,8 @@ exports.verifyOTPAndRegister = async ({
   }
 
   // OTP is valid - Create user account
-  const finalUsername = username || pendingOTP.username;
+  // Usernames are stored camelCase ("John Doe" -> "johnDoe").
+  const finalUsername = toCamelCase(username || pendingOTP.username);
   const finalPassword = password || pendingOTP.password;
 
   if (!finalUsername) {
@@ -228,6 +230,7 @@ exports.loginUser = async ({ email, password }) => {
       username: user.username,
       email: user.email,
       role: user.role,
+      active: user.active,
       isEmailVerified: user.isEmailVerified,
     },
   };

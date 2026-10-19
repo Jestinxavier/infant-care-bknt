@@ -344,11 +344,56 @@ const getProductReviews = async (req, res) => {
 
     const total = await Review.countDocuments(query);
 
+    // ============================================================
+    // Shared reviews: approved reviews written against OTHER products
+    // carrying the same designId (same category only, drafts excluded).
+    // Product-specific reviews/ratings above are never affected.
+    // ============================================================
+    let shared = null;
+    const targetProduct = await Product.findById(targetProductId).select(
+      "designId category",
+    );
+    if (targetProduct && targetProduct.designId) {
+      const siblingIds = await Product.find({
+        designId: targetProduct.designId,
+        _id: { $ne: targetProductId },
+        category: targetProduct.category,
+        status: { $ne: "draft" },
+      })
+        .select("_id")
+        .lean();
+
+      if (siblingIds.length > 0) {
+        const sharedReviews = await Review.find({
+          productId: { $in: siblingIds.map((p) => p._id) },
+          isApproved: true,
+        })
+          .populate("userId", "username")
+          .populate("productId", "name url_key images")
+          .sort({ createdAt: -1 })
+          .limit(10);
+
+        let sharedAvg = 0;
+        if (sharedReviews.length > 0) {
+          const sum = sharedReviews.reduce((acc, r) => acc + r.rating, 0);
+          sharedAvg = sum / sharedReviews.length;
+        }
+
+        shared = {
+          designId: targetProduct.designId,
+          totalReviews: sharedReviews.length,
+          averageRating: parseFloat(sharedAvg.toFixed(1)),
+          reviews: sharedReviews,
+        };
+      }
+    }
+
     res.status(200).json({
       success: true,
       totalReviews: total,
       averageRating: parseFloat(avgRating),
       reviews,
+      shared,
       pagination: {
         page,
         limit,

@@ -68,32 +68,74 @@ const getAllProducts = async (req, res) => {
       filter.product_type = product_type;
     }
 
-    // Admin can filter by stock status
-    if (stockStatus) {
+    // Admin can filter by stock status.
+    // Stock can live on the parent (stock / stockObj.available) OR across
+    // variants, so compute the same "effective stock" the dashboard displays
+    // (see transformForDashboard.calculateTotalStock) and match against it.
+    // Otherwise CONFIGURABLE products (whose parent stock is 0) never match.
+    let stockCondition = null;
+    if (stockStatus && stockStatus !== "all") {
+      const effectiveStock = {
+        $cond: [
+          { $gt: [{ $size: { $ifNull: ["$variants", []] } }, 0] },
+          {
+            $reduce: {
+              input: { $ifNull: ["$variants", []] },
+              initialValue: 0,
+              in: {
+                $add: [
+                  "$$value",
+                  {
+                    $ifNull: [
+                      "$$this.stockObj.available",
+                      { $ifNull: ["$$this.stock", 0] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $ifNull: ["$stockObj.available", { $ifNull: ["$stock", 0] }],
+          },
+        ],
+      };
+
       if (stockStatus === "inStock") {
-        filter.stock = { $gt: 0 };
+        stockCondition = { $expr: { $gt: [effectiveStock, 0] } };
       } else if (stockStatus === "outOfStock") {
-        filter.$or = [
-          { stock: { $eq: 0 } },
-          { stock: { $exists: false } },
-        ];
+        stockCondition = { $expr: { $lte: [effectiveStock, 0] } };
       } else if (stockStatus === "lowStock") {
-        filter.stock = { $gt: 0, $lte: 10 };
+        stockCondition = {
+          $expr: {
+            $and: [{ $gt: [effectiveStock, 0] }, { $lte: [effectiveStock, 10] }],
+          },
+        };
       }
     }
 
     // Search filter - search by name/title, description, or SKU
     // SKU is typically made from product name, so we search in variants too
+    let searchCondition = null;
     if (search) {
       const safeSearch = escapeRegex(search);
       const searchRegex = { $regex: safeSearch, $options: "i" };
-      filter.$or = [
-        { title: searchRegex },
-        { name: searchRegex },
-        { description: searchRegex },
-        { "variants.sku": searchRegex }, // Search in variant SKUs
-        { sku: searchRegex }, // Search in parent SKU if exists
-      ];
+      searchCondition = {
+        $or: [
+          { title: searchRegex },
+          { name: searchRegex },
+          { description: searchRegex },
+          { "variants.sku": searchRegex }, // Search in variant SKUs
+          { sku: searchRegex }, // Search in parent SKU if exists
+        ],
+      };
+    }
+
+    // Combine with $and so search + stock filters compose instead of one
+    // overwriting the other's $or.
+    const combinedConditions = [stockCondition, searchCondition].filter(Boolean);
+    if (combinedConditions.length > 0) {
+      filter.$and = combinedConditions;
     }
 
     // Build sort — whitelist to prevent NoSQL injection via arbitrary key names
@@ -296,18 +338,57 @@ const searchProducts = async (req, res) => {
       ...productTypeFilter,
       status: "published",
     })
-      .select("_id title sku url_key stockObj product_type")
+      .select(
+        "_id title sku url_key price offerPrice offerStartAt offerEndAt stockObj images product_type variants",
+      )
       .limit(parseInt(limit))
       .lean();
 
-    const data = products.map((p) => ({
-      _id: p._id,
-      title: p.title,
-      sku: p.sku,
-      url_key: p.url_key,
-      stock: p.stockObj?.available ?? 0,
-      product_type: p.product_type,
-    }));
+    const data = products.map((p) => {
+      let price = p.price ?? 0;
+      let offerPrice = null;
+      let stock = p.stockObj?.available ?? 0;
+      let image =
+        Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : "";
+
+      // CONFIGURABLE: surface the first in-stock variant's price/stock/image
+      if (
+        p.product_type === "CONFIGURABLE" &&
+        Array.isArray(p.variants) &&
+        p.variants.length > 0
+      ) {
+        const available = p.variants.find((v) => {
+          const s = v.stockObj?.available ?? v.stock ?? 0;
+          return s > 0;
+        });
+        const chosen = available || p.variants[0];
+        price = chosen.price ?? price;
+        stock = chosen.stockObj?.available ?? chosen.stock ?? stock;
+        const op = chosen.offerPrice ?? null;
+        offerPrice = op > 0 ? op : null;
+        if (Array.isArray(chosen.images) && chosen.images.length > 0) {
+          image = chosen.images[0] || image;
+        }
+      } else if (p.offerPrice && p.offerPrice > 0) {
+        const now = new Date();
+        const active =
+          (!p.offerStartAt || now >= new Date(p.offerStartAt)) &&
+          (!p.offerEndAt || now <= new Date(p.offerEndAt));
+        offerPrice = active ? p.offerPrice : null;
+      }
+
+      return {
+        _id: p._id,
+        title: p.title,
+        sku: p.sku,
+        url_key: p.url_key,
+        price,
+        offerPrice,
+        stock,
+        image,
+        product_type: p.product_type,
+      };
+    });
 
     return res.status(200).json({
       success: true,
@@ -446,10 +527,52 @@ const countFilterValue = async (req, res) => {
   }
 };
 
+/**
+ * Admin: List existing design families (distinct designId values) with a
+ * sample product + member count. Powers the product form's design-family
+ * datalist/autocomplete and the review-sharing admin surface.
+ */
+const getDesignFamilies = async (req, res) => {
+  try {
+    const groups = await Product.aggregate([
+      { $match: { designId: { $type: "string", $ne: "" } } },
+      { $group: { _id: "$designId", count: { $sum: 1 } } },
+      { $project: { _id: 0, designId: "$_id", count: 1 } },
+      { $sort: { designId: 1 } },
+    ]);
+
+    const families = await Promise.all(
+      groups.map(async (g) => {
+        const sample = await Product.findOne(
+          { designId: g.designId },
+          { title: 1, url_key: 1, images: 1 },
+        )
+          .sort({ updatedAt: -1 })
+          .lean();
+        return {
+          designId: g.designId,
+          count: g.count,
+          sampleTitle: sample?.title || null,
+          image: Array.isArray(sample?.images) ? sample.images[0] : null,
+        };
+      }),
+    );
+
+    res.status(200).json({ success: true, families });
+  } catch (err) {
+    logger.error("❌ Admin Error fetching design families:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
   getAllProducts,
   getProductById,
   searchProducts,
   skuLookup,
   countFilterValue,
+  getDesignFamilies,
 };
