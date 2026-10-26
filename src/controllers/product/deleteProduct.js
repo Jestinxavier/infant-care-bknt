@@ -3,6 +3,9 @@ const Variant = require("../../models/Variant");
 const Review = require("../../models/Review");
 const logger = require("../../utils/logger");
 const { removeProductsByIds } = require("../../services/searchIndexService");
+const {
+  invalidateProductCatalogCaches,
+} = require("../../utils/productCacheInvalidation");
 
 /**
  * Delete a product and all its variants, reviews, and related data
@@ -141,6 +144,8 @@ const deleteProduct = async (req, res) => {
 
     // Fire-and-forget: drop from search index (never blocks/fails the request)
     removeProductsByIds([productId]);
+
+    invalidateProductCatalogCaches("product deleted");
 
     res.status(200).json({
       success: true,

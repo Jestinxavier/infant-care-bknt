@@ -33,13 +33,30 @@ const getPurchasedProductsForReview = async (req, res) => {
 
     // Collect all variant-order combinations
     const purchasedItems = [];
+
+    // Batch the "already reviewed?" lookup: one query for every product in the
+    // user's orders instead of a Review.findOne per line item (N+1).
+    const productIds = [
+      ...new Set(
+        orders
+          .flatMap((order) => order.items || [])
+          .map((item) => item.variantId?.productId?._id)
+          .filter(Boolean)
+          .map((id) => String(id))
+      ),
+    ];
+    const existingReviews = productIds.length
+      ? await Review.find({ userId, productId: { $in: productIds } })
+      : [];
+    const reviewByProduct = new Map(
+      existingReviews.map((r) => [String(r.productId), r])
+    );
+
     for (const order of orders) {
       for (const item of order.items) {
         // Check if already reviewed (One review per product rule)
-        const existingReview = await Review.findOne({
-          userId,
-          productId: item.variantId.productId._id,
-        });
+        const productId = item.variantId.productId._id;
+        const existingReview = reviewByProduct.get(String(productId)) || null;
 
         purchasedItems.push({
           orderId: order._id,
@@ -320,8 +337,12 @@ const getProductReviews = async (req, res) => {
       targetProductId = product._id;
     }
 
-    // Build query with Strict Approval Filter
-    const query = { productId: targetProductId, isApproved: true };
+    // Build query with Strict Approval Filter. Cast explicitly so the same
+    // filter works for both find() (auto-casts) and aggregate() (does NOT cast).
+    const query = {
+      productId: new mongoose.Types.ObjectId(targetProductId),
+      isApproved: true,
+    };
 
     const reviews = await Review.find(query)
       .populate("userId", "username")
@@ -330,61 +351,91 @@ const getProductReviews = async (req, res) => {
       .skip(skip)
       .limit(limit);
 
-    // Calculate average rating based on approved reviews
-    const allApprovedReviews = await Review.find({
-      productId: targetProductId,
-      isApproved: true,
-    });
+    // Average rating + total count for the approved reviews, computed in Mongo
+    // instead of loading the whole review set into memory.
+    const [ratingStats] = await Review.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: null,
+          avg: { $avg: "$rating" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
 
-    let avgRating = 0;
-    if (allApprovedReviews.length > 0) {
-      const sum = allApprovedReviews.reduce((acc, r) => acc + r.rating, 0);
-      avgRating = (sum / allApprovedReviews.length).toFixed(1);
-    }
-
-    const total = await Review.countDocuments(query);
+    const total = ratingStats?.count || 0;
+    const avgRating = total > 0 ? Number(ratingStats.avg).toFixed(1) : 0;
 
     // ============================================================
-    // Shared reviews: approved reviews written against OTHER products
-    // carrying the same designId (same category only, drafts excluded).
-    // Product-specific reviews/ratings above are never affected.
+    // Shared reviews: approved reviews from similar designs
+    // Priority: designId > subCategories[0] (fallback for baby brand)
+    // Same category is enforced as a guardrail. Drafts excluded.
     // ============================================================
     let shared = null;
     const targetProduct = await Product.findById(targetProductId).select(
-      "designId category",
+      "designId category subCategories",
     );
-    if (targetProduct && targetProduct.designId) {
-      const siblingIds = await Product.find({
-        designId: targetProduct.designId,
-        _id: { $ne: targetProductId },
-        category: targetProduct.category,
-        status: { $ne: "draft" },
-      })
-        .select("_id")
-        .lean();
 
-      if (siblingIds.length > 0) {
-        const sharedReviews = await Review.find({
-          productId: { $in: siblingIds.map((p) => p._id) },
-          isApproved: true,
-        })
-          .populate("userId", "username")
-          .populate("productId", "name url_key images")
-          .sort({ createdAt: -1 })
-          .limit(10);
+    if (targetProduct && targetProduct.category) {
+      let siblingQuery = null;
+      let sharedKey = null;
+      let sharedType = null;
 
-        let sharedAvg = 0;
-        if (sharedReviews.length > 0) {
-          const sum = sharedReviews.reduce((acc, r) => acc + r.rating, 0);
-          sharedAvg = sum / sharedReviews.length;
-        }
-
-        shared = {
+      if (targetProduct.designId) {
+        siblingQuery = {
           designId: targetProduct.designId,
-          totalReviews: sharedReviews.length,
-          averageRating: parseFloat(sharedAvg.toFixed(1)),
-          reviews: sharedReviews,
+          _id: { $ne: targetProductId },
+          category: targetProduct.category,
+          status: { $ne: "draft" },
         };
+        sharedKey = targetProduct.designId;
+        sharedType = "designId";
+      } else if (
+        Array.isArray(targetProduct.subCategories) &&
+        targetProduct.subCategories.length > 0
+      ) {
+        const primarySubCategory = targetProduct.subCategories[0];
+        siblingQuery = {
+          subCategories: primarySubCategory,
+          _id: { $ne: targetProductId },
+          category: targetProduct.category,
+          status: { $ne: "draft" },
+        };
+        sharedKey = String(primarySubCategory);
+        sharedType = "subCategory";
+      }
+
+      if (siblingQuery) {
+        const siblingIds = await Product.find(siblingQuery)
+          .select("_id")
+          .lean();
+
+        if (siblingIds.length > 0) {
+          const sharedReviews = await Review.find({
+            productId: { $in: siblingIds.map((p) => p._id) },
+            isApproved: true,
+          })
+            .populate("userId", "username")
+            .populate("productId", "name url_key images")
+            .sort({ createdAt: -1 })
+            .limit(10);
+
+          let sharedAvg = 0;
+          if (sharedReviews.length > 0) {
+            const sum = sharedReviews.reduce((acc, r) => acc + r.rating, 0);
+            sharedAvg = sum / sharedReviews.length;
+          }
+
+          shared = {
+            ...(sharedType === "designId" ? { designId: sharedKey } : {}),
+            key: sharedKey,
+            type: sharedType,
+            totalReviews: sharedReviews.length,
+            averageRating: parseFloat(sharedAvg.toFixed(1)),
+            reviews: sharedReviews,
+          };
+        }
       }
     }
 
@@ -416,24 +467,34 @@ const getProductReviews = async (req, res) => {
 const getVariantReviews = async (req, res) => {
   try {
     const { variantId } = req.params;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
 
-    const reviews = await Review.find({ variantId, isApproved: true })
-      .populate("userId", "username")
-      .sort({ createdAt: -1 });
+    const query = { variantId, isApproved: true };
 
-    // Calculate average rating
-    const avgRating =
-      reviews.length > 0
-        ? (
-            reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-          ).toFixed(1)
-        : 0;
+    const [reviews, statsResult] = await Promise.all([
+      Review.find(query)
+        .populate("userId", "username")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Review.aggregate([
+        { $match: query },
+        { $group: { _id: null, avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const stats = statsResult[0];
+    const totalReviews = stats?.count || 0;
+    const avgRating = totalReviews > 0 ? Number(stats.avg).toFixed(1) : 0;
 
     res.status(200).json({
       success: true,
-      totalReviews: reviews.length,
+      totalReviews,
       averageRating: parseFloat(avgRating),
       reviews,
+      pagination: { page, limit, total: totalReviews, pages: Math.ceil(totalReviews / limit) },
     });
   } catch (err) {
     logger.error("❌ Error fetching reviews:", err);

@@ -4,6 +4,8 @@
 const SystemErrorLog = require("../../models/SystemErrorLog");
 const logger = require("../../utils/logger");
 const { hasPermission } = require("../../../resources/permissions");
+const escapeRegex = require("../../utils/escapeRegex");
+const { cacheGetOrSet, TTL } = require("../../utils/redisCache");
 
 /**
  * GET /api/v1/admin/error-logs
@@ -35,7 +37,7 @@ const getErrorLogs = async (req, res) => {
     // ── Build filter ─────────────────────────────────────────────────────────
     const filter = {};
 
-    if (source)     filter.source     = { $regex: source, $options: "i" };
+    if (source)     filter.source     = { $regex: escapeRegex(source), $options: "i" };
     if (statusCode) filter.statusCode = parseInt(statusCode, 10);
 
     if (from || to) {
@@ -45,10 +47,11 @@ const getErrorLogs = async (req, res) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { message:  { $regex: search, $options: "i" } },
-        { endpoint: { $regex: search, $options: "i" } },
-        { source:   { $regex: search, $options: "i" } },
+        { message:  { $regex: safeSearch, $options: "i" } },
+        { endpoint: { $regex: safeSearch, $options: "i" } },
+        { source:   { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -64,7 +67,11 @@ const getErrorLogs = async (req, res) => {
     ]);
 
     // ── Source list for filter dropdown ──────────────────────────────────────
-    const sources = await SystemErrorLog.distinct("source");
+    // Cached briefly — the set of distinct sources changes slowly and this ran
+    // a full distinct() scan on every list request.
+    const sources = await cacheGetOrSet("errorlogs:sources", TTL.DASHBOARD, () =>
+      SystemErrorLog.distinct("source"),
+    );
 
     // Read-only admins (no manage:error_logs) get rows without raw internals:
     // strip stack trace, request metadata and the linked userId server-side.

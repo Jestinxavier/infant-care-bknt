@@ -42,3 +42,9 @@ coverage/
 dist/
 build/
 .vercel
+
+# Database backup dumps (scripts/backup-database.js output)
+backups/
+
+# Throwaway debug/verification scripts
+tmp-*

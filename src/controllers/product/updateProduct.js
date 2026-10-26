@@ -26,11 +26,19 @@ const {
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
+const {
+  guardProductAttributeCatalog,
+  collectExistingCatalogValues,
+  catalogViolationResponse,
+} = require("../../utils/attributeCatalogGuard");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
 const { normalizeDesignId } = require("../../utils/designId");
 const { triggerRevalidation } = require("../../services/revalidateService");
 const { syncProductsByIds } = require("../../services/searchIndexService");
+const {
+  invalidateProductCatalogCaches,
+} = require("../../utils/productCacheInvalidation");
 
 const norm = (v) =>
   (v ?? "")
@@ -260,6 +268,26 @@ const updateProduct = async (req, res) => {
             values: item.values,
           })),
         });
+      }
+    }
+    // CATALOGUE GUARD: new metadata / variant option values must be
+    // registered on the matching AttributeDefinition. Values already stored
+    // on this product (legacy data) pass through, so editing an old product
+    // never bricks — but no NEW unregistered spelling can be introduced.
+    const guardFilter = filterAttributes !== undefined;
+    const guardVariants = variantsArray !== undefined;
+    const guardOptions = variantOptions !== undefined;
+    if (guardFilter || guardVariants || guardOptions) {
+      const catalogViolations = await guardProductAttributeCatalog({
+        filterAttributes: guardFilter ? sanitizedFilterAttributes : undefined,
+        variantOptions: guardOptions ? variantOptions : undefined,
+        variants: guardVariants ? variantsArray : undefined,
+        existing: collectExistingCatalogValues(product),
+      });
+      if (catalogViolations.length > 0) {
+        return res
+          .status(400)
+          .json(catalogViolationResponse(catalogViolations));
       }
     }
     if (filterAttributes !== undefined) {
@@ -914,6 +942,8 @@ const updateProduct = async (req, res) => {
 
     // Fire-and-forget: keep search index in sync (never blocks/fails the request)
     syncProductsByIds([product._id]);
+
+    invalidateProductCatalogCaches("product updated");
 
     res.status(200).json({
       success: true,

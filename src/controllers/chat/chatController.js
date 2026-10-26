@@ -857,9 +857,21 @@ const endSession = async (req, res) => {
 
 const getEscalatedSessions = async (req, res) => {
   try {
-    const { status = "escalated", page = 1, limit = 20 } = req.query;
+    const { status = "escalated", page = 1, limit = 20, q = "" } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const filter = status === "all" ? {} : { status };
+
+    const search = String(q || "").trim();
+    if (search) {
+      const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [
+        { customerName: rx },
+        { customerEmail: rx },
+        { customerPhone: rx },
+        { escalationReason: rx },
+        { "messages.content": rx },
+      ];
+    }
     const [sessions, total] = await Promise.all([
       ChatSession.find(filter)
         .select("sessionId status customerName customerEmail customerPhone escalationReason assignedStaffId assignedStaffName staffJoinedAt messages orderId issue notes createdAt updatedAt")
@@ -882,6 +894,25 @@ const getEscalatedSessions = async (req, res) => {
   } catch (err) {
     logger.error("getEscalatedSessions error", { message: err.message });
     return res.status(500).json({ success: false, message: "Failed to fetch sessions" });
+  }
+};
+
+const getSessionCounts = async (req, res) => {
+  try {
+    const rows = await ChatSession.aggregate([
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]);
+    const counts = { all: 0, active: 0, escalated: 0, resolved: 0 };
+    for (const row of rows) {
+      counts.all += row.count;
+      if (row._id in counts) counts[row._id] = row.count;
+    }
+    return res.status(200).json({ success: true, counts });
+  } catch (err) {
+    logger.error("getSessionCounts error", { message: err.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch session counts" });
   }
 };
 
@@ -1230,6 +1261,7 @@ module.exports = {
   sendMessage,
   getOrCreateSession,
   getEscalatedSessions,
+  getSessionCounts,
   getSessionById,
   staffReply,
   joinSession,

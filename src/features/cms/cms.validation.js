@@ -20,26 +20,31 @@ const cmsValidation = {
     body("page")
       .notEmpty()
       .withMessage("Page is required")
-      .isIn(["home", "about", "policies", "header", "footer"])
-      .withMessage(
-        "Invalid page. Must be one of: home, about, policies, header, footer"
-      ),
+      .custom((value) => {
+        if (["home", "about", "policies", "header", "footer"].includes(value)) return true;
+        if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(value).replace(/^landing:/, ""))) return true;
+        throw new Error(
+          "Invalid page. Must be one of: home, about, policies, header, footer"
+        );
+      }),
     body("content")
       .notEmpty()
       .withMessage("Content is required")
       .custom((value, { req }) => {
         const page = req.body.page;
+        if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(page).replace(/^landing:/, "")) && !["home", "about", "policies", "header", "footer"].includes(page)) {
+          if (!Array.isArray(value)) throw new Error("Content for landing pages must be an array of blocks");
+          return true;
+        }
         const isHomeOrAbout = page === "home" || page === "about";
 
         if (isHomeOrAbout) {
-          // For home/about pages, content must be an array
           if (!Array.isArray(value)) {
             throw new Error(
               "Content for home/about pages must be an array of blocks"
             );
           }
 
-          // Validate each block
           value.forEach((block, index) => {
             if (!block.block_type) {
               throw new Error(
@@ -48,7 +53,6 @@ const cmsValidation = {
             }
           });
         } else {
-          // For other pages, content should be an object
           if (Array.isArray(value)) {
             throw new Error(
               "Content for header/footer/policies pages must be an object, not an array"
@@ -68,26 +72,32 @@ const cmsValidation = {
    */
   validateUpdateContentByPage: [
     param("page")
-      .isIn(["home", "about", "policies", "header", "footer"])
-      .withMessage(
-        "Invalid page. Must be one of: home, about, policies, header, footer"
-      ),
+      .custom((value) => {
+        if (["home", "about", "policies", "header", "footer"].includes(value)) return true;
+        if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(value).replace(/^landing:/, ""))) return true;
+        throw new Error(
+          "Invalid page. Must be one of: home, about, policies, header, footer"
+        );
+      }),
     body("content")
       .notEmpty()
       .withMessage("Content is required")
       .custom((value, { req }) => {
         const page = req.params.page;
+        const pageClean = String(page).replace(/^landing:/, "");
+        if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pageClean) && !["home", "about", "policies", "header", "footer"].includes(page)) {
+          if (!Array.isArray(value)) throw new Error("Content for landing pages must be an array of blocks");
+          return true;
+        }
         const isHome = page === "home";
         const isAbout = page === "about";
         const isPolicies = page === "policies";
 
         if (isHome) {
-          // For home page, content must be an array
           if (!Array.isArray(value)) {
             throw new Error("Content for home page must be an array of blocks");
           }
 
-          // Validate each block
           value.forEach((block, index) => {
             if (!block.block_type) {
               throw new Error(
@@ -96,7 +106,6 @@ const cmsValidation = {
             }
           });
         } else if (isAbout) {
-          // For about page, content must be an array of blocks (same as home)
           if (!Array.isArray(value)) {
             throw new Error(
               "Content for about page must be an array of blocks"
@@ -111,7 +120,6 @@ const cmsValidation = {
             }
           });
         } else if (isPolicies) {
-          // For policies page, content must be a string (single HTML content)
           if (typeof value !== "string") {
             throw new Error(
               "Content for policies page must be a string (HTML content)"
@@ -121,7 +129,6 @@ const cmsValidation = {
             throw new Error("Policy content cannot be empty");
           }
         } else {
-          // For header/footer pages, content should be an object
           if (Array.isArray(value)) {
             throw new Error(
               "Content for header/footer pages must be an object, not an array"

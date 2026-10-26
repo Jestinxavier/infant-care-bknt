@@ -1,6 +1,7 @@
 const Category = require("../../models/Category");
 const logger = require("../../utils/logger");
 const { cacheDel } = require("../../utils/redisCache");
+const { parseFilterAttributes } = require("../../utils/parseFilterAttributes");
 
 const createCategory = async (req, res) => {
   try {
@@ -14,6 +15,7 @@ const createCategory = async (req, res) => {
       hasSizeChart,
       sizeChartImage,
       removeSizeChartImage,
+      filterAttributes,
     } = req.body;
     const imageFile = req.file; // Uploaded image file (if using multer)
 
@@ -31,10 +33,11 @@ const createCategory = async (req, res) => {
       });
     }
 
-    // Check if category name or code already exists
+    // Check if category name or code already exists. Inactive categories still
+    // hold the unique indexes, so they must be included here too — otherwise
+    // the insert fails with a raw duplicate-key error instead of a clear 400.
     const existingCategory = await Category.findOne({
       $or: [{ name: name.trim() }, { code: code.trim().toLowerCase() }],
-      isActive: true,
     });
 
     if (existingCategory) {
@@ -51,6 +54,11 @@ const createCategory = async (req, res) => {
       isActive: true,
       hasSizeChart: hasSizeChart === "true" || hasSizeChart === true,
     };
+
+    const parsedFilterAttributes = parseFilterAttributes(filterAttributes);
+    if (parsedFilterAttributes !== undefined) {
+      categoryData.filterAttributes = parsedFilterAttributes;
+    }
 
     if (parentCategory) {
       const parent = await Category.findById(parentCategory);

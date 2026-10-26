@@ -140,23 +140,32 @@ class MediaController {
 
     const results = { success: [], failed: [] };
 
-    for (const publicId of publicIds) {
-      try {
-        const updated = await Media.findOneAndUpdate(
-          { public_id: publicId },
-          { isTemp: false, finalizedAt: new Date() },
-          { new: true },
-        );
+    // Two round-trips instead of one upsert per id: find which ids exist, then
+    // update them all in a single bulkWrite.
+    const existing = await Media.find({ public_id: { $in: publicIds } })
+      .select("public_id")
+      .lean();
+    const existingIds = new Set(existing.map((m) => m.public_id));
 
-        if (updated) {
-          results.success.push(publicId);
-          logger.info('✅ [Media] Marked as final:', publicId);
-        } else {
-          results.failed.push({ publicId, error: 'Not found in DB' });
-        }
-      } catch (error) {
-        logger.error(`❌ [Media] Failed to finalize ${publicId}:`, error);
-        results.failed.push({ publicId, error: error.message });
+    const ops = publicIds
+      .filter((id) => existingIds.has(id))
+      .map((publicId) => ({
+        updateOne: {
+          filter: { public_id: publicId },
+          update: { $set: { isTemp: false, finalizedAt: new Date() } },
+        },
+      }));
+
+    if (ops.length > 0) {
+      await Media.bulkWrite(ops, { ordered: false });
+    }
+
+    for (const publicId of publicIds) {
+      if (existingIds.has(publicId)) {
+        results.success.push(publicId);
+        logger.info('✅ [Media] Marked as final:', publicId);
+      } else {
+        results.failed.push({ publicId, error: 'Not found in DB' });
       }
     }
 

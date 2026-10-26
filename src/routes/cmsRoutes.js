@@ -7,6 +7,14 @@ const {
   deleteCmsContent,
   updateCmsBlock,
 } = require("../controllers/cms");
+const {
+  listLandings,
+  createLanding,
+  getLanding,
+  updateLanding,
+  deleteLanding,
+  getPublicLanding,
+} = require("../controllers/cms/landingPagesController");
 const verifyToken = require("../middlewares/authMiddleware");
 const requireAdmin = require("../middlewares/adminMiddleware");
 
@@ -175,18 +183,26 @@ const requireAdmin = require("../middlewares/adminMiddleware");
  *         description: Block or page not found
  */
 
-// Apply admin middleware to all CMS routes
+// Public storefront route for block-based landing pages
+router.get("/block-pages/:slug", getPublicLanding);
+
+// Public storefront routes that don't require admin auth
+router.get("/header", getCmsContentByPage);
+router.get("/footer", getCmsContentByPage);
+
+// GET CMS content by page for public (block pages) - specific routes first
+router.get("/home", getCmsContentByPage);
+router.get("/about", getCmsContentByPage);
+router.get("/policies", getCmsContentByPage);
+router.get("/:page", getCmsContentByPage);
+
+// Apply admin middleware to remaining routes
 router.use(verifyToken);
 router.use(requireAdmin);
 
-// GET /api/v1/admin/cms - Get all CMS content
-router.get("/", getCmsContent);
-
-// GET /api/v1/admin/cms/:page - Get CMS content by page
-router.get("/:page", getCmsContentByPage);
-
-// POST /api/v1/admin/cms - Create or update CMS content
-router.post("/", updateCmsContent);
+// Landing pages CRUD (block-based custom pages)
+router.route("/landings").get(listLandings).post(createLanding);
+router.route("/landings/:slug").get(getLanding).put(updateLanding).delete(deleteLanding);
 
 // PUT /api/v1/admin/cms/:page - Update CMS content by page (alternative endpoint)
 router.put("/:page", updateCmsContent);

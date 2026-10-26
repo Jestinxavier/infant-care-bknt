@@ -57,6 +57,14 @@ const categorySchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Which storefront filter groups apply to this category. Empty/undefined
+    // means "not configured" → all relevant groups show (backward compatible).
+    // When set, ONLY these facet keys are shown for this category, so a Towels
+    // category can omit gender/season/occasion/sleeve, etc.
+    filterAttributes: {
+      type: [String],
+      default: [],
+    },
     createdAt: {
       type: Date,
       default: Date.now,

@@ -9,6 +9,7 @@ const {
 const { reindexSearchIndex } = require("./adminSearchController");
 const {
   getAllOrders,
+  getOrderStatusCounts,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
@@ -43,6 +44,7 @@ module.exports = {
 
   // Orders
   getAllOrders,
+  getOrderStatusCounts,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,

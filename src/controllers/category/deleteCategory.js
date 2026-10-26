@@ -30,8 +30,12 @@ const deleteCategory = async (req, res) => {
       });
     }
 
-    // Check if category has products
-    const productsCount = await Product.countDocuments({ category: categoryId });
+    // Check if category has products. Products reference their top-level
+    // category via `category` and subcategories via `subCategories`, so both
+    // have to be checked or deleting a subcategory would orphan products.
+    const productsCount = await Product.countDocuments({
+      $or: [{ category: categoryId }, { subCategories: categoryId }],
+    });
 
     if (productsCount > 0) {
       return res.status(400).json({
@@ -52,6 +56,16 @@ const deleteCategory = async (req, res) => {
 
     await Category.findByIdAndDelete(categoryId);
     await cacheDel("categories");
+
+    // The storefront caches the category list under `group:categories`; without
+    // this the deleted category stays visible until that cache expires.
+    try {
+      const { triggerRevalidation } = require("../../services/revalidateService");
+      await triggerRevalidation({ tag: "group:categories" });
+      logger.info(`✅ [Category] Triggered storefront revalidation for deletion of ${category.name}`);
+    } catch (revalErr) {
+      logger.warn("⚠️ [Category] Failed to trigger storefront revalidation:", revalErr.message);
+    }
 
     res.status(200).json({
       success: true,

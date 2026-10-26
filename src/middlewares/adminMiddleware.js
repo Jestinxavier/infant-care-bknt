@@ -1,6 +1,34 @@
 const User = require("../models/user");
 const { ADMIN_ROLES } = require("../../resources/constants");
 const logger = require("../utils/logger");
+const { cacheGet, cacheSet } = require("../utils/redisCache");
+
+// Admin identity (role + active flag) is validated against the DB on every
+// admin request so demotions/suspensions take effect immediately. We still do
+// that, but cache the result briefly so a dashboard page that fires 10 requests
+// doesn't hit the users collection 10 times. Short TTL keeps it fresh.
+const ADMIN_IDENTITY_TTL_SECONDS = 60;
+
+async function getAdminIdentity(userId) {
+  const cacheKey = `admin:identity:${userId}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached !== null) return cached;
+
+  const user = await User.findById(userId)
+    .select("role email username active")
+    .lean();
+
+  if (!user) return null;
+
+  const identity = {
+    role: user.role,
+    email: user.email,
+    username: user.username,
+    active: user.active !== false,
+  };
+  await cacheSet(cacheKey, identity, ADMIN_IDENTITY_TTL_SECONDS);
+  return identity;
+}
 
 /**
  * Middleware to require admin role for admin routes
@@ -17,10 +45,8 @@ const requireAdmin = async (req, res, next) => {
       });
     }
 
-    // Fetch user from database to check role
-    const user = await User.findById(userId).select(
-      "role email username active"
-    );
+    // Fetch (or read cached) user to re-check role and suspension status.
+    const user = await getAdminIdentity(userId);
 
     if (!user) {
       return res.status(401).json({
@@ -45,7 +71,8 @@ const requireAdmin = async (req, res, next) => {
 
     // Attach full user info to request for use in controllers
     req.user = {
-      id: user._id,
+      id: userId,
+      _id: userId,
       role: user.role,
       email: user.email,
       username: user.username,
@@ -62,3 +89,4 @@ const requireAdmin = async (req, res, next) => {
 };
 
 module.exports = requireAdmin;
+

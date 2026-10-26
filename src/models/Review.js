@@ -37,6 +37,9 @@ const reviewSchema = new mongoose.Schema(
 reviewSchema.index({ productId: 1, status: 1 });
 reviewSchema.index({ userId: 1 });
 reviewSchema.index({ status: 1 });
+// Rating/review reads filter on isApproved (not status) and sort by createdAt.
+reviewSchema.index({ productId: 1, isApproved: 1, createdAt: -1 });
+reviewSchema.index({ variantId: 1, isApproved: 1, createdAt: -1 });
 // Prevents a user from submitting two reviews for the same product+order combination
 reviewSchema.index({ userId: 1, productId: 1, orderId: 1 }, { unique: true });
 

@@ -4,12 +4,22 @@ const {
   cacheDelPattern,
   TTL,
 } = require("../../utils/redisCache");
+const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+
+const CSV_COLUMNS = [
+  { field: "status", header: "Status" },
+  { field: "count", header: "Orders" },
+  { field: "gross", header: "Gross (INR)" },
+];
 
 /**
  * Call whenever an order is placed/updated to flush report caches.
  */
 exports.invalidateOrdersByStatusCache = () =>
-  cacheDelPattern("report:orders-by-status:*");
+  Promise.all([
+    cacheDelPattern("report:orders-by-status:*"),
+    cacheDelPattern("admin:orders:status-counts:*"),
+  ]);
 
 function parseDateRange(from, to) {
   const range = {};
@@ -200,6 +210,20 @@ exports.getOrdersByStatus = async (req, res) => {
         },
       };
     });
+
+    if (wantsCsv(req)) {
+      const rows = result.statusStats.map((r) => ({
+        ...r,
+        status: r.status.charAt(0).toUpperCase() + r.status.slice(1),
+      }));
+      return sendReportCsv(
+        res,
+        rows,
+        CSV_COLUMNS,
+        req.query.filename ||
+          `orders-by-status-${from || period}-${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
 
     res.status(200).json(result);
   } catch (error) {

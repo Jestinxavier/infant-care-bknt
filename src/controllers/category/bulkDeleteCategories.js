@@ -46,8 +46,11 @@ const bulkDeleteCategories = async (req, res) => {
           continue;
         }
 
-        // Check dependencies
-        const productsCount = await Product.countDocuments({ category: id });
+        // Check dependencies. Products reference subcategories via
+        // `subCategories`, not `category`, so both must be checked.
+        const productsCount = await Product.countDocuments({
+          $or: [{ category: id }, { subCategories: id }],
+        });
         if (productsCount > 0) {
           results.failureCount++;
           results.failed.push({
@@ -86,7 +89,16 @@ const bulkDeleteCategories = async (req, res) => {
     const overallSuccess = results.failureCount === 0;
     const partialSuccess = results.successCount > 0 && results.failureCount > 0;
 
-    if (results.successCount > 0) await cacheDel("categories");
+    if (results.successCount > 0) {
+      await cacheDel("categories");
+      try {
+        const { triggerRevalidation } = require("../../services/revalidateService");
+        await triggerRevalidation({ tag: "group:categories" });
+        logger.info(`✅ [Category] Triggered storefront revalidation for bulk deletion of ${results.successCount} categories`);
+      } catch (revalErr) {
+        logger.warn("⚠️ [Category] Failed to trigger storefront revalidation:", revalErr.message);
+      }
+    }
 
     res.status(200).json({
       success: overallSuccess,

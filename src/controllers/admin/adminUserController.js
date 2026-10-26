@@ -11,6 +11,8 @@ const { ADMIN_ROLES } = require("../../../resources/constants");
 const { sendAdminCredentialsEmail } = require("../../services/emailService");
 const logger = require("../../utils/logger");
 const toCamelCase = require("../../utils/toCamelCase");
+const escapeRegex = require("../../utils/escapeRegex");
+const { cacheDel } = require("../../utils/redisCache");
 
 const SENSITIVE_FIELDS = "-password -emailOTP -emailOTPExpires -resetPasswordToken -resetPasswordExpires";
 
@@ -127,9 +129,10 @@ const getAdminUsers = async (req, res) => {
 
     const filter = { role: { $in: ADMIN_ROLES } };
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { username: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
+        { username: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -314,6 +317,10 @@ const updateAdminUser = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    // Role/active changed — drop the cached admin identity so the change takes
+    // effect on the next request instead of waiting out the middleware TTL.
+    await cacheDel(`admin:identity:${id}`);
+
     if (action) {
       await writeAudit({
         actor: req.user,
@@ -378,6 +385,9 @@ const deleteAdminUser = async (req, res) => {
     }
 
     await User.findByIdAndDelete(id);
+
+    // Drop the cached admin identity for the removed account.
+    await cacheDel(`admin:identity:${id}`);
 
     await writeAudit({
       actor: req.user,

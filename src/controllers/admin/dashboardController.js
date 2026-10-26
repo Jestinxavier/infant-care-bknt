@@ -192,45 +192,83 @@ exports.getDashboardStats = async (req, res) => {
         ...dateMatch,
       };
 
-      // 1. Total Revenue - Optimized with single aggregation
-      const revenueResult = await Order.aggregate([
-        { $match: salesMatch },
-        { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
+      // Effective available stock per product: sum of variant stock when the
+      // product has variants, else its own stock. Shared by the inventory count.
+      const LOW_STOCK_THRESHOLD = 10;
+      const effectiveStockExpr = {
+        $cond: [
+          { $gt: [{ $size: { $ifNull: ["$variants", []] } }, 0] },
+          {
+            $reduce: {
+              input: { $ifNull: ["$variants", []] },
+              initialValue: 0,
+              in: {
+                $add: [
+                  "$$value",
+                  {
+                    $ifNull: [
+                      "$$this.stockObj.available",
+                      { $ifNull: ["$$this.stock", 0] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $ifNull: ["$stockObj.available", { $ifNull: ["$stock", 0] }] },
+        ],
+      };
+
+      // 1-4. Revenue, completed order count, customer count and inventory are
+      // all independent — run them concurrently instead of sequentially.
+      const [
+        revenueResult,
+        newOrders,
+        totalCustomers,
+        [inventoryResult],
+      ] = await Promise.all([
+        Order.aggregate([
+          { $match: salesMatch },
+          { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
+        ]),
+        Order.countDocuments(salesMatch),
+        User.countDocuments({ role: "user" }),
+        Product.aggregate([
+          {
+            $group: {
+              _id: null,
+              totalProducts: { $sum: 1 },
+              productsInStock: {
+                $sum: { $cond: [{ $gt: [effectiveStockExpr, 0] }, 1, 0] },
+              },
+              outOfStockCount: {
+                $sum: { $cond: [{ $lte: [effectiveStockExpr, 0] }, 1, 0] },
+              },
+              lowStockCount: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $gt: [effectiveStockExpr, 0] },
+                        { $lte: [effectiveStockExpr, LOW_STOCK_THRESHOLD] },
+                      ],
+                    },
+                    1,
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        ]),
       ]);
       const totalRevenue =
         revenueResult.length > 0 ? revenueResult[0].totalRevenue : 0;
 
-      // 2. Completed sales count. Keep this aligned with revenue and salesOverTime
-      // so Total Orders, AOV, trend percentages, and sparkline data tell one story.
-      const newOrders = await Order.countDocuments(salesMatch);
-
-      // 3. Total Customers (All time - represents current user base)
-      const totalCustomers = await User.countDocuments({ role: "user" });
-
-      // 4. Inventory counts (current catalog) — product-level availability:
-      // simple products use stock, variant-based products sum variant stock.
-      const allProducts = await Product.find(
-        {},
-        { product_type: 1, stock: 1, stockObj: 1, variants: { stock: 1, stockObj: 1 } },
-      ).lean();
-      const LOW_STOCK_THRESHOLD = 10;
-      const unitStock = (unit) => Number(unit.stockObj?.available ?? unit.stock) || 0;
-      let productsInStock = 0;
-      let outOfStockCount = 0;
-      let lowStockCount = 0;
-      for (const p of allProducts) {
-        const available =
-          Array.isArray(p.variants) && p.variants.length > 0
-            ? p.variants.reduce((s, v) => s + unitStock(v), 0)
-            : unitStock(p);
-        if (available > 0) {
-          productsInStock += 1;
-          if (available <= LOW_STOCK_THRESHOLD) lowStockCount += 1;
-        } else {
-          outOfStockCount += 1;
-        }
-      }
-      const totalProducts = allProducts.length;
+      const totalProducts = inventoryResult?.totalProducts || 0;
+      const productsInStock = inventoryResult?.productsInStock || 0;
+      const outOfStockCount = inventoryResult?.outOfStockCount || 0;
+      const lowStockCount = inventoryResult?.lowStockCount || 0;
 
       // 5. Compute trend percentages (current vs previous period)
       const calcTrend = (current, previous) => {
@@ -246,12 +284,19 @@ exports.getDashboardStats = async (req, res) => {
       let ordersTrendObj = null;
       let aovTrendObj = null;
 
+      // The earliest paid order is needed both for the all-time trend split and
+      // for the revenue-per-day divisor — fetch it once.
+      let earliestPaidOrder = null;
       if (isAllTime) {
-        // Split full order history at the temporal midpoint and compare the two halves
-        const earliest = await Order.findOne(
+        earliestPaidOrder = await Order.findOne(
           { orderStatus: { $nin: ["cancelled", "returned"] }, paymentStatus: "paid" },
           { createdAt: 1 },
         ).sort({ createdAt: 1 });
+      }
+
+      if (isAllTime) {
+        // Split full order history at the temporal midpoint and compare the two halves
+        const earliest = earliestPaidOrder;
 
         if (earliest) {
           const midpoint = new Date(
@@ -538,13 +583,9 @@ exports.getDashboardStats = async (req, res) => {
       let effectiveDaysCount = daysCount;
       if (isAllTime) {
         // For all-time, compute actual day span from first order to now
-        const earliestOrder = await Order.findOne(
-          { orderStatus: { $nin: ["cancelled", "returned"] }, paymentStatus: "paid" },
-          { createdAt: 1 },
-        ).sort({ createdAt: 1 });
-        if (earliestOrder) {
+        if (earliestPaidOrder) {
           effectiveDaysCount = Math.max(1, Math.ceil(
-            (now.getTime() - earliestOrder.createdAt.getTime()) / (24 * 60 * 60 * 1000),
+            (now.getTime() - earliestPaidOrder.createdAt.getTime()) / (24 * 60 * 60 * 1000),
           ));
         }
       }

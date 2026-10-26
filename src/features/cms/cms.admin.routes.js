@@ -5,6 +5,13 @@ const verifyToken = require("../../middlewares/authMiddleware");
 const requireAdmin = require("../../middlewares/adminMiddleware");
 const { validate } = require("../../core/middleware/validator");
 const cmsValidation = require("./cms.validation");
+const {
+  listLandings,
+  createLanding,
+  getLanding,
+  updateLanding,
+  deleteLanding,
+} = require("../../controllers/cms/landingPagesController");
 
 /**
  * @swagger
@@ -16,6 +23,10 @@ const cmsValidation = require("./cms.validation");
 // Apply admin middleware
 router.use(verifyToken);
 router.use(requireAdmin);
+
+// Landing pages CRUD
+router.route("/landings").get(listLandings).post(createLanding);
+router.route("/landings/:slug").get(getLanding).put(updateLanding).delete(deleteLanding);
 
 /**
  * @swagger

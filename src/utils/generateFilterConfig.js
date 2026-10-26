@@ -52,7 +52,11 @@ const generateFilterConfig = (rawFilters) => {
   }
 
   // Color Checkbox
-  if (rawFilters.color && Array.isArray(rawFilters.color) && rawFilters.color.length > 0) {
+  if (
+    rawFilters.color &&
+    Array.isArray(rawFilters.color) &&
+    rawFilters.color.length > 1
+  ) {
     const colorMeta = rawFilters.colorMeta && typeof rawFilters.colorMeta === "object"
       ? rawFilters.colorMeta
       : {};
@@ -74,7 +78,11 @@ const generateFilterConfig = (rawFilters) => {
   }
 
   // Size/Age Checkbox (API uses "size", frontend uses "age")
-  if (rawFilters.size && Array.isArray(rawFilters.size) && rawFilters.size.length > 0) {
+  if (
+    rawFilters.size &&
+    Array.isArray(rawFilters.size) &&
+    rawFilters.size.length > 1
+  ) {
     filterConfigs.push({
       key: "age",
       label: "Size",
@@ -98,10 +106,14 @@ const generateFilterConfig = (rawFilters) => {
   ];
 
   facetDefinitions.forEach(({ key, label }) => {
+    // Skip a facet with no values, or with a single value — filtering by the
+    // only value changes nothing, so the group is pure noise (e.g. season
+    // "all-season", occasion "casual" on a category where every product
+    // shares it).
     if (
       !rawFilters[key] ||
       !Array.isArray(rawFilters[key]) ||
-      rawFilters[key].length === 0
+      rawFilters[key].length <= 1
     ) {
       return;
     }

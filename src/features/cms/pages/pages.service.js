@@ -11,6 +11,7 @@ const ApiError = require("../../../core/ApiError");
 const logger = require("../../../utils/logger");
 const { validateBlocks } = require("./pages.validation");
 const { cacheGet, cacheSet, cacheDelPattern } = require("../../../utils/redisCache");
+const escapeRegex = require("../../../utils/escapeRegex");
 const { triggerRevalidation } = require("../../../services/revalidateService");
 
 const PUBLIC_CACHE_TTL = 60 * 60; // 1 hour
@@ -54,8 +55,8 @@ async function listPages({ query = "" } = {}) {
   const filter = query
     ? {
         $or: [
-          { slug: { $regex: query, $options: "i" } },
-          { title: { $regex: query, $options: "i" } },
+          { slug: { $regex: escapeRegex(query), $options: "i" } },
+          { title: { $regex: escapeRegex(query), $options: "i" } },
         ],
       }
     : {};

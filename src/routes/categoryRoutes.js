@@ -34,9 +34,6 @@ const { uploadFilesMiddleware } = require("../config/mediaServer");
  *           type: string
  *           description: URL-friendly slug
  *           example: "rompers"
- *         description:
- *           type: string
- *           description: Category description
  *         isActive:
  *           type: boolean
  *           description: Whether category is active
@@ -153,9 +150,6 @@ router.get("/:categoryId", getCategoryById);
  *               name:
  *                 type: string
  *                 example: "Rompers"
- *               description:
- *                 type: string
- *                 example: "Comfortable rompers for babies"
  *               displayOrder:
  *                 type: number
  *                 example: 1
@@ -213,8 +207,6 @@ router.post(
  *             type: object
  *             properties:
  *               name:
- *                 type: string
- *               description:
  *                 type: string
  *               displayOrder:
  *                 type: number

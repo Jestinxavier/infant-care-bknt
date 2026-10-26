@@ -628,11 +628,22 @@ class BulkImportController {
             .toLowerCase()
             .trim();
           const attributeDef = attributeMap.get(key);
+          if (!attributeDef) {
+            // No registered attribute for this key — nothing to verify
+            // against (legacy tolerance for unregistered metadata keys).
+            continue;
+          }
           if (
-            !attributeDef ||
             !Array.isArray(attributeDef.allowedValues) ||
             attributeDef.allowedValues.length === 0
           ) {
+            // Attribute exists but has no approved values — refusing the
+            // row prevents raw strings from sneaking past the registry.
+            errors.push({
+              row: rowNum,
+              field: `filterAttributes.${key}`,
+              message: `'${key}' has no approved values in the attribute catalogue. Add values in Settings → Product Attributes, then re-import.`,
+            });
             continue;
           }
           const values = Array.isArray(rawValues) ? rawValues : [rawValues];
@@ -898,6 +909,14 @@ class BulkImportController {
                       message: notRegisteredMessage(value, key, attributeDef),
                     });
                   }
+                } else {
+                  // Attribute exists with an empty catalogue — raw strings
+                  // must not pass; seed the catalogue first.
+                  errors.push({
+                    row: variantRow,
+                    field: `attribute_${key}`,
+                    message: `'${key}' has no approved values in the attribute catalogue. Add values in Settings → Product Attributes, then re-import.`,
+                  });
                 }
                 // Track for hash generation
                 sortedAttributes.push(
@@ -1565,10 +1584,10 @@ class BulkImportController {
                   // has no allowed values (nothing to canonicalize against).
                   const attrKey = attrDef.name || attrDef.code || normalizedKey;
                   const attrCode = attrDef.code || normalizedKey; // Use code as key, fallback to normalizedKey
-                  const registered = resolveRegisteredValue(attrDef, valStr);
+                  const registered = resolveRegisteredValue(attrDef, value);
                   const canonicalVal = registered
                     ? registered.value
-                    : valStr.toLowerCase().replace(/\s+/g, "-");
+                    : value.toLowerCase().replace(/\s+/g, "-");
                   resolvedAttributes.set(attrKey, canonicalVal);
 
                   // Collect unique variantOptions for Parent Product with ID
@@ -1598,7 +1617,7 @@ class BulkImportController {
                     const catalogLabel = resolveOptionValueLabel(attrDef, canonicalVal);
                     let hexCode = null;
                     let label =
-                      (registered && registered.label) || catalogLabel || valStr;
+                      (registered && registered.label) || catalogLabel || value;
 
                     // The frontend can resolve a hex per variant (e.g. catalog
                     // auto-fill) even when the CSV omitted hex_code — prefer
@@ -1644,7 +1663,7 @@ class BulkImportController {
                       id: Math.random().toString(36).substr(2, 9),
                       value: canonicalVal,
                       label: label,
-                      code: valStr.substring(0, 3).toUpperCase(), // simple code gen
+                      code: String(value).substring(0, 3).toUpperCase(), // simple code gen
                       hex: hexCode, // ✅ Added Hex Code
                     });
                   }

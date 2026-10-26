@@ -37,11 +37,4 @@ const collectionSchema = new mongoose.Schema(
 
 collectionSchema.index({ name: 1 });
 
-if (mongoose.connection.models.Collection) {
-  delete mongoose.connection.models.Collection;
-}
-if (mongoose.models.Collection) {
-  delete mongoose.models.Collection;
-}
-
 module.exports = mongoose.model("Collection", collectionSchema);

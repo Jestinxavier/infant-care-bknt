@@ -26,6 +26,10 @@ const mongoose = require("mongoose");
 const logger = require("../../utils/logger");
 
 const MIN_FUZZY_QUERY_LENGTH = 3;
+// Cap the token length used for the fuzzy pattern: each character expands to a
+// `.{0,2}` group, so an unbounded token creates a catastrophic-backtracking
+// regex. Long queries simply skip the fuzzy branch (exact/prefix still match).
+const MAX_FUZZY_QUERY_LENGTH = 32;
 const MIN_VARIANT_QUERY_LENGTH = 3;
 const MAX_SEARCH_VARIANTS = 600;
 const SEARCH_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
@@ -204,6 +208,7 @@ const buildSearchVariants = (searchTerm = "") => {
 const buildFuzzySearchPattern = (searchTerm = "") => {
   const normalized = String(searchTerm).trim().toLowerCase();
   if (normalized.length < MIN_FUZZY_QUERY_LENGTH) return null;
+  if (normalized.length > MAX_FUZZY_QUERY_LENGTH) return null;
 
   return normalized
     .split("")

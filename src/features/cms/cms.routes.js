@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const cmsController = require("./cms.controller");
+const { getPublicLanding } = require("../../controllers/cms/landingPagesController");
 
 /**
  * @swagger
@@ -52,6 +53,9 @@ const cmsController = require("./cms.controller");
  *                       type: string
  *                       description: HTML content for policies page, or array/object for other pages
  */
+// Public block-based landing pages (must come before generic /:page)
+router.get("/block-pages/:slug", getPublicLanding);
+
 router.get("/:page", cmsController.getContentByPage);
 
 module.exports = router;

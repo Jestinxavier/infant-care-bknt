@@ -90,7 +90,7 @@ const corsOptions = {
     "Access-Control-Allow-Origin",
     "idempotency-key",
   ],
-  exposedHeaders: ["set-cookie"],
+  exposedHeaders: ["set-cookie", "Content-Disposition", "X-Row-Count"],
   optionsSuccessStatus: 204,
 };
 
@@ -211,7 +211,6 @@ app.use("/api/v1/chat", chatRoutes);
 app.use("/api/v1/cms/products", cmsProductRoutes);
 // Static Pages CMS public routes (must be mounted before generic /cms/:page)
 app.use("/api/v1/cms", pagesPublicRoutes);
-// Public CMS routes (for frontend)
 app.use("/api/v1/cms", cmsPublicRoutes);
 
 // NOTE: /api/v1/payments (plural) is the canonical route — duplicate /payment removed.

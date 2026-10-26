@@ -49,7 +49,7 @@ const loadTemplate = (templateName, data = {}) => {
 
             Object.keys(item).forEach((itemKey) => {
               block = block.replace(
-                new RegExp(`{{${itemKey}}}`, "g"),
+                new RegExp(`{{${itemKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}}}`, "g"),
                 item[itemKey] ?? "",
               );
             });

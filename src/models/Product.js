@@ -4,6 +4,7 @@ const {
   FILTER_ATTRIBUTE_KEYS,
   syncFilterAttributes,
 } = require("../utils/filterAttributes");
+const logger = require("../utils/logger");
 
 // Variant Option Schema (for variantOptions array)
 const variantOptionValueSchema = new mongoose.Schema(
@@ -396,6 +397,36 @@ productSchema.pre("save", async function (next) {
     this.title = this.name;
   }
 
+  // STRUCTURAL BACKSTOP (Layer 2): canonicalize every attribute value this
+  // product carries against the AttributeDefinition catalogue BEFORE
+  // filterAttributes is derived, so no write path can persist a duplicate
+  // spelling/casing of an approved value. Self-healing: "0-3" → "0-3m",
+  // "Red " → "red", legacy aliases → canonical value + label. Values that
+  // match nothing in the catalogue are left untouched and logged (the API
+  // guard rejects them at the boundary); we never invent a value.
+  try {
+    const { canonicalizeProductAttributeValues } = require("../utils/productAttributeCanonicalizer");
+    const { loadAttributeCatalogMap } = require("../utils/attributeCatalogGuard");
+    const catalogMap = await loadAttributeCatalogMap();
+    const { rewrites, unresolved } = canonicalizeProductAttributeValues(this, catalogMap);
+    if (rewrites.length) {
+      logger.info(
+        `[Product ${this._id || "(new)"}] canonicalized ${rewrites.length} attribute value(s)`,
+        { rewrites },
+      );
+    }
+    if (unresolved.length) {
+      logger.warn(
+        `[Product ${this._id || "(new)"}] ${unresolved.length} attribute value(s) not found in the catalogue`,
+        { unresolved },
+      );
+    }
+  } catch (error) {
+    // Never block a save because canonicalization failed unexpectedly; the
+    // API-level guard remains the hard gate for new writes.
+    logger.error(`[Product ${this._id || "(new)"}] attribute canonicalization failed: ${error.message}`);
+  }
+
   this.filterAttributes = syncFilterAttributes({
     productType: this.product_type,
     variants: this.variants,
@@ -532,6 +563,7 @@ const touchesFilterAttributesInputs = (update) => {
     if (
       key === "product_type" ||
       key === "variants" ||
+      key === "variantOptions" ||
       key === "filterAttributes" ||
       key.startsWith("filterAttributes.")
     ) {
@@ -553,6 +585,26 @@ const syncFilterAttributesOnQueryUpdate = async function (next) {
       .findOne(this.getQuery())
       .select("product_type variants variantOptions filterAttributes")
       .lean();
+
+    // STRUCTURAL BACKSTOP (Layer 2) for query updates (findOneAndUpdate /
+    // findByIdAndUpdate, e.g. the CSV import commit path). Canonicalize the
+    // incoming attribute values against the catalogue before filterAttributes
+    // are derived, so an update can never persist a duplicate spelling.
+    try {
+      const { canonicalizeProductAttributeValues } = require("../utils/productAttributeCanonicalizer");
+      const { loadAttributeCatalogMap } = require("../utils/attributeCatalogGuard");
+      const catalogMap = await loadAttributeCatalogMap();
+      const incoming = getUpdateValue(update, "variantOptions");
+      const incomingVariants = getUpdateValue(update, "variants");
+      if (incoming) {
+        canonicalizeProductAttributeValues({ variantOptions: incoming }, catalogMap);
+      }
+      if (incomingVariants) {
+        canonicalizeProductAttributeValues({ variants: incomingVariants }, catalogMap);
+      }
+    } catch (error) {
+      logger.error(`[Product update] attribute canonicalization failed: ${error.message}`);
+    }
 
     const mergedFilterAttributes = extractFilterAttributesFromUpdate(update);
 
@@ -594,6 +646,14 @@ productSchema.index({ category: 1, status: 1, averageRating: -1 });
 productSchema.index({ category: 1, status: 1, price: 1 });
 productSchema.index({ status: 1, createdAt: -1 });
 productSchema.index({ status: 1, averageRating: -1 });
+
+// Admin product list sort patterns (getAllProducts whitelists these sort keys).
+// Without these, sorting the admin list falls back to an in-memory sort.
+productSchema.index({ createdAt: -1 });
+productSchema.index({ updatedAt: -1 });
+productSchema.index({ title: 1 });
+productSchema.index({ price: 1 });
+productSchema.index({ stock: -1 });
 
 // Filter attribute multikey indexes (used by PLP filter queries)
 productSchema.index({ "filterAttributes.color": 1 });

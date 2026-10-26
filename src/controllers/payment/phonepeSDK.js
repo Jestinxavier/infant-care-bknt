@@ -15,6 +15,9 @@ const jwt = require("jsonwebtoken");
 const { randomUUID } = require("crypto");
 const emailService = require("../../services/emailService");
 const logger = require("../../utils/logger");
+const {
+  invalidateOrderReportCaches,
+} = require("../admin/orderCacheInvalidation");
 const { logError } = require("../../utils/errorLogger");
 const { logPhonePeInfo } = logger;
 const { wlog } = require("../../utils/webhookLogger");
@@ -202,6 +205,7 @@ const checkOrderStatus = async (req, res) => {
         );
         const updatedOrder = await Order.findOne({ orderId }).lean();
         if (updatedOrder) {
+          invalidateOrderReportCaches("PhonePe callback paid");
           await Payment.findOneAndUpdate(
             { orderId: updatedOrder._id },
             {
@@ -512,6 +516,7 @@ const phonepeWebhook = async (req, res) => {
         paymentStatus: updatedOrder.paymentStatus,
         orderStatus: updatedOrder.orderStatus,
       });
+      invalidateOrderReportCaches("PhonePe webhook paid");
       const successLog = {
           transactionId,
           orderId: updatedOrder._id,
@@ -561,6 +566,7 @@ const phonepeWebhook = async (req, res) => {
         { orderId: merchantOrderId },
         { $set: { paymentStatus: "failed", orderStatus: "cancelled" } },
       );
+      invalidateOrderReportCaches("PhonePe webhook failed/cancelled");
 
       // Update Payment record
       await Payment.findOneAndUpdate(
@@ -631,6 +637,7 @@ const phonepeWebhook = async (req, res) => {
             { orderId: merchantOrderId },
             { $set: { paymentStatus: "failed", orderStatus: "cancelled" } },
           );
+          invalidateOrderReportCaches("PhonePe webhook error/cancelled");
 
           // Update Payment record
           await Payment.findOneAndUpdate(
@@ -975,6 +982,7 @@ const initiateRefund = async (req, res) => {
         refundAmountPaise: updatedOrder.refundAmountPaise,
         orderStatus: updatedOrder.orderStatus,
       });
+      invalidateOrderReportCaches("PhonePe refund initiated");
 
       // Restore stock if the order was just cancelled
       if (stockShouldBeRestored) {
@@ -1089,6 +1097,7 @@ const getRefundStatus = async (req, res) => {
             },
           }
         );
+        invalidateOrderReportCaches(`refund resolved (${state})`);
       } else {
         await Order.updateOne({ refundId }, { $set: { refundStatus: state } });
       }
@@ -1185,6 +1194,7 @@ const getRefundStatus = async (req, res) => {
             state,
           },
         );
+        invalidateOrderReportCaches(`refund resolved (${state})`);
       }
     } else {
       // Non-terminal: just update the refundStatus field so the dashboard can show PENDING/CONFIRMED

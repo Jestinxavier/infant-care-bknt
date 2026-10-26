@@ -33,19 +33,38 @@ const getAllCategories = async (req, res) => {
 
     // Product counts per category (published, sellable types only) so the
     // CMS product widgets can show counts and hide categories without products.
-    const productCountRows = await Product.aggregate([
-      {
-        $match: {
-          status: "published",
-          product_type: { $in: ["SIMPLE", "CONFIGURABLE"] },
-          category: { $type: "objectId" },
+    // Products point at their top-level category via `category` and at their
+    // subcategories via `subCategories`, so both need counting.
+    const sellableMatch = {
+      status: "published",
+      product_type: { $in: ["SIMPLE", "CONFIGURABLE"] },
+    };
+    const [productCountRows, subCategoryCountRows] = await Promise.all([
+      Product.aggregate([
+        {
+          $match: {
+            ...sellableMatch,
+            category: { $type: "objectId" },
+          },
         },
-      },
-      { $group: { _id: "$category", count: { $sum: 1 } } },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+      ]),
+      Product.aggregate([
+        {
+          $match: {
+            ...sellableMatch,
+            subCategories: { $exists: true, $ne: [] },
+          },
+        },
+        { $unwind: "$subCategories" },
+        { $group: { _id: "$subCategories", count: { $sum: 1 } } },
+      ]),
     ]);
-    const productCountMap = new Map(
-      productCountRows.map((row) => [row._id.toString(), row.count]),
-    );
+    const productCountMap = new Map();
+    for (const row of [...productCountRows, ...subCategoryCountRows]) {
+      const key = row._id.toString();
+      productCountMap.set(key, (productCountMap.get(key) || 0) + row.count);
+    }
 
     const categories = await Category.find(filter)
       .populate("parentCategory", "name slug")

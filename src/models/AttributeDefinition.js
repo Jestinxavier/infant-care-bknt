@@ -64,12 +64,23 @@ const attributeDefinitionSchema = new mongoose.Schema(
 
     allowedValues: [
       {
-        value: { type: String, required: true },
-        label: { type: String, required: true },
+        value: {
+          type: String,
+          required: true,
+          maxlength: [80, "Value cannot exceed 80 characters"],
+        },
+        label: {
+          type: String,
+          required: true,
+          maxlength: [80, "Value label cannot exceed 80 characters"],
+        },
         hex: { type: String },
         // Alternate spellings/labels that collapse to this canonical value
         synonyms: { type: [String], default: [] },
         isActive: { type: Boolean, default: true },
+        // Advisory flag set by attributeValuePolicy review heuristics —
+        // surfaced in the admin as "Needs review", never blocks usage.
+        needsReview: { type: Boolean, default: false },
       },
     ],
 
@@ -127,6 +138,7 @@ attributeDefinitionSchema.pre("save", function (next) {
           hex: v.hex || undefined,
           synonyms,
           isActive: v.isActive !== false,
+          needsReview: v.needsReview === true,
         };
       })
       .filter((v) => {

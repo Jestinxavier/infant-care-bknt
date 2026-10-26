@@ -348,23 +348,24 @@ const getProductByUrlKey = async (req, res) => {
       productObj.categoryName = productObj.category;
     }
 
-    // Legacy support: also check Variant collection for backward compatibility
-    const legacyVariants = await Variant.find({ productId: product._id });
-    if (
-      legacyVariants.length > 0 &&
-      (!productObj.variants || productObj.variants.length === 0)
-    ) {
-      productObj.variants = legacyVariants.map((v) => ({
-        id: v._id.toString(),
-        sku: v.sku,
-        price: v.price,
-        stock: v.stock,
-        images: v.images || [],
-        options: {
-          color: v.color,
-          // age removed - use 'size' in modern variants
-        },
-      }));
+    // Legacy support: also check Variant collection for backward compatibility.
+    // Only hit the legacy collection when the product has no embedded variants
+    // (modern products), so a normal PDP view skips this query entirely.
+    if (!productObj.variants || productObj.variants.length === 0) {
+      const legacyVariants = await Variant.find({ productId: product._id });
+      if (legacyVariants.length > 0) {
+        productObj.variants = legacyVariants.map((v) => ({
+          id: v._id.toString(),
+          sku: v.sku,
+          price: v.price,
+          stock: v.stock,
+          images: v.images || [],
+          options: {
+            color: v.color,
+            // age removed - use 'size' in modern variants
+          },
+        }));
+      }
     }
 
     // For BUNDLE products: Calculate stock based on child products
@@ -546,8 +547,9 @@ const getProductById = async (req, res) => {
       });
     }
 
-    // Get all variants for this product (legacy)
-    const variants = await Variant.find({ productId });
+    // Get all variants for this product (legacy). .lean() avoids hydrating
+    // Mongoose docs we only serialize straight back out.
+    const variants = await Variant.find({ productId }).lean();
 
     // Ensure _id is a string
     const productObj = product.toObject();
@@ -566,7 +568,7 @@ const getProductById = async (req, res) => {
     }
 
     const variantsWithStringIds = variants.map((v) => {
-      const variantObj = v.toObject();
+      const variantObj = typeof v.toObject === "function" ? v.toObject() : v;
       variantObj._id = variantObj._id?.toString() || variantObj._id;
       return variantObj;
     });

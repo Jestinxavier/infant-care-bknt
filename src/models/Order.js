@@ -264,6 +264,8 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ userId: 1, placedAt: -1 });
+// Storefront order-history filters by userId and sorts by createdAt.
+orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ isGuestOrder: 1, "guestInfo.email": 1, orderId: 1 });
 orderSchema.index({ userId: 1, orderStatus: 1, placedAt: -1 });
 orderSchema.index({ orderStatus: 1, placedAt: -1 });

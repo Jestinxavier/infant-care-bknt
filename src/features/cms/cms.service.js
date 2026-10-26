@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const LandingPage = require("../../models/LandingPage");
 const ApiError = require("../../core/ApiError");
 const mongoose = require("mongoose");
 const menuValidator = require("./menu.validation");
@@ -23,6 +24,47 @@ class CmsService {
     header: { model: Header, title: "Header" },
     footer: { model: Footer, title: "Footer" },
   };
+
+  /**
+   * Resolve a page identifier to a config.
+   * Known pages use the fixed model map; any other value is treated as a
+   * landing page slug stored in the `landingPages` collection.
+   */
+  async resolvePageConfig(page) {
+    if (this.modelMap[page]) return this.modelMap[page];
+
+    const slug = String(page || "")
+      .replace(/^landing:/, "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "")
+      .toLowerCase()
+      .trim();
+    let landing = await LandingPage.findOne({ slug }).lean();
+    if (!landing) {
+      landing = await LandingPage.findOne({ slug: `/${slug}` }).lean();
+    }
+    if (landing) {
+      return {
+        model: LandingPage,
+        title: landing.title || slug,
+        isLanding: true,
+        filter: { slug: landing.slug },
+      };
+    }
+
+    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      return {
+        model: LandingPage,
+        title: slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+        isLanding: true,
+        filter: { slug },
+      };
+    }
+
+    throw ApiError.badRequest(
+      `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
+    );
+  }
 
   /**
    * Get all CMS content
@@ -96,11 +138,28 @@ class CmsService {
    * @param {string} [slug] - Optional slug for filtering policies (privacy, terms, shipping, returns)
    */
   async getContentByPage(page, slug = null) {
-    const pageConfig = this.modelMap[page];
-    if (!pageConfig) {
-      throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
-      );
+    const pageConfig = await this.resolvePageConfig(page);
+
+    if (pageConfig.isLanding) {
+      const doc = await pageConfig.model.findOne(pageConfig.filter).lean();
+      if (!doc) {
+        return {
+          page,
+          title: pageConfig.title,
+          content: [],
+          slug: pageConfig.filter.slug,
+        };
+      }
+      return {
+        page,
+        title: doc.title || pageConfig.title,
+        content: ensureContentImageUrls(
+          Array.isArray(doc.content) ? doc.content : []
+        ),
+        slug: doc.slug,
+        seo: doc.seo || {},
+        enabled: doc.enabled !== false,
+      };
     }
 
     // For homepage and about page, always fetch all documents (widgets are stored as separate documents)
@@ -317,11 +376,34 @@ class CmsService {
    * Update CMS content
    */
   async updateContent(page, contentData) {
-    const pageConfig = this.modelMap[page];
-    if (!pageConfig) {
-      throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
-      );
+    const pageConfig = await this.resolvePageConfig(page);
+
+    if (pageConfig.isLanding) {
+      const blocks = Array.isArray(contentData)
+        ? contentData
+        : Array.isArray(contentData?.content)
+          ? contentData.content
+          : [];
+
+      let doc = await pageConfig.model.findOne(pageConfig.filter);
+      if (!doc) {
+        doc = await pageConfig.model.create({
+          slug: pageConfig.filter.slug,
+          title: pageConfig.title,
+          content: blocks,
+          enabled: true,
+        });
+      } else {
+        doc.content = blocks;
+        doc.markModified("content");
+        await doc.save();
+      }
+
+      return {
+        page,
+        title: doc.title || pageConfig.title,
+        content: doc.content || blocks,
+      };
     }
 
     // For policies: contentData is a string (HTML)
@@ -545,11 +627,37 @@ class CmsService {
    * Content array contains direct items with cleaned image data
    */
   async updateSingleBlock(page, blockType, blockData) {
-    const pageConfig = this.modelMap[page];
-    if (!pageConfig) {
-      throw ApiError.badRequest(
-        `Invalid page. Must be one of: ${Object.keys(this.modelMap).join(", ")}`
-      );
+    const pageConfig = await this.resolvePageConfig(page);
+
+    if (pageConfig.isLanding) {
+      const doc = await pageConfig.model.findOne(pageConfig.filter);
+      if (!doc) {
+        throw ApiError.notFound(`Landing page '${page}' not found`);
+      }
+
+      const blocks = Array.isArray(doc.content) ? [...doc.content] : [];
+      let index = -1;
+
+      if (blockData && blockData.id) {
+        index = blocks.findIndex((b) => b && b.id === blockData.id);
+      }
+      if (index === -1) {
+        index = blocks.findIndex(
+          (b) => b && b.block_type === (blockData?.block_type || blockType)
+        );
+      }
+
+      if (index !== -1) {
+        blocks[index] = { ...blocks[index], ...blockData };
+      } else {
+        blocks.push(blockData);
+      }
+
+      doc.content = blocks;
+      doc.markModified("content");
+      await doc.save();
+
+      return blockData;
     }
 
     // Only block-based pages support single block updates

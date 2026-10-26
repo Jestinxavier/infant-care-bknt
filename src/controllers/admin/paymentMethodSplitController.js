@@ -4,6 +4,15 @@ const {
   cacheDelPattern,
   TTL,
 } = require("../../utils/redisCache");
+const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+
+const CSV_COLUMNS = [
+  { field: "method", header: "Method" },
+  { field: "count", header: "Orders" },
+  { field: "total", header: "Total (INR)" },
+  { field: "paidCount", header: "Paid Orders" },
+  { field: "paidTotal", header: "Paid (INR)" },
+];
 
 /**
  * Call whenever an order is placed/updated to flush report caches.
@@ -171,6 +180,16 @@ exports.getPaymentMethodSplit = async (req, res) => {
         },
       };
     });
+
+    if (wantsCsv(req)) {
+      return sendReportCsv(
+        res,
+        result.splits,
+        CSV_COLUMNS,
+        req.query.filename ||
+          `payment-method-split-${from || period}-${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
 
     res.status(200).json(result);
   } catch (error) {

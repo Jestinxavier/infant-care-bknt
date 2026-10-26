@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const LandingPage = require("../../models/LandingPage");
 const logger = require("../../utils/logger");
 
 /**
@@ -105,14 +106,26 @@ const getCmsContentByPage = async (req, res) => {
       footer: { model: Footer, title: "Footer" },
     };
 
-    const pageConfig = pageModelMap[page];
+    let pageConfig = pageModelMap[page];
+
+    // Fallback: treat as a custom block-based landing page
     if (!pageConfig) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid page. Must be one of: ${Object.keys(
-          pageModelMap
-        ).join(", ")}`,
-      });
+      let landing = await LandingPage.findOne({ slug: page });
+      if (!landing && page.startsWith("landing:")) {
+        landing = await LandingPage.findOne({ slug: page.replace(/^landing:/, "") });
+      }
+      if (landing) {
+        pageConfig = {
+          model: LandingPage,
+          title: landing.title || page,
+          filter: { slug: landing.slug },
+        };
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid page. Must be one of: ${Object.keys(pageModelMap).join(", ")}`,
+        });
+      }
     }
 
     let resultData = {
@@ -145,6 +158,18 @@ const getCmsContentByPage = async (req, res) => {
           content: p.content,
         }));
       }
+    } else if (pageConfig.filter) {
+      // Block-based landing page stored by slug
+      const content = await pageConfig.model.findOne(pageConfig.filter);
+      if (!content) {
+        return res.status(404).json({
+          success: false,
+          message: `CMS content for page '${page}' not found`,
+        });
+      }
+      resultData.title = content.title || pageConfig.title;
+      resultData.content = content;
+      resultData.slug = content.slug;
     } else {
       // Default behavior for single-doc pages (home, about, etc.)
       const content = await pageConfig.model.findOne({});

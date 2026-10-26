@@ -147,8 +147,17 @@ const getAllProducts = async (req, res) => {
     // Get total count
     const total = await Product.countDocuments(filter);
 
-    // Fetch products with full details
+    // Fetch products with only the fields the dashboard list transform reads.
+    // The full documents carry large unused blobs (description, details, SEO
+    // meta, bundle_config, uiMeta, videos) that were being loaded and then
+    // discarded on every list request. The whole `variants` array (and
+    // variantOptions/images for CSV export) is kept because the transform
+    // aggregates stock and prices from them and the export needs full rows.
+    const listProjection =
+      "title name category categoryName categoryCode url_key sku status product_type price offerPrice offerStartAt offerEndAt pricing basePrice stock stockObj images variants variantOptions filterAttributes collections badgeCollection designId createdAt updatedAt";
+
     const products = await Product.find(filter)
+      .select(listProjection)
       .populate("category", "name slug")
       .sort(sort)
       .skip(skip)
@@ -534,29 +543,31 @@ const countFilterValue = async (req, res) => {
  */
 const getDesignFamilies = async (req, res) => {
   try {
-    const groups = await Product.aggregate([
+    // One aggregation: group by designId, and (after sorting newest-first)
+    // grab the first product's title/image per group via $first — avoids a
+    // Product.findOne per group (the N+1 this used to do).
+    const families = await Product.aggregate([
       { $match: { designId: { $type: "string", $ne: "" } } },
-      { $group: { _id: "$designId", count: { $sum: 1 } } },
-      { $project: { _id: 0, designId: "$_id", count: 1 } },
-      { $sort: { designId: 1 } },
+      { $sort: { updatedAt: -1 } },
+      {
+        $group: {
+          _id: "$designId",
+          count: { $sum: 1 },
+          sampleTitle: { $first: "$title" },
+          sampleImages: { $first: "$images" },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          designId: "$_id",
+          count: 1,
+          sampleTitle: { $ifNull: ["$sampleTitle", null] },
+          image: { $arrayElemAt: [{ $ifNull: ["$sampleImages", []] }, 0] },
+        },
+      },
     ]);
-
-    const families = await Promise.all(
-      groups.map(async (g) => {
-        const sample = await Product.findOne(
-          { designId: g.designId },
-          { title: 1, url_key: 1, images: 1 },
-        )
-          .sort({ updatedAt: -1 })
-          .lean();
-        return {
-          designId: g.designId,
-          count: g.count,
-          sampleTitle: sample?.title || null,
-          image: Array.isArray(sample?.images) ? sample.images[0] : null,
-        };
-      }),
-    );
 
     res.status(200).json({ success: true, families });
   } catch (err) {

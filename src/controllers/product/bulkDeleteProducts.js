@@ -4,6 +4,9 @@ const Review = require("../../models/Review");
 const { extractImagePublicIds } = require("../../utils/mediaFinalizer");
 const Media = require("../../models/Media");
 const logger = require("../../utils/logger");
+const {
+  invalidateProductCatalogCaches,
+} = require("../../utils/productCacheInvalidation");
 const { removeProductsByIds } = require("../../services/searchIndexService");
 
 /**
@@ -48,11 +51,26 @@ const bulkDeleteProducts = async (req, res) => {
       deletedImagesCount: 0,
     };
 
+    // Batch-prefetch all target products and their legacy variants in two
+    // queries instead of a findById + Variant.find per product (N+1).
+    const productDocs = await Product.find({ _id: { $in: productIds } });
+    const productById = new Map(productDocs.map((p) => [String(p._id), p]));
+
+    const allVariants = await Variant.find({
+      productId: { $in: productIds },
+    }).select("_id productId");
+    const variantIdsByProduct = new Map();
+    for (const v of allVariants) {
+      const key = String(v.productId);
+      if (!variantIdsByProduct.has(key)) variantIdsByProduct.set(key, []);
+      variantIdsByProduct.get(key).push(v._id);
+    }
+
     // Process each product deletion
     for (const productId of productIds) {
       try {
         // Check if product exists
-        const product = await Product.findById(productId);
+        const product = productById.get(String(productId));
         if (!product) {
           results.failed.push({
             productId,
@@ -62,9 +80,8 @@ const bulkDeleteProducts = async (req, res) => {
           continue;
         }
 
-        // Get all variant IDs for this product
-        const variants = await Variant.find({ productId }).select("_id");
-        const variantIds = variants.map((v) => v._id);
+        // Variant IDs for this product (from the batched fetch)
+        const variantIds = variantIdsByProduct.get(String(productId)) || [];
 
         // Delete all reviews associated with these variants
         let deletedReviewsCount = 0;
@@ -192,6 +209,10 @@ const bulkDeleteProducts = async (req, res) => {
     const partialSuccess = results.successCount > 0 && results.failureCount > 0;
 
     const statusCode = allFailed ? 400 : 200;
+
+    if (results.successCount > 0) {
+      invalidateProductCatalogCaches("products bulk deleted");
+    }
 
     return res.status(statusCode).json({
       success: allSuccessful,

@@ -1,13 +1,13 @@
 const Category = require("../../models/Category");
 const logger = require("../../utils/logger");
 const { cacheDel } = require("../../utils/redisCache");
+const { parseFilterAttributes } = require("../../utils/parseFilterAttributes");
 
 const updateCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
     const {
       name,
-      description,
       displayOrder,
       isActive,
       parentCategory,
@@ -16,6 +16,7 @@ const updateCategory = async (req, res) => {
       hasSizeChart,
       sizeChartImage,
       removeSizeChartImage,
+      filterAttributes,
     } = req.body;
     const imageFile = req.file; // Uploaded image file
 
@@ -73,6 +74,11 @@ const updateCategory = async (req, res) => {
 
     if (hasSizeChart !== undefined) {
       category.hasSizeChart = hasSizeChart === "true" || hasSizeChart === true;
+    }
+
+    const parsedFilterAttributes = parseFilterAttributes(filterAttributes);
+    if (parsedFilterAttributes !== undefined) {
+      category.filterAttributes = parsedFilterAttributes;
     }
 
     // Handle image upload/removal

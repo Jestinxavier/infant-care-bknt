@@ -12,6 +12,7 @@ const {
   getDesignFamilies,
   reindexSearchIndex,
   getAllOrders,
+  getOrderStatusCounts,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
@@ -1128,6 +1129,14 @@ router.delete("/products/:productId", verifyToken, requireAdmin, deleteProduct);
 router.get("/orders", verifyToken, requireAdmin, getAllOrders);
 router.post("/orders", verifyToken, requireAdmin, getAllOrders);
 
+// NOTE: Must be registered before "/orders/:orderId" so "status-counts" is not treated as an order ID.
+router.get(
+  "/orders/status-counts",
+  verifyToken,
+  requireAdmin,
+  getOrderStatusCounts,
+);
+
 /**
  * @swagger
  * /api/v1/admin/orders/export:
@@ -1830,9 +1839,6 @@ router.post(
  *               name:
  *                 type: string
  *                 example: Electronics
- *               description:
- *                 type: string
- *                 example: Electronic products and gadgets
  *               displayOrder:
  *                 type: integer
  *                 example: 1
@@ -1890,7 +1896,7 @@ router.post(
  * /api/v1/admin/categories/{categoryId}:
  *   patch:
  *     summary: "[Admin] Update a category"
- *     description: Update category details including name, description, active status, display order, and image.
+ *     description: Update category details including name, active status, display order, and image.
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
@@ -1909,8 +1915,6 @@ router.post(
  *             type: object
  *             properties:
  *               name:
- *                 type: string
- *               description:
  *                 type: string
  *               displayOrder:
  *                 type: integer

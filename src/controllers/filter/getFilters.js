@@ -8,6 +8,11 @@ const {
   buildFilterAttributesQuery,
 } = require("../../utils/filterAttributes");
 const { normalizeFilterTokenByKey, deduplicateFilterValues } = require("../../utils/filterAttributeRules");
+const {
+  loadAttributeCatalogMap,
+  resolveCatalogValueForAttribute,
+} = require("../../utils/attributeCatalogGuard");
+const { cacheGet, cacheSet, TTL } = require("../../utils/redisCache");
 
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MIN_FUZZY_QUERY_LENGTH = 3;
@@ -35,6 +40,34 @@ const SKU_SEARCH_FIELD = "variants.sku";
 const normalizeValue = (value) => (value ?? "").toString().trim().toLowerCase();
 const escapeRegexLiteral = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Stock query mirroring the product listing's `isInStock` semantics so facet
+ * counts match what the customer actually sees.
+ *   inStock=true  → products with sellable stock.
+ *   inStock=false → products with none of that (fully out of stock).
+ * A CONFIGURABLE product is in stock when any variant has stock; a SIMPLE
+ * product when its own stock is positive. `stockObj` (when present) wins over
+ * the raw `stock` number, matching product.service.js.
+ */
+const buildInStockQuery = (inStock) => {
+  const inStockConditions = [
+    { "variants.stockObj.available": { $gt: 0 } },
+    { "variants.stockObj.isInStock": true },
+    { $and: [{ "variants.stockObj": { $exists: false } }, { "variants.stock": { $gt: 0 } }] },
+    { $and: [{ variants: { $size: 0 } }, { "stockObj.available": { $gt: 0 } }] },
+    { $and: [{ variants: { $size: 0 } }, { "stockObj.isInStock": true }] },
+    {
+      $and: [
+        { variants: { $size: 0 } },
+        { stockObj: { $exists: false } },
+        { stock: { $gt: 0 } },
+      ],
+    },
+  ];
+
+  return inStock ? { $or: inStockConditions } : { $nor: inStockConditions };
+};
 
 const addPluralPair = (variants, term) => {
   if (!term || term.length < 4) return;
@@ -277,6 +310,23 @@ const getFilters = async (req, res) => {
     const parsedFilters = parseQueryFilters(req.query);
     const rawSearchTerm = String(req.query.search || req.query.q || "").trim();
 
+    // Cache the generated filter config per (slug + query) signature. Filter
+    // generation scans every matching product, so this is the hottest and most
+    // expensive part of category browsing. TTL is short (5 min) so new products
+    // — which already flush the product cache on write — surface quickly.
+    const filterCacheKey = `filters:config:${slug || "all"}:${JSON.stringify(
+      Object.keys(req.query)
+        .sort()
+        .reduce((acc, k) => {
+          acc[k] = req.query[k];
+          return acc;
+        }, {})
+    )}`;
+    const cachedFilters = await cacheGet(filterCacheKey);
+    if (cachedFilters) {
+      return res.status(200).json({ success: true, filters: cachedFilters });
+    }
+
     // Use query param and slug to get all selected category codes
     const categoryFromQuery = parsedFilters.category;
     const collectionFromQuery = parsedFilters.collection;
@@ -311,6 +361,8 @@ const getFilters = async (req, res) => {
     // Build filter to get products for these categories (for filter generation)
     let productFilter = { status: "published" };
     let categoryDocs = [];
+    let subCategoryDocs = [];
+    let categoryScopeClause = null;
 
     if (selectedCategoryCodes.length > 0) {
       categoryDocs = await Category.find({
@@ -321,37 +373,105 @@ const getFilters = async (req, res) => {
         isActive: true,
       });
 
-      if (categoryDocs.length > 0) {
-        productFilter.category = { $in: categoryDocs.map(d => d._id) };
+      if (categoryDocs.length === 0) {
+        // Unknown category: return a real 404 so the storefront shows a
+        // "not found" page instead of a full filter panel over every product.
+        return res.status(404).json({
+          success: false,
+          message: "Category not found",
+        });
+      }
+
+      // Mirror the product listing (getProducts): selecting a parent also
+      // covers its subcategories, and a product can be linked through either
+      // `category` or `subCategories`. Previously only `category` was matched,
+      // which left subcategory pages with no facets at all.
+      const selectedIds = categoryDocs.map((d) => d._id);
+      const childDocs = await Category.find({
+        parentCategory: { $in: selectedIds },
+        isActive: true,
+      }).select("_id");
+      const scopedCategoryIds = [...selectedIds, ...childDocs.map((d) => d._id)];
+
+      categoryScopeClause = {
+        $or: [
+          { category: { $in: scopedCategoryIds } },
+          { subCategories: { $in: scopedCategoryIds } },
+        ],
+      };
+    }
+
+    // A subcategory selected from the PLP facet must narrow BOTH the grid and
+    // the facet counts — previously the listing narrowed but the counts stayed
+    // at parent scope, the same mismatch class as the stock-count bug.
+    const selectedSubCategoryCodes = [
+      ...new Set(
+        (Array.isArray(parsedFilters.subCategories)
+          ? parsedFilters.subCategories
+          : parsedFilters.subCategories
+            ? [parsedFilters.subCategories]
+            : []
+        ).filter((c) => c && c !== "all")
+      ),
+    ];
+    if (selectedSubCategoryCodes.length > 0) {
+      subCategoryDocs = await Category.find({
+        $or: [
+          { code: { $in: selectedSubCategoryCodes } },
+          { slug: { $in: selectedSubCategoryCodes } },
+        ],
+        isActive: true,
+      });
+      if (subCategoryDocs.length > 0) {
+        productFilter.subCategories = {
+          $in: subCategoryDocs.map((d) => d._id),
+        };
       }
     }
+
     if (selectedCollectionSlugs.length > 0) {
       productFilter.collections = { $in: selectedCollectionSlugs };
     }
     Object.assign(productFilter, buildFilterAttributesQuery(parsedFilters));
 
-    let effectiveProductFilter = applySearchFilter(
+    const effectiveProductFilter = applySearchFilter(
       productFilter,
       rawSearchTerm,
       false
     );
 
-    logger.info("🛒 Product filter:", effectiveProductFilter);
-
-    // Get all products for this category/search (for filter generation)
-    let products = await Product.find(effectiveProductFilter)
-      .populate("category", "name slug code")
-      .lean();
-
-    logger.info(`📦 Found ${products.length} products for filter generation`);
-    if (products.length > 0) {
-      products.forEach((p, i) => {
-        logger.info(
-          `  Product ${i + 1}: ${p.title || p.name}, Variants: ${p.variants?.length || 0
-          }`
-        );
-      });
+    // Applied AFTER the search filter (which overwrites `$and`) so it is never
+    // clobbered. The clause is kept by reference so the category facet can be
+    // computed from a wider, category-agnostic scope below.
+    if (categoryScopeClause) {
+      effectiveProductFilter.$and = [
+        ...(effectiveProductFilter.$and || []),
+        categoryScopeClause,
+      ];
     }
+
+    // Facet counts must reflect the SAME stock scope as the product listing,
+    // otherwise a customer sees "Sky Blue (24)" but only 11 products appear.
+    // The listing defaults to in-stock only; mirror that here (honouring an
+    // explicit inStock=false). Out-of-stock products never surface in the
+    // default grid, so they must not inflate the counts. Applied AFTER the
+    // search filter (which may set its own $and) so it is never clobbered.
+    const inStock = parsedFilters.inStock === "false" ? false : true;
+    effectiveProductFilter.$and = [
+      ...(effectiveProductFilter.$and || []),
+      buildInStockQuery(inStock),
+    ];
+
+    // Get all products for this category/search (for filter generation).
+    // Only the fields the facet builder reads are projected — the previous
+    // version loaded every product document (all images, descriptions, SEO,
+    // etc.) plus a category populate across the whole matching set on every
+    // request, which is very expensive for broad categories.
+    const products = await Product.find(effectiveProductFilter)
+      .select(
+        "filterAttributes variantOptions variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt variants.stock variants.stockObj stock stockObj price offerPrice offerStartAt offerEndAt category subCategories"
+      )
+      .lean();
 
     // Extract filter data only from filterAttributes (denormalized search layer)
     // CountMap tracks how many products have each normalized filter value
@@ -370,6 +490,14 @@ const getFilters = async (req, res) => {
       .lean();
     const catalogColorHexMap = buildColorHexMapFromCatalog(colorAttribute);
 
+    // The full attribute catalogue is the single source of truth for which
+    // facet values are allowed to appear. A product value that does not resolve
+    // to a registered value (e.g. stale raw tokens like "m"/"s", or a material
+    // value that leaked into gender) is skipped here so it can never surface as
+    // a phantom facet. Values with no AttributeDefinition at all keep legacy
+    // tolerance (catalogue unavailable → don't hide anything).
+    const catalogMap = await loadAttributeCatalogMap();
+
     for (const product of products) {
       const productFilterAttributes =
         product.filterAttributes && typeof product.filterAttributes === "object"
@@ -380,8 +508,16 @@ const getFilters = async (req, res) => {
         const values = Array.isArray(productFilterAttributes[key])
           ? productFilterAttributes[key]
           : [];
+        const attributeDef = catalogMap.get(key);
         values.forEach((value) => {
           if (!value) return;
+          // Facet-layer enforcement: only registered values become facets.
+          if (
+            attributeDef &&
+            !resolveCatalogValueForAttribute(attributeDef, value)
+          ) {
+            return;
+          }
           const normalized = normalizeFilterTokenByKey(key, value);
           if (!normalized) return;
           const countMap = filterCountMaps[key];
@@ -458,8 +594,67 @@ const getFilters = async (req, res) => {
       },
     };
 
+    // Per-category facet allowlist. When the selected category(ies) declare
+    // which filter groups apply (Category.filterAttributes), hide every other
+    // facet group. A subcategory inherits its parent's allowlist when it has
+    // none of its own (all subcategories are currently unconfigured). A
+    // category with no allowlist anywhere keeps all groups (backward
+    // compatible). The union across selected categories is used so multi-select
+    // never hides a relevant group.
+    const allowlistDocs = [...categoryDocs, ...subCategoryDocs];
+    if (allowlistDocs.length > 0) {
+      const parentIds = [
+        ...new Set(
+          allowlistDocs
+            .filter((cat) => cat.parentCategory)
+            .map((cat) => String(cat.parentCategory))
+        ),
+      ];
+      const parentDocs = parentIds.length
+        ? await Category.find({ _id: { $in: parentIds } })
+            .select("filterAttributes")
+            .lean()
+        : [];
+      const parentMap = new Map(parentDocs.map((p) => [String(p._id), p]));
+
+      const allowSet = new Set();
+      let anyConfigured = false;
+      allowlistDocs.forEach((cat) => {
+        let configured = Array.isArray(cat.filterAttributes)
+          ? cat.filterAttributes
+          : [];
+        if (configured.length === 0 && cat.parentCategory) {
+          const parent = parentMap.get(String(cat.parentCategory));
+          configured =
+            parent && Array.isArray(parent.filterAttributes)
+              ? parent.filterAttributes
+              : [];
+        }
+        if (configured.length > 0) {
+          anyConfigured = true;
+          configured.forEach((k) => allowSet.add(String(k).toLowerCase()));
+        }
+      });
+      if (anyConfigured) {
+        FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+          if (!allowSet.has(key)) rawFilters[key] = [];
+        });
+      }
+    }
+
     // To allow multi-select, identify parent categories that match other filters (price, color, etc.)
-    const categoryBaseFilter = { ...effectiveProductFilter };
+    // The category scope lives inside `$and` (see categoryScopeClause) so it
+    // must be removed explicitly here; deleting only `category`/`subCategories`
+    // would leave the scope in place and make the Category facet self-limiting.
+    const categoryBaseFilter = {
+      ...effectiveProductFilter,
+      $and: (effectiveProductFilter.$and || []).filter(
+        (clause) => clause !== categoryScopeClause
+      ),
+    };
+    if (categoryBaseFilter.$and && categoryBaseFilter.$and.length === 0) {
+      delete categoryBaseFilter.$and;
+    }
     delete categoryBaseFilter.category;
     delete categoryBaseFilter.subCategories;
 
@@ -491,7 +686,11 @@ const getFilters = async (req, res) => {
       parentCategory: null
     }).sort({ displayOrder: 1 }).lean();
 
-    if (relevantParents.length > 0) {
+    // The Category facet is a cross-category navigation aid — it only makes
+    // sense on the "all products" listing. On a specific category page (slug
+    // or ?category= present) it is redundant (navigation lives in the nav /
+    // breadcrumb) and previously listed every category with none selected.
+    if (relevantParents.length > 0 && selectedCategoryCodes.length === 0) {
       rawFilters.categories = relevantParents.map(cat => ({
         value: cat.code,
         label: cat.name
@@ -519,8 +718,14 @@ const getFilters = async (req, res) => {
           isActive: true
         }).sort({ displayOrder: 1 }).lean();
 
-        if (activeSubcategories.length > 0) {
-          rawFilters.subCategories = activeSubcategories.map(cat => ({
+        // Only offer subcategories that actually have products in the current
+        // result scope — an empty option leads straight to a dead-end page.
+        const relevantSubcategories = activeSubcategories.filter((cat) =>
+          allRefCatIds.has(String(cat._id))
+        );
+
+        if (relevantSubcategories.length > 0) {
+          rawFilters.subCategories = relevantSubcategories.map(cat => ({
             value: cat.code,
             label: cat.name
           }));
@@ -530,6 +735,8 @@ const getFilters = async (req, res) => {
 
     // Transform to FilterConfig format
     const filters = generateFilterConfig(rawFilters);
+
+    await cacheSet(filterCacheKey, filters, TTL.DASHBOARD);
 
     res.status(200).json({
       success: true,

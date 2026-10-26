@@ -6,6 +6,7 @@ const {
   generateSlug,
   generateVariantUrlKey,
 } = require("../../utils/slugGenerator");
+const escapeRegex = require("../../utils/escapeRegex");
 const {
   generateUniqueSku,
   generateVariantSku,
@@ -27,10 +28,17 @@ const {
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
+const {
+  guardProductAttributeCatalog,
+  catalogViolationResponse,
+} = require("../../utils/attributeCatalogGuard");
 const bundleService = require("../../features/product/bundle.service");
 const logger = require("../../utils/logger");
 const { normalizeDesignId } = require("../../utils/designId");
 const { syncProductsByIds } = require("../../services/searchIndexService");
+const {
+  invalidateProductCatalogCaches,
+} = require("../../utils/productCacheInvalidation");
 
 /**
  * Derive auto-thumbnail for a video entry and return the normalized object.
@@ -281,6 +289,21 @@ const createProduct = async (req, res) => {
         ? sanitizeIncomingFilterAttributes(filterAttributes)
         : undefined;
 
+    // CATALOGUE GUARD: metadata + variant option values must be registered
+    // on the matching AttributeDefinition (Settings → Product Attributes).
+    // Prevents duplicate spellings, casing drift, and junk strings from
+    // being stored on new products.
+    const catalogViolations = await guardProductAttributeCatalog({
+      filterAttributes: sanitizedFilterAttributes,
+      variantOptions,
+      variants: variantsArray,
+    });
+    if (catalogViolations.length > 0) {
+      return res
+        .status(400)
+        .json(catalogViolationResponse(catalogViolations));
+    }
+
     // Normalize status to lowercase - Product model expects: draft, published, archived
     let normalizedStatus = status || "draft";
     if (typeof normalizedStatus === "string") {
@@ -318,10 +341,12 @@ const createProduct = async (req, res) => {
         isActive: true,
       });
 
+      const escapedCategory = escapeRegex(category.trim());
+
       // If not found, try case-insensitive match
       if (!foundCategory) {
         foundCategory = await Category.findOne({
-          name: { $regex: new RegExp(`^${category.trim()}$`, "i") },
+          name: { $regex: new RegExp(`^${escapedCategory}$`, "i") },
           isActive: true,
         });
       }
@@ -329,7 +354,7 @@ const createProduct = async (req, res) => {
       // If still not found, try to match partial (e.g., "Romper" -> "Rompers")
       if (!foundCategory) {
         foundCategory = await Category.findOne({
-          name: { $regex: new RegExp(`^${category.trim()}s?$`, "i") },
+          name: { $regex: new RegExp(`^${escapedCategory}s?$`, "i") },
           isActive: true,
         });
       }
@@ -926,6 +951,8 @@ const createProduct = async (req, res) => {
 
     // Fire-and-forget: keep search index in sync (never blocks/fails the request)
     syncProductsByIds([product._id]);
+
+    invalidateProductCatalogCaches("product created");
 
     res.status(201).json({
       success: true,

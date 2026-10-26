@@ -1,6 +1,10 @@
 const Collection = require("../../models/Collection");
 const CollectionRedirect = require("../../models/CollectionRedirect");
 const Product = require("../../models/Product");
+const escapeRegex = require("../../utils/escapeRegex");
+const {
+  invalidateProductCatalogCaches,
+} = require("../../utils/productCacheInvalidation");
 const {
   generateSlug,
   generateUniqueUrlKey,
@@ -88,7 +92,7 @@ const listCollections = async (req, res) => {
     const { q } = req.query || {};
     const filter = {};
     if (q && String(q).trim()) {
-      const regex = new RegExp(String(q).trim(), "i");
+      const regex = new RegExp(escapeRegex(String(q).trim()), "i");
       filter.$or = [{ name: regex }, { slug: regex }];
     }
 
@@ -275,6 +279,11 @@ const updateCollection = async (req, res) => {
           { badgeCollection: oldSlug },
           { $set: { badgeCollection: providedSlug } }
         );
+
+        // updateMany bypasses Mongoose middleware, so product catalogue caches
+        // still hold the old slug and would keep serving stale collection
+        // metadata until their TTL expires.
+        await invalidateProductCatalogCaches("collection slug renamed");
       }
     }
 

@@ -134,16 +134,26 @@ const calculateTotals = async (items) => {
   let discountedSubtotal = 0; // Sum of lineTotal (after product-level discounts)
   const itemPrices = new Map(); // Map itemId -> pricing info
 
-  for (const item of items) {
-    // Get product ID (may be null if product was deleted)
-    const productId = item.productId?._id || item.productId;
-
-    // Always fetch product directly for pricing fields (populate may not return quantityRules)
-    const product = await Product.findById(productId)
+  // Batch-fetch every product in one query instead of one findById per item
+  // (the cart is read/mutated constantly, so the N+1 here was the hottest DB
+  // path in the app). Projection matches exactly what the pricing resolver reads.
+  const productIds = items
+    .map((item) => item.productId?._id || item.productId)
+    .filter(Boolean);
+  const productsById = new Map();
+  if (productIds.length > 0) {
+    const products = await Product.find({ _id: { $in: productIds } })
       .select(
         "price offerPrice offerStartAt offerEndAt quantityRules variants product_type",
       )
       .lean();
+    products.forEach((p) => productsById.set(String(p._id), p));
+  }
+
+  for (const item of items) {
+    // Get product ID (may be null if product was deleted)
+    const productId = item.productId?._id || item.productId;
+    const product = productId ? productsById.get(String(productId)) : null;
 
     if (!product) continue;
 
@@ -229,15 +239,31 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
 
   const updatedCoupons = [];
 
+  // Batch-load every referenced coupon once instead of a findById per applied
+  // coupon (cart mutations are frequent; N is small but the round-trips add up).
+  const couponIds = [
+    ...new Set(
+      cart.coupons
+        .map((c) => c.couponId && c.couponId.toString())
+        .filter(Boolean)
+    ),
+  ];
+  const couponDocs = couponIds.length
+    ? await Coupon.find({ _id: { $in: couponIds } })
+        .select("type value maxDiscount applicableTo applicableProductIds isActive freeGift")
+        .lean()
+    : [];
+  const couponById = new Map(couponDocs.map((c) => [c._id.toString(), c]));
+
   for (const cartCoupon of cart.coupons) {
     // Drop coupon if cart dropped below its minimum
     const minRequired = cartCoupon.minCartValue ?? 0;
     if (minRequired > 0 && discountedSubtotal < minRequired) continue;
 
     // Fetch coupon to get type/value for recalculation
-    const couponDoc = await Coupon.findById(cartCoupon.couponId)
-      .select("type value maxDiscount applicableTo applicableProductIds isActive freeGift")
-      .lean();
+    const couponDoc = cartCoupon.couponId
+      ? couponById.get(cartCoupon.couponId.toString())
+      : null;
     if (!couponDoc || !couponDoc.isActive) {
       // Also remove orphaned gift items for this coupon
       if (cartCoupon.type === "free_gift") {
@@ -2492,7 +2518,8 @@ const getAvailableCoupons = async (req, res) => {
       .populate("freeGift.triggerProductIds", "title images")
       .populate("freeGift.giftProductId", "title images")
       .populate("freeGift.giftCategoryId", "name")
-      .sort({ endDate: 1 });
+      .sort({ endDate: 1 })
+      .limit(50);
 
     // Filter out first-order-only coupons for users who already have paid orders
     const visibleCoupons = hasExistingOrders

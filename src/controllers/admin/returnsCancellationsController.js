@@ -4,6 +4,14 @@ const {
   cacheDelPattern,
   TTL,
 } = require("../../utils/redisCache");
+const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+
+const CSV_COLUMNS = [
+  { field: "key", header: "Date" },
+  { field: "cancelled", header: "Cancelled" },
+  { field: "returned", header: "Returned" },
+  { field: "total", header: "Total" },
+];
 
 /**
  * Call whenever an order is placed/updated to flush report caches.
@@ -143,6 +151,30 @@ exports.getReturnsCancellations = async (req, res) => {
         trend: trendRows,
       };
     });
+
+    if (wantsCsv(req)) {
+      const byKey = new Map();
+      for (const t of result.trend) {
+        const entry = byKey.get(t.key) || {
+          key: t.key,
+          cancelled: 0,
+          returned: 0,
+        };
+        if (t.status === "cancelled") entry.cancelled += t.count;
+        else entry.returned += t.count;
+        byKey.set(t.key, entry);
+      }
+      const rows = Array.from(byKey.values())
+        .sort((a, b) => (a.key < b.key ? -1 : 1))
+        .map((e) => ({ ...e, total: e.cancelled + e.returned }));
+      return sendReportCsv(
+        res,
+        rows,
+        CSV_COLUMNS,
+        req.query.filename ||
+          `returns-cancellations-${from || period}-${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
 
     res.status(200).json(result);
   } catch (error) {

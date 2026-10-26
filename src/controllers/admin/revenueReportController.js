@@ -4,6 +4,16 @@ const {
   cacheDelPattern,
   TTL,
 } = require("../../utils/redisCache");
+const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+
+const CSV_COLUMNS = [
+  { field: "key", header: "Date" },
+  { field: "total", header: "Revenue" },
+  { field: "orders", header: "Orders" },
+  { field: "codPending", header: "COD Pending" },
+  { field: "prevTotal", header: "Prev Revenue" },
+  { field: "prevOrders", header: "Prev Orders" },
+];
 
 /**
  * Call whenever an order is placed/updated to flush report caches.
@@ -266,6 +276,27 @@ exports.getRevenueOverTime = async (req, res) => {
         },
       };
     });
+
+    if (wantsCsv(req)) {
+      const rows = result.series.map((s, i) => {
+        const prev = result.previousPeriod[i] || {};
+        return {
+          key: s.key,
+          total: s.total,
+          orders: s.orders,
+          codPending: s.codPending,
+          prevTotal: prev.total || 0,
+          prevOrders: prev.orders || 0,
+        };
+      });
+      return sendReportCsv(
+        res,
+        rows,
+        CSV_COLUMNS,
+        req.query.filename ||
+          `revenue-over-time-${from || period}-${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
 
     res.status(200).json(result);
   } catch (error) {

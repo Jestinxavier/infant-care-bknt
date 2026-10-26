@@ -5,6 +5,30 @@ const {
   cacheDelPattern,
   TTL,
 } = require("../../utils/redisCache");
+const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+
+const CSV_COLUMNS = [
+  { field: "name", header: "Customer" },
+  { field: "email", header: "Email" },
+  { field: "phone", header: "Phone" },
+  { field: "customerType", header: "Type" },
+  {
+    header: "Registered",
+    value: (r) => (r.registeredDate ? r.registeredDate.slice(0, 10) : ""),
+  },
+  {
+    header: "Last Order",
+    value: (r) => (r.lastOrderDate ? r.lastOrderDate.slice(0, 10) : ""),
+  },
+  { field: "orderCount", header: "Orders (period)" },
+  { field: "totalSpent", header: "Spend (period) (INR)" },
+  { field: "lifetimeOrders", header: "Lifetime Orders" },
+  { field: "lifetimeSpent", header: "Lifetime Spend (INR)" },
+  {
+    header: "Avg Order Value (INR)",
+    value: (r) => Number(r.avgOrderValue || 0).toFixed(2),
+  },
+];
 
 /**
  * Call whenever an order is placed/updated to flush report caches.
@@ -110,8 +134,10 @@ exports.getCustomersReport = async (req, res) => {
         }
       }
 
-      // All users with role 'user'
-      const users = await User.find({ role: "user" }).lean();
+      // All users with role 'user' (project only the fields the report needs)
+      const users = await User.find({ role: "user" })
+        .select("username email phone createdAt")
+        .lean();
       if (users.length === 0) {
         return {
           rows: [],
@@ -129,11 +155,12 @@ exports.getCustomersReport = async (req, res) => {
         };
       }
 
-      const allUserIds = users.map((u) => u._id);
+      const userIdSet = new Set(users.map((u) => String(u._id)));
 
-      // 1) Lifetime stats per user (all time)
+      // 1) Lifetime stats per user (all time). Group ALL orders by userId once
+      // (index-backed) instead of passing a multi-thousand-element $in array;
+      // non-'user' roles are dropped when joining below.
       const lifetimeAgg = await Order.aggregate([
-        { $match: { userId: { $in: allUserIds } } },
         {
           $group: {
             _id: "$userId",
@@ -149,7 +176,7 @@ exports.getCustomersReport = async (req, res) => {
 
       // 2) Period stats per user (within date range)
       const periodAgg = await Order.aggregate([
-        { $match: { userId: { $in: allUserIds }, ...dateMatch } },
+        { $match: { ...dateMatch } },
         {
           $group: {
             _id: "$userId",
@@ -162,9 +189,15 @@ exports.getCustomersReport = async (req, res) => {
       ]);
 
       const lifetimeMap = new Map(
-        lifetimeAgg.map((r) => [String(r._id), r]),
+        lifetimeAgg
+          .filter((r) => userIdSet.has(String(r._id)))
+          .map((r) => [String(r._id), r]),
       );
-      const periodMap = new Map(periodAgg.map((r) => [String(r._id), r]));
+      const periodMap = new Map(
+        periodAgg
+          .filter((r) => userIdSet.has(String(r._id)))
+          .map((r) => [String(r._id), r]),
+      );
 
       let rows = users.map((u) => {
         const lt = lifetimeMap.get(String(u._id)) || {};
@@ -259,6 +292,16 @@ exports.getCustomersReport = async (req, res) => {
     const paginatedRows = exportAll
       ? cached.rows
       : cached.rows.slice(startIdx, startIdx + limitNum);
+
+    if (wantsCsv(req)) {
+      return sendReportCsv(
+        res,
+        paginatedRows,
+        CSV_COLUMNS,
+        req.query.filename ||
+          `customers-${from || period}-${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
 
     res.status(200).json(
       buildResponse(paginatedRows, cached.summary, {

@@ -19,10 +19,27 @@ const checkStock = async (req, res) => {
         const results = [];
         let allAvailable = true;
 
+        // Batch-fetch every referenced product in one query instead of a
+        // findById per line item (the N+1 the endpoint used to do).
+        const productIds = [
+          ...new Set(
+            items
+              .map((item) => item.productId)
+              .filter(Boolean)
+              .map((id) => String(id))
+          ),
+        ];
+        const products = productIds.length
+          ? await Product.find({ _id: { $in: productIds } }).lean()
+          : [];
+        const productById = new Map(
+          products.map((p) => [String(p._id), p])
+        );
+
         for (const item of items) {
             const { productId, variantId, quantity } = item;
 
-            const product = await Product.findById(productId);
+            const product = productId ? productById.get(String(productId)) : null;
             if (!product) {
                 results.push({
                     productId,

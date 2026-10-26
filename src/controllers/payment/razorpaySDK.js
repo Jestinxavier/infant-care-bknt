@@ -7,6 +7,9 @@ const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const emailService = require("../../services/emailService");
 const logger = require("../../utils/logger");
+const {
+  invalidateOrderReportCaches,
+} = require("../admin/orderCacheInvalidation");
 
 const RAZORPAY_TIMEOUT_MS = 15000;
 
@@ -34,6 +37,7 @@ const markOrderAsPaid = async (orderId, transactionId, rawResponse, req = null) 
   );
 
   if (updatedOrder) {
+    invalidateOrderReportCaches("Razorpay marked paid");
     await Payment.findOneAndUpdate(
       { orderId: updatedOrder._id },
       {
@@ -86,6 +90,7 @@ const handlePaymentFailure = async (orderId, rawResponse) => {
     { orderId },
     { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
   );
+  invalidateOrderReportCaches("Razorpay payment failed/cancelled");
 
   await Payment.findOneAndUpdate(
     { orderId: order._id },

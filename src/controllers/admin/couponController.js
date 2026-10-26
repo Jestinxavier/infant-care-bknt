@@ -133,8 +133,12 @@ const createCoupon = async (req, res) => {
  */
 const listCoupons = async (req, res) => {
   try {
+    // Coupon lists are bounded in practice; cap defensively so the populated
+    // product/category arrays can't grow without limit.
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 200));
     const coupons = await Coupon.find()
       .sort({ createdAt: -1 })
+      .limit(limit)
       .populate("applicableProductIds", "title images sku")
       .populate("applicableCategories", "name code");
     res.status(200).json({ success: true, coupons });

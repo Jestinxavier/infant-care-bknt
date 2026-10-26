@@ -10,10 +10,13 @@ const logger = require("../utils/logger");
  */
 const updateProductRating = async (productId) => {
   try {
-    // Get all approved reviews for this product
-    const allReviews = await Review.find({ productId, isApproved: true });
+    // Compute the average/count in Mongo instead of loading every review doc.
+    const [stats] = await Review.aggregate([
+      { $match: { productId: new mongoose.Types.ObjectId(productId), isApproved: true } },
+      { $group: { _id: null, avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+    ]);
 
-    if (allReviews.length === 0) {
+    if (!stats || stats.count === 0) {
       await Product.findByIdAndUpdate(productId, {
         averageRating: 0,
         totalReviews: 0,
@@ -21,25 +24,17 @@ const updateProductRating = async (productId) => {
       return { averageRating: 0, totalReviews: 0 };
     }
 
-    // Calculate average rating across all product reviews
-    const totalRating = allReviews.reduce(
-      (sum, review) => sum + review.rating,
-      0,
-    );
-    const averageRating = parseFloat(
-      (totalRating / allReviews.length).toFixed(2),
-    );
+    const averageRating = parseFloat(Number(stats.avg).toFixed(2));
 
-    // Update product
     await Product.findByIdAndUpdate(productId, {
       averageRating: averageRating,
-      totalReviews: allReviews.length,
+      totalReviews: stats.count,
     });
 
     logger.info(
-      `✅ Updated product ${productId} rating: ${averageRating} (${allReviews.length} reviews)`,
+      `✅ Updated product ${productId} rating: ${averageRating} (${stats.count} reviews)`,
     );
-    return { averageRating, totalReviews: allReviews.length };
+    return { averageRating, totalReviews: stats.count };
   } catch (error) {
     logger.error("❌ Error updating product rating:", error);
     throw error;
@@ -55,10 +50,14 @@ const updateVariantRating = async (variantId) => {
     // Only proceed if variantId is a valid MongoDB ObjectId (for standalone Variant collection)
     if (!mongoose.Types.ObjectId.isValid(variantId)) return null;
 
-    // Get all approved reviews for this variant
-    const reviews = await Review.find({ variantId, isApproved: true });
+    // Compute the average/count in Mongo instead of loading every review doc.
+    // variantId is stored as a string on Review.
+    const [stats] = await Review.aggregate([
+      { $match: { variantId: String(variantId), isApproved: true } },
+      { $group: { _id: null, avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+    ]);
 
-    if (reviews.length === 0) {
+    if (!stats || stats.count === 0) {
       await Variant.findByIdAndUpdate(variantId, {
         averageRating: 0,
         totalReviews: 0,
@@ -66,15 +65,14 @@ const updateVariantRating = async (variantId) => {
       return { averageRating: 0, totalReviews: 0 };
     }
 
-    const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
-    const averageRating = parseFloat((totalRating / reviews.length).toFixed(2));
+    const averageRating = parseFloat(Number(stats.avg).toFixed(2));
 
     await Variant.findByIdAndUpdate(variantId, {
       averageRating: averageRating,
-      totalReviews: reviews.length,
+      totalReviews: stats.count,
     });
 
-    return { averageRating, totalReviews: reviews.length };
+    return { averageRating, totalReviews: stats.count };
   } catch (error) {
     logger.warn(
       "⚠️ Standalone variant update failed (possibly not a standalone variant):",

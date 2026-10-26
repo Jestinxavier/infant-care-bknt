@@ -8,19 +8,12 @@ const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const {
   canTransitionStatus,
 } = require("../../features/order/rules/order.rules");
-const { invalidateDashboardCache } = require("./dashboardController");
-const { invalidateSalesReportCache } = require("./salesReportController");
-const { invalidateCustomerReportCache } = require("./customerReportController");
-const { invalidateRevenueReportCache } = require("./revenueReportController");
-const { invalidateOrdersByStatusCache } = require("./ordersByStatusController");
 const {
-  invalidateReturnsCancellationsCache,
-} = require("./returnsCancellationsController");
-const {
-  invalidatePaymentMethodSplitCache,
-} = require("./paymentMethodSplitController");
+  invalidateOrderReportCaches,
+} = require("./orderCacheInvalidation");
 const logger = require("../../utils/logger");
 const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
+const { cacheGetOrSet } = require("../../utils/redisCache");
 
 const escapeRegex = require("../../utils/escapeRegex");
 
@@ -200,9 +193,20 @@ const getAllOrders = async (req, res) => {
       throw err;
     }
 
-    // Build sort
+    // Build sort — whitelist the sort field so a client cannot force an
+    // in-memory SORT over the whole orders collection on an arbitrary field.
+    const ORDER_SORTABLE_FIELDS = new Set([
+      "createdAt",
+      "placedAt",
+      "totalAmount",
+      "orderStatus",
+    ]);
+    const safeSortBy = ORDER_SORTABLE_FIELDS.has(String(sortBy))
+      ? String(sortBy)
+      : "createdAt";
+    const safeSortOrder = parseInt(sortOrder, 10) === 1 ? 1 : -1;
     const sort = {};
-    sort[sortBy] = parseInt(sortOrder, 10);
+    sort[safeSortBy] = safeSortOrder;
 
     // Get total count
     const total = await Order.countDocuments(filter);
@@ -291,7 +295,107 @@ const getAllOrders = async (req, res) => {
 };
 
 /**
- * Admin: Get single order by ID
+ * Admin: Get counts and totals per order status for the filter bar cards.
+ * One aggregation replaces the previous per-status list requests.
+ */
+const ORDER_STATUS_COUNTS = [
+  "pending",
+  "confirmed",
+  "processing",
+  "shipped",
+  "delivered",
+  "returned",
+  "cancelled",
+];
+
+const STATUS_COUNTS_CACHE_TTL = 60;
+
+function buildStatusCountsCacheKey(requestData, userRole) {
+  const fields = [
+    "status",
+    "paymentStatus",
+    "paymentMethod",
+    "customerType",
+    "minTotal",
+    "maxTotal",
+    "search",
+    "from",
+    "to",
+  ];
+
+  const parts = fields.map((field) => {
+    const value = requestData[field];
+    return value === undefined || value === null || value === ""
+      ? ""
+      : `${field}=${encodeURIComponent(String(value))}`;
+  });
+
+  return `admin:orders:status-counts:${userRole || "guest"}:${parts.join("&")}`;
+}
+
+const getOrderStatusCounts = async (req, res) => {
+  try {
+    const requestData = req.method === "POST" ? req.body || {} : req.query;
+
+    let filter;
+    try {
+      filter = await buildOrderFilter(requestData, req.user);
+    } catch (err) {
+      if (err.code === "DATE_RESTRICTED") {
+        return res.status(403).json({
+          success: false,
+          errorCode: "DATE_RESTRICTED",
+          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+          maxDate: err.maxDate,
+        });
+      }
+      throw err;
+    }
+
+    const cacheKey = buildStatusCountsCacheKey(requestData, req.user?.role);
+
+    const result = await cacheGetOrSet(
+      cacheKey,
+      STATUS_COUNTS_CACHE_TTL,
+      async () => {
+        const grouped = await Order.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: "$orderStatus",
+              count: { $sum: 1 },
+              amount: { $sum: "$totalAmount" },
+            },
+          },
+        ]);
+
+        const byStatus = new Map(grouped.map((row) => [row._id, row]));
+        const counts = ORDER_STATUS_COUNTS.map((status) => ({
+          status,
+          count: byStatus.get(status)?.count || 0,
+          amount: byStatus.get(status)?.amount || 0,
+        }));
+
+        return {
+          counts,
+          total: counts.reduce((sum, item) => sum + item.count, 0),
+          totalAmount: counts.reduce((sum, item) => sum + item.amount, 0),
+        };
+      },
+    );
+
+    res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    logger.error("❌ Admin Error fetching order status counts:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
+/**
+ * Admin: Get single order
  */
 const getOrderById = async (req, res) => {
   try {
@@ -715,45 +819,18 @@ const updateOrderStatus = async (req, res) => {
       },
     });
 
-    // Returns/cancellations change revenue & profit — flush the dashboard cache
-    if (
-      (status === "cancelled" || status === "returned") &&
-      currentOrder.orderStatus !== status
-    ) {
-      invalidateDashboardCache().catch((err) =>
-        logger.error("Dashboard cache invalidation failed", {
-          error: err.message,
-        }),
-      );
-      invalidateSalesReportCache().catch((err) =>
-        logger.error("Sales report cache invalidation failed", {
-          error: err.message,
-        }),
-      );
-      invalidateCustomerReportCache().catch((err) =>
-        logger.error("Customers report cache invalidation failed", {
-          error: err.message,
-        }),
-      );
-      invalidateRevenueReportCache().catch((err) =>
-        logger.error("Revenue report cache invalidation failed", {
-          error: err.message,
-        }),
-      );
-      invalidateOrdersByStatusCache().catch((err) =>
-        logger.error("Orders by status cache invalidation failed", {
-          error: err.message,
-        }),
-      );
-      invalidateReturnsCancellationsCache().catch((err) =>
-        logger.error("Returns cancellations cache invalidation failed", {
-          error: err.message,
-        }),
-      );
-      invalidatePaymentMethodSplitCache().catch((err) =>
-        logger.error("Payment method split cache invalidation failed", {
-          error: err.message,
-        }),
+    // Any status or payment-status change affects dashboards/reports. Flush
+    // when the order status changed, or when this update flipped payment status
+    // (e.g. COD delivered → paid, paid → refunded on a return).
+    const statusChanged =
+      status !== undefined && currentOrder.orderStatus !== status;
+    const paymentStatusChanged =
+      updateFields.paymentStatus !== undefined &&
+      updateFields.paymentStatus !== currentOrder.paymentStatus;
+
+    if (statusChanged || paymentStatusChanged) {
+      invalidateOrderReportCaches(
+        `order update (status=${status || currentOrder.orderStatus}, payment=${updateFields.paymentStatus || currentOrder.paymentStatus})`,
       );
     }
 
@@ -834,7 +911,7 @@ const sendOrderInvoice = async (req, res) => {
 
     // Resolve orderId
     let query = { orderId: orderId };
-    const sanitizedId = orderId.replace(/^#/, "");
+    const sanitizedId = escapeRegex(orderId.replace(/^#/, ""));
 
     if (mongoose.Types.ObjectId.isValid(orderId)) {
       query = {
@@ -989,6 +1066,9 @@ const markOrderAsPaid = async (req, res) => {
       order: { ...updated, _id: updated._id?.toString() },
     });
 
+    // Payment status flipped to paid — flush all report caches
+    invalidateOrderReportCaches("order marked as paid");
+
     // Send invoice email asynchronously (don't block the response)
     emailService
       .sendOrderConfirmationEmail(updated)
@@ -1083,42 +1163,8 @@ const markCodOrderAsPaid = async (req, res) => {
       order: { ...updated, _id: updated._id?.toString() },
     });
 
-    // Revenue changed — flush the dashboard cache
-    invalidateDashboardCache().catch((err) =>
-      logger.error("Dashboard cache invalidation failed after COD mark-paid", {
-        error: err.message,
-      }),
-    );
-    invalidateSalesReportCache().catch((err) =>
-      logger.error(
-        "Sales report cache invalidation failed after COD mark-paid",
-        { error: err.message },
-      ),
-    );
-    invalidateCustomerReportCache().catch((err) =>
-      logger.error(
-        "Customers report cache invalidation failed after COD mark-paid",
-        { error: err.message },
-      ),
-    );
-    invalidateRevenueReportCache().catch((err) =>
-      logger.error(
-        "Revenue report cache invalidation failed after COD mark-paid",
-        { error: err.message },
-      ),
-    );
-    invalidateOrdersByStatusCache().catch((err) =>
-      logger.error(
-        "Orders by status cache invalidation failed after COD mark-paid",
-        { error: err.message },
-      ),
-    );
-    invalidatePaymentMethodSplitCache().catch((err) =>
-      logger.error(
-        "Payment method split cache invalidation failed after COD mark-paid",
-        { error: err.message },
-      ),
-    );
+    // Revenue changed — flush all report caches
+    invalidateOrderReportCaches("COD marked as paid");
 
     // Send invoice email asynchronously (don't block the response)
     if (updated.userId?.email) {
@@ -1346,6 +1392,7 @@ const exportOrders = async (req, res) => {
 
 module.exports = {
   getAllOrders,
+  getOrderStatusCounts,
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,

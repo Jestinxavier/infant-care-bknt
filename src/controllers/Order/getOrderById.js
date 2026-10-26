@@ -39,14 +39,15 @@ const getOrderById = async (req, res) => {
         path: "items.variantId",
         populate: {
           path: "productId",
-          select: "name description images category url_key",
+          select: "name images category url_key",
         },
       })
       .populate({
         path: "items.productId",
-        select: "name description images category url_key",
+        select: "name images category url_key",
       })
-      .populate("deliveryPartner");
+      .populate("deliveryPartner")
+      .lean();
 
     if (!order) {
       return res.status(404).json({

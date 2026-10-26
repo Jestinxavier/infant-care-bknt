@@ -3,6 +3,87 @@ const User = require("../../models/user");
 const Order = require("../../models/Order");
 
 const escapeRegex = require("../../utils/escapeRegex");
+const logger = require("../../utils/logger");
+
+const USER_LIST_FIELDS = "username email phone createdAt";
+
+const buildOrderStats = async (userIds) => {
+  if (!userIds.length) return new Map();
+
+  const orderStats = await Order.aggregate([
+    { $match: { userId: { $in: userIds } } },
+    {
+      $group: {
+        _id: "$userId",
+        totalSpent: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$paymentStatus", "paid"] },
+                  { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
+                ],
+              },
+              "$totalAmount",
+              0,
+            ],
+          },
+        },
+        orderCount: { $sum: 1 },
+        lastOrderDate: { $max: "$createdAt" },
+      },
+    },
+  ]);
+
+  return new Map(orderStats.map((stat) => [String(stat._id), stat]));
+};
+
+const projectCustomer = (user, orderStatsMap) => {
+  const stats = orderStatsMap.get(String(user._id)) || {
+    totalSpent: 0,
+    orderCount: 0,
+    lastOrderDate: null,
+  };
+
+  return {
+    id: user._id?.toString(),
+    _id: user._id?.toString(),
+    name: user.username,
+    email: user.email,
+    phone: user.phone,
+    registeredDate: user.createdAt,
+    totalSpent: stats.totalSpent || 0,
+    orderCount: stats.orderCount || 0,
+    lastOrderDate: stats.lastOrderDate || null,
+  };
+};
+
+const customerSortValue = (customer, sortBy) => {
+  switch (sortBy) {
+    case "username":
+      return customer.name || "";
+    case "email":
+      return customer.email || "";
+    case "orderCount":
+      return customer.orderCount ?? 0;
+    case "totalSpent":
+      return customer.totalSpent ?? 0;
+    case "lastOrderDate":
+      return customer.lastOrderDate ? new Date(customer.lastOrderDate).getTime() : 0;
+    case "createdAt":
+    default:
+      return customer.registeredDate ? new Date(customer.registeredDate).getTime() : 0;
+  }
+};
+
+// Sort fields that depend on order aggregates — these can't be resolved by
+// Mongo directly on the User collection, so they require loading the full
+// matching set. Everything else is paginated by the database.
+const AGGREGATE_SORT_FIELDS = new Set([
+  "orderCount",
+  "totalSpent",
+  "lastOrderDate",
+]);
 
 /**
  * Admin: Get all customers with pagination and order stats
@@ -44,89 +125,44 @@ const getAllCustomers = async (req, res) => {
       }
     }
 
-    // Total users count
     const total = await User.countDocuments(filter);
 
-    // Fetch matching users first so we can sort by aggregate fields too.
-    const users = await User.find(filter).lean();
+    const mongoSortField = normalizedSortBy === "username" ? "username" : normalizedSortBy === "email" ? "email" : "createdAt";
 
-    const userIds = users.map((u) => u._id);
+    // Fast path: default/user-field sorts paginate in MongoDB, so we only load
+    // the page's users (not the entire users collection with password/OTP/etc).
+    if (!AGGREGATE_SORT_FIELDS.has(normalizedSortBy)) {
+      const users = await User.find(filter)
+        .select(USER_LIST_FIELDS)
+        .sort({ [mongoSortField]: sortDirection })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
 
-// Aggregate order stats per user — count all orders, but only sum
-    // spent for confirmed purchases (paid, not cancelled/returned)
-    const orderStats =
-      userIds.length === 0
-        ? []
-        : await Order.aggregate([
-            { $match: { userId: { $in: userIds } } },
-            {
-              $group: {
-                _id: "$userId",
-                totalSpent: {
-                  $sum: {
-                    $cond: [
-                      {
-                        $and: [
-                          { $eq: ["$paymentStatus", "paid"] },
-                          { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
-                        ],
-                      },
-                      "$totalAmount",
-                      0,
-                    ],
-                  },
-                },
-                orderCount: { $sum: 1 },
-                lastOrderDate: { $max: "$createdAt" },
-              },
-            },
-          ]);
+      const orderStatsMap = await buildOrderStats(users.map((u) => u._id));
+      const customers = users.map((user) => projectCustomer(user, orderStatsMap));
 
-    const orderStatsMap = new Map(
-      orderStats.map((stat) => [String(stat._id), stat])
-    );
+      return res.status(200).json({
+        success: true,
+        customers,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.max(Math.ceil(total / limitNum), 1),
+        },
+      });
+    }
 
-    const customers = users.map((user) => {
-      const stats = orderStatsMap.get(String(user._id)) || {
-        totalSpent: 0,
-        orderCount: 0,
-        lastOrderDate: null,
-      };
+    // Slow path: order-derived sort fields require the whole matching set.
+    const users = await User.find(filter).select(USER_LIST_FIELDS).lean();
+    const orderStatsMap = await buildOrderStats(users.map((u) => u._id));
 
-      return {
-        id: user._id?.toString(),
-        _id: user._id?.toString(),
-        name: user.username,
-        email: user.email,
-        phone: user.phone,
-        registeredDate: user.createdAt,
-        totalSpent: stats.totalSpent || 0,
-        orderCount: stats.orderCount || 0,
-        lastOrderDate: stats.lastOrderDate || null,
-      };
-    });
-
-    const sortValue = (customer) => {
-      switch (normalizedSortBy) {
-        case "username":
-          return customer.name || "";
-        case "email":
-          return customer.email || "";
-        case "orderCount":
-          return customer.orderCount ?? 0;
-        case "totalSpent":
-          return customer.totalSpent ?? 0;
-        case "lastOrderDate":
-          return customer.lastOrderDate ? new Date(customer.lastOrderDate).getTime() : 0;
-        case "createdAt":
-        default:
-          return customer.registeredDate ? new Date(customer.registeredDate).getTime() : 0;
-      }
-    };
+    const customers = users.map((user) => projectCustomer(user, orderStatsMap));
 
     customers.sort((a, b) => {
-      const aValue = sortValue(a);
-      const bValue = sortValue(b);
+      const aValue = customerSortValue(a, normalizedSortBy);
+      const bValue = customerSortValue(b, normalizedSortBy);
 
       if (typeof aValue === "string" || typeof bValue === "string") {
         return String(aValue).localeCompare(String(bValue), undefined, {
@@ -160,7 +196,6 @@ const getAllCustomers = async (req, res) => {
 };
 
 const Address = require("../../models/Address");
-const logger = require("../../utils/logger");
 
 /**
  * Admin: Get customer details and their order history
@@ -176,7 +211,7 @@ const getCustomerById = async (req, res) => {
       });
     }
 
-    const user = await User.findById(customerId).lean();
+    const user = await User.findById(customerId).select(USER_LIST_FIELDS).lean();
 
     if (!user) {
       return res.status(404).json({
@@ -188,8 +223,10 @@ const getCustomerById = async (req, res) => {
     // Fetch all saved addresses for this customer
     const savedAddresses = await Address.find({ userId: customerId }).lean();
 
-    // Fetch all orders for this customer
+    // Fetch all orders for this customer (projected to the fields the detail
+    // view actually renders — items is needed for the per-order item count).
     const orders = await Order.find({ userId: customerId })
+      .select("orderId placedAt createdAt orderStatus paymentStatus totalAmount totalQuantity items.quantity")
       .sort({ createdAt: -1 })
       .lean();
 

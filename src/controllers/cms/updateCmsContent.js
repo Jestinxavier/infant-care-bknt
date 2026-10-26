@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const LandingPage = require("../../models/LandingPage");
 const logger = require("../../utils/logger");
 
 /**
@@ -42,14 +43,34 @@ const updateCmsContent = async (req, res) => {
       footer: { model: Footer, title: "Footer" },
     };
 
-    const pageConfig = pageModelMap[page];
+    let pageConfig = pageModelMap[page];
+
+    // Fallback: treat as a custom block-based landing page
     if (!pageConfig) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid page. Must be one of: ${Object.keys(
-          pageModelMap,
-        ).join(", ")}`,
-      });
+      let slugKey = page;
+      if (page.startsWith("landing:")) slugKey = page.replace(/^landing:/, "");
+      const landing = await LandingPage.findOne({ slug: slugKey });
+      if (landing) {
+        pageConfig = {
+          model: LandingPage,
+          title: bodyTitle || landing.title || slugKey,
+          filter: { slug: landing.slug },
+          isLanding: true,
+        };
+      } else if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slugKey)) {
+        pageConfig = {
+          model: LandingPage,
+          title: bodyTitle || slugKey.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+          filter: { slug: slugKey },
+          isLanding: true,
+          createIfMissing: true,
+        };
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid page. Must be one of: ${Object.keys(pageModelMap).join(", ")}`,
+        });
+      }
     }
 
     // Check if document exists
@@ -66,6 +87,9 @@ const updateCmsContent = async (req, res) => {
         });
       }
       filter = { slug };
+      existingDoc = await pageConfig.model.findOne(filter);
+    } else if (pageConfig.isLanding) {
+      filter = pageConfig.filter || { slug: page.replace(/^landing:/, "") };
       existingDoc = await pageConfig.model.findOne(filter);
     } else {
       // Legacy single-doc behavior
@@ -101,6 +125,25 @@ const updateCmsContent = async (req, res) => {
           setDefaultsOnInsert: true,
         },
       );
+    } else if (pageConfig.isLanding) {
+      const landingSlug = pageConfig.filter?.slug || page.replace(/^landing:/, "");
+      const docData = Array.isArray(content)
+        ? { slug: landingSlug, title: pageConfig.title, content, enabled: true }
+        : { slug: landingSlug, title: pageConfig.title, enabled: true, ...content };
+      if (existingDoc) {
+        updatedContent = await pageConfig.model.findOneAndUpdate(
+          filter,
+          docData,
+          { new: true, runValidators: true },
+        );
+      } else if (pageConfig.createIfMissing) {
+        updatedContent = await pageConfig.model.create(docData);
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: `CMS content for page '${page}' not found`,
+        });
+      }
     } else {
       // Legacy single-doc update
       if (existingDoc) {

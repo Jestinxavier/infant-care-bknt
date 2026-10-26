@@ -3,6 +3,7 @@ const About = require("../../models/About");
 const Policy = require("../../models/Policy");
 const Header = require("../../models/Header");
 const Footer = require("../../models/Footer");
+const LandingPage = require("../../models/LandingPage");
 const logger = require("../../utils/logger");
 
 /**
@@ -39,18 +40,46 @@ const updateCmsBlock = async (req, res) => {
       footer: { model: Footer, title: "Footer", arrayField: "links" }, // Assumption
     };
 
-    const pageConfig = pageModelMap[page];
+    let pageConfig = pageModelMap[page];
+
+    // Fallback: treat as a custom block-based landing page
     if (!pageConfig) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid page. Must be one of: ${Object.keys(
-          pageModelMap
-        ).join(", ")}`,
-      });
+      let slugKey = page;
+      if (page.startsWith("landing:")) slugKey = page.replace(/^landing:/, "");
+      let landing = await LandingPage.findOne({ slug: slugKey });
+      if (!landing) {
+        if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slugKey)) {
+          landing = await LandingPage.create({
+            slug: slugKey,
+            title: slugKey.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+            content: [],
+            enabled: true,
+          });
+        }
+      }
+      if (landing) {
+        pageConfig = {
+          model: LandingPage,
+          title: landing.title || slugKey,
+          arrayField: "content",
+          filter: { slug: landing.slug },
+          isLanding: true,
+        };
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid page. Must be one of: ${Object.keys(pageModelMap).join(", ")}`,
+        });
+      }
     }
 
     // Find the document
-    const existingDoc = await pageConfig.model.findOne({});
+    let existingDoc;
+    if (pageConfig.filter) {
+      existingDoc = await pageConfig.model.findOne(pageConfig.filter);
+    } else {
+      existingDoc = await pageConfig.model.findOne({});
+    }
     if (!existingDoc) {
       return res.status(404).json({
         success: false,
@@ -107,8 +136,9 @@ const updateCmsBlock = async (req, res) => {
     const updatePayload = { [targetArrayField]: updatedArray };
 
     // We update the specific array field
+    const updateFilter = pageConfig.filter ? pageConfig.filter : { _id: existingDoc._id };
     const updatedDoc = await pageConfig.model.findOneAndUpdate(
-      { _id: existingDoc._id },
+      updateFilter,
       { $set: updatePayload },
       { new: true, runValidators: false } // flexible schema
     );

@@ -4,6 +4,20 @@ const {
   cacheDelPattern,
   TTL,
 } = require("../../utils/redisCache");
+const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+
+const CSV_COLUMNS = [
+  { field: "name", header: "Product" },
+  { field: "variantName", header: "Variant" },
+  { field: "sku", header: "SKU" },
+  { field: "category", header: "Category" },
+  { field: "price", header: "Sold Price (INR)" },
+  { field: "regularPrice", header: "MRP (INR)" },
+  { field: "unitsSold", header: "Units Sold" },
+  { field: "orders", header: "Orders" },
+  { field: "revenue", header: "Revenue (INR)" },
+  { field: "currentStock", header: "Current Stock" },
+];
 
 /**
  * Call whenever an order is placed/updated to flush report caches.
@@ -64,11 +78,17 @@ exports.getSalesByProduct = async (req, res) => {
     const order = sortOrder === "asc" ? 1 : -1;
 
     const customDateRange = parseDateRange(from, to);
-    const cacheKey = customDateRange
-      ? `report:sales-by-product:custom:${from || "start"}:${to || "end"}`
-      : `report:sales-by-product:${period}`;
+    // Cache key covers the period/range AND the search + sort params because the
+    // cached payload is the complete filtered/sorted dataset (page-independent).
+    const cacheKey = [
+      customDateRange
+        ? `report:sales-by-product:custom:${from || "start"}:${to || "end"}`
+        : `report:sales-by-product:${period}`,
+      `q:${String(search || "").toLowerCase()}`,
+      `s:${sortKey}:${order}`,
+    ].join(":");
 
-    const result = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
+    const cached = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
       // Resolve period -> date match (mirrors dashboardController semantics)
       const now = new Date();
       const kolkataDateStr = new Intl.DateTimeFormat("en-CA", {
@@ -151,9 +171,10 @@ exports.getSalesByProduct = async (req, res) => {
         ),
       ];
 
-      const products = await require("../../models/Product").find({
-        _id: { $in: productIds },
-      });
+      const products = await require("../../models/Product")
+        .find({ _id: { $in: productIds } })
+        .select("name title sku images url_key categoryName stock stockObj variants.stock")
+        .lean();
 
       const productMeta = new Map(
         products.map((p) => [
@@ -221,13 +242,6 @@ exports.getSalesByProduct = async (req, res) => {
       };
       rows.sort(sortFn[sortKey]);
 
-      const total = rows.length;
-      const totalPages = exportAll ? 1 : Math.ceil(total / limitNum) || 1;
-      const startIdx = (pageNum - 1) * limitNum;
-      const paginated = exportAll
-        ? rows
-        : rows.slice(startIdx, startIdx + limitNum);
-
       const summary = rows.reduce(
         (acc, r) => {
           acc.revenue += r.revenue;
@@ -238,20 +252,38 @@ exports.getSalesByProduct = async (req, res) => {
         { revenue: 0, unitsSold: 0, orders: 0, variants: rows.length },
       );
 
-      return {
-        success: true,
-        rows: paginated,
-        summary,
-        pagination: {
-          page: pageNum,
-          limit: exportAll ? 0 : limitNum,
-          total,
-          totalPages,
-        },
-      };
+      return { rows, total: rows.length, summary };
     });
 
-    res.status(200).json(result);
+    // Slice the full filtered/sorted dataset for the requested page AFTER the
+    // cache read, so page 2 / export (limit=0) never hit a stale cached page-1 payload.
+    const totalPages = exportAll ? 1 : Math.ceil(cached.total / limitNum) || 1;
+    const startIdx = (pageNum - 1) * limitNum;
+    const paginatedRows = exportAll
+      ? cached.rows
+      : cached.rows.slice(startIdx, startIdx + limitNum);
+
+    if (wantsCsv(req)) {
+      return sendReportCsv(
+        res,
+        paginatedRows,
+        CSV_COLUMNS,
+        req.query.filename ||
+          `sales-by-product-${from || period}-${new Date().toISOString().slice(0, 10)}`,
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      rows: paginatedRows,
+      summary: cached.summary,
+      pagination: {
+        page: pageNum,
+        limit: exportAll ? 0 : limitNum,
+        total: cached.total,
+        totalPages,
+      },
+    });
   } catch (error) {
     const logger = require("../../utils/logger");
     logger.error("Sales by product report error", { message: error.message });

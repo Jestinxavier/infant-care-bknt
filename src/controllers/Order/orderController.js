@@ -14,9 +14,63 @@ const razorpaySDK = require("../../controllers/payment/razorpaySDK");
 const logger = require("../../utils/logger");
 const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
 const { logError } = require("../../utils/errorLogger");
+const {
+  invalidateOrderReportCaches,
+} = require("../admin/orderCacheInvalidation");
 
 const generateOrderId = () =>
   crypto.randomBytes(4).toString("hex").toUpperCase();
+
+/**
+ * Release (restore) stock for a set of checkout stock updates in one round-trip.
+ * Used by the post-commit payment-failure cleanup paths.
+ * @param {Array} stockUpdates - entries shaped like the checkout stockUpdates
+ */
+const releaseStockUpdates = async (stockUpdates) => {
+  if (!Array.isArray(stockUpdates) || stockUpdates.length === 0) return;
+
+  const operations = stockUpdates.map((update) => {
+    if (update.type === "BUNDLE_CHILD") {
+      return {
+        updateOne: {
+          filter: { sku: update.sku, product_type: PRODUCT_TYPES.SIMPLE },
+          update: {
+            $inc: {
+              "stockObj.available": update.quantity,
+              stock: update.quantity,
+            },
+          },
+        },
+      };
+    }
+    if (update.variantId) {
+      return {
+        updateOne: {
+          filter: { _id: update.productId, "variants.id": update.variantId },
+          update: {
+            $inc: {
+              "variants.$.stockObj.available": update.quantity,
+              "variants.$.stock": update.quantity,
+            },
+          },
+        },
+      };
+    }
+    return {
+      updateOne: {
+        filter: { _id: update.productId },
+        update: {
+          $inc: {
+            "stockObj.available": update.quantity,
+            stock: update.quantity,
+          },
+        },
+      },
+    };
+  });
+
+  await Product.bulkWrite(operations, { ordered: true });
+};
 
 /**
  * Create Order with MongoDB Transactions
@@ -205,8 +259,20 @@ const createOrder = async (req, res) => {
     const orderItems = [];
     const stockUpdates = [];
 
+    // Batch-fetch every referenced product in one query (within the session)
+    // instead of a Product.findById per line item (the checkout N+1).
+    const checkoutProductIds = [
+      ...new Set(items.map((item) => String(item.productId)).filter(Boolean)),
+    ];
+    const checkoutProducts = checkoutProductIds.length
+      ? await Product.find({ _id: { $in: checkoutProductIds } }).session(session)
+      : [];
+    const checkoutProductById = new Map(
+      checkoutProducts.map((p) => [String(p._id), p])
+    );
+
     for (const item of items) {
-      const product = await Product.findById(item.productId).session(session);
+      const product = checkoutProductById.get(String(item.productId));
 
       if (!product) {
         throw {
@@ -814,6 +880,9 @@ const createOrder = async (req, res) => {
     // === COMMIT TRANSACTION ===
     await session.commitTransaction();
 
+    // New order affects order counts / dashboards / reports immediately
+    invalidateOrderReportCaches("order created");
+
     // After a successful order, any other live carts for the same account are
     // stale duplicates (e.g. an unfinished checkout in another tab/browser).
     // Demote them to "abandoned" so /cart/get can't resurrect purchased items
@@ -874,40 +943,8 @@ const createOrder = async (req, res) => {
               "Payment initiation failed - Auto-cancelled",
           });
 
-          // 2. Release Stock
-          for (const update of stockUpdates) {
-            if (update.type === "BUNDLE_CHILD") {
-              await Product.findOneAndUpdate(
-                { sku: update.sku, product_type: PRODUCT_TYPES.SIMPLE },
-                {
-                  $inc: {
-                    "stockObj.available": update.quantity,
-                    stock: update.quantity,
-                  },
-                }
-              );
-            } else if (update.variantId) {
-              await Product.findOneAndUpdate(
-                { _id: update.productId, "variants.id": update.variantId },
-                {
-                  $inc: {
-                    "variants.$.stockObj.available": update.quantity,
-                    "variants.$.stock": update.quantity,
-                  },
-                }
-              );
-            } else {
-              await Product.findOneAndUpdate(
-                { _id: update.productId },
-                {
-                  $inc: {
-                    "stockObj.available": update.quantity,
-                    stock: update.quantity,
-                  },
-                }
-              );
-            }
-          }
+          // 2. Release Stock (single bulkWrite instead of one update per item)
+          await releaseStockUpdates(stockUpdates);
 
           // 3. Reset cart to active so the user can restart checkout from the cart page.
           await Cart.findByIdAndUpdate(cart._id, {
@@ -975,41 +1012,8 @@ const createOrder = async (req, res) => {
               "Payment initiation failed - Auto-cancelled",
           });
 
-          // 2. Release Stock
-          for (const update of stockUpdates) {
-            if (update.type === "BUNDLE_CHILD") {
-              // Release bundle child SKU stock
-              await Product.findOneAndUpdate(
-                { sku: update.sku, product_type: PRODUCT_TYPES.SIMPLE },
-                {
-                  $inc: {
-                    "stockObj.available": update.quantity,
-                    stock: update.quantity,
-                  },
-                }
-              );
-            } else if (update.variantId) {
-              await Product.findOneAndUpdate(
-                { _id: update.productId, "variants.id": update.variantId },
-                {
-                  $inc: {
-                    "variants.$.stockObj.available": update.quantity,
-                    "variants.$.stock": update.quantity,
-                  },
-                }
-              );
-            } else {
-              await Product.findOneAndUpdate(
-                { _id: update.productId },
-                {
-                  $inc: {
-                    "stockObj.available": update.quantity,
-                    stock: update.quantity,
-                  },
-                }
-              );
-            }
-          }
+          // 2. Release Stock (single bulkWrite instead of one update per item)
+          await releaseStockUpdates(stockUpdates);
 
           // 3. Reset cart to active so the user can restart checkout from the cart page.
           await Cart.findByIdAndUpdate(cart._id, {
