@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { TOKEN_EXPIRY } = require("../../resources/constants");
 
@@ -10,6 +11,7 @@ const generateAccessToken = (id) => {
 const generateRefreshToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, {
     expiresIn: TOKEN_EXPIRY.REFRESH_TOKEN,
+    jwtid: crypto.randomBytes(16).toString("hex"),
   });
 };
 

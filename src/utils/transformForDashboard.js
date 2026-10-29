@@ -7,6 +7,9 @@
  * Calculate total stock from variants or parent
  */
 function calculateTotalStock(product) {
+  if (product.product_type === "BUNDLE") {
+    return Number(product._bundleAvailableStock ?? 0);
+  }
   if (product.variants && product.variants.length > 0) {
     return product.variants.reduce((sum, v) => {
       return (
@@ -26,6 +29,10 @@ function calculateTotalStock(product) {
  * Calculate minimum price from variants or parent
  */
 function calculateMinPrice(product) {
+  if (product.product_type === "BUNDLE") {
+    const price = product.pricing?.price || product.price || product.basePrice || 0;
+    return price > 0 ? price : null;
+  }
   if (product.variants && product.variants.length > 0) {
     const prices = product.variants
       .map((v) => v.pricing?.price || v.price || 0)
@@ -67,6 +74,13 @@ function isOfferActive(offerPrice, startAt, endAt) {
  * Get current display price (active offer price if valid, else regular price)
  */
 function getCurrentPrice(product) {
+  if (product.product_type === "BUNDLE") {
+    const offer = product.offerPrice ?? product.pricing?.discountPrice;
+    const price = product.pricing?.price ?? product.price ?? 0;
+    return isOfferActive(offer, product.offerStartAt, product.offerEndAt)
+      ? offer
+      : price;
+  }
   if (product.variants && product.variants.length > 0) {
     const firstVariant = product.variants[0];
     const vOffer =
@@ -91,6 +105,16 @@ function getCurrentPrice(product) {
  * Get current discount/offer price when offer is active, else null (for display in dashboard).
  */
 function getCurrentDiscountPrice(product) {
+  if (product.product_type === "BUNDLE") {
+    const offer = product.offerPrice ?? product.pricing?.discountPrice;
+    return offer && offer > 0 && isOfferActive(
+      offer,
+      product.offerStartAt,
+      product.offerEndAt,
+    )
+      ? offer
+      : null;
+  }
   if (product.variants && product.variants.length > 0) {
     const firstVariant = product.variants[0];
     const offer =
@@ -184,7 +208,10 @@ function buildCloudinaryUrl(publicIdOrPath) {
  */
 function transformForDashboard(product, options = {}) {
   const { includeVariants = false } = options;
-  const hasVariants = product.variants && product.variants.length > 0;
+  const hasVariants =
+    product.product_type === "CONFIGURABLE" &&
+    product.variants &&
+    product.variants.length > 0;
 
   // Calculate aggregated metrics
   const totalStock = calculateTotalStock(product);
@@ -257,6 +284,10 @@ function transformForDashboard(product, options = {}) {
     // Product Type
     product_type:
       product.product_type || (hasVariants ? "CONFIGURABLE" : "SIMPLE"),
+    bundleItemCount:
+      product.product_type === "BUNDLE"
+        ? product._bundleItemCount ?? product.bundle_config?.items?.length ?? 0
+        : null,
 
     // Filter attributes for CSV export
     filterAttributes: product.filterAttributes,

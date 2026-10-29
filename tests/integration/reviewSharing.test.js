@@ -11,6 +11,7 @@ const makeProduct = (overrides) =>
     category: overrides.category,
     status: overrides.status || "published",
     designId: overrides.designId,
+    subCategories: overrides.subCategories,
   });
 
 const makeReview = ({ productId, rating, isApproved = true, title = "Great" }) =>
@@ -129,7 +130,76 @@ describe("Review sharing by design family", () => {
     expect(res.body.shared.averageRating).toBe(3);
   });
 
-  it("returns shared null for a product without a designId", async () => {
+  it("falls back to subCategories[0] when designId is missing", async () => {
+    const target = await makeProduct({
+      title: "Cotton Air Bodysuit - Blue",
+      category: designCategory._id,
+      subCategories: [designCategory._id],
+    });
+    const sibling = await makeProduct({
+      title: "Cotton Air Bodysuit - Pink",
+      category: designCategory._id,
+      subCategories: [designCategory._id],
+    });
+    const otherSubCategory = await Category.create({
+      name: "Sleepsuits",
+      code: "sleepsuits",
+      isActive: true,
+    });
+    const otherSubSibling = await makeProduct({
+      title: "Different Style",
+      category: designCategory._id,
+      subCategories: [otherSubCategory._id],
+    });
+
+    await makeReview({ productId: sibling._id, rating: 4 });
+    await makeReview({ productId: otherSubSibling._id, rating: 5 });
+
+    const res = await request(app).get(
+      `/api/v1/review/product/${target._id.toString()}`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.shared).not.toBeNull();
+    expect(res.body.shared.type).toBe("subCategory");
+    expect(res.body.shared.totalReviews).toBe(1);
+    expect(res.body.shared.averageRating).toBe(4);
+  });
+
+  it("prefers designId over subcategory fallback", async () => {
+    const target = await makeProduct({
+      title: "Cotton Air Bodysuit - Blue",
+      category: designCategory._id,
+      designId: "cotton-air-bodysuit",
+      subCategories: [designCategory._id],
+    });
+    const siblingByDesign = await makeProduct({
+      title: "Cotton Air Bodysuit - Pink",
+      category: designCategory._id,
+      designId: "cotton-air-bodysuit",
+      subCategories: [designCategory._id],
+    });
+    const siblingBySubCategory = await makeProduct({
+      title: "Other Romper",
+      category: designCategory._id,
+      subCategories: [designCategory._id],
+    });
+
+    await makeReview({ productId: siblingByDesign._id, rating: 5 });
+    await makeReview({ productId: siblingBySubCategory._id, rating: 1 });
+
+    const res = await request(app).get(
+      `/api/v1/review/product/${target._id.toString()}`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.shared.type).toBe("designId");
+    expect(res.body.shared.designId).toBe("cotton-air-bodysuit");
+    expect(res.body.shared.totalReviews).toBe(1);
+    expect(res.body.shared.averageRating).toBe(5);
+  });
+
+  it("returns shared null for a product without a designId and without subCategories", async () => {
     const target = await makeProduct({
       title: "Standalone Bodysuit",
       category: designCategory._id,

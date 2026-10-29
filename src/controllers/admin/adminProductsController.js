@@ -2,6 +2,7 @@ const Product = require("../../models/Product");
 const Variant = require("../../models/Variant");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { transformForDashboard } = require("../../utils/transformForDashboard");
+const { getBundleAvailability } = require("../../features/product/bundle.service");
 
 const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
@@ -154,7 +155,7 @@ const getAllProducts = async (req, res) => {
     // variantOptions/images for CSV export) is kept because the transform
     // aggregates stock and prices from them and the export needs full rows.
     const listProjection =
-      "title name category categoryName categoryCode url_key sku status product_type price offerPrice offerStartAt offerEndAt pricing basePrice stock stockObj images variants variantOptions filterAttributes collections badgeCollection designId createdAt updatedAt";
+      "title name category categoryName categoryCode url_key sku status product_type price offerPrice offerStartAt offerEndAt pricing basePrice stock stockObj images variants variantOptions bundle_config filterAttributes collections badgeCollection designId createdAt updatedAt";
 
     const products = await Product.find(filter)
       .select(listProjection)
@@ -163,6 +164,64 @@ const getAllProducts = async (req, res) => {
       .skip(skip)
       .limit(limitNum)
       .lean();
+
+    // Bundles are sold as complete sets. Resolve their availability from the
+    // saved component SKUs instead of stale parent stock or legacy variants.
+    const bundleProducts = products.filter((product) => product.product_type === "BUNDLE");
+    if (bundleProducts.length > 0) {
+      const componentSkus = [
+        ...new Set(
+          bundleProducts.flatMap((product) =>
+            (product.bundle_config?.items || []).map((item) => item.sku),
+          ),
+        ),
+      ];
+      const children = await Product.find({
+        status: "published",
+        $or: [
+          { product_type: "SIMPLE", sku: { $in: componentSkus } },
+          { product_type: "CONFIGURABLE", "variants.sku": { $in: componentSkus } },
+        ],
+      })
+        .select("sku stock stockObj variants")
+        .lean();
+      const stockBySku = new Map();
+      for (const child of children) {
+        if (child.product_type === "SIMPLE") {
+          stockBySku.set(child.sku, Number(child.stockObj?.available ?? child.stock ?? 0));
+        }
+        for (const variant of child.variants || []) {
+          stockBySku.set(
+            variant.sku,
+            Number(variant.stockObj?.available ?? variant.stock ?? 0),
+          );
+        }
+      }
+      for (const bundle of bundleProducts) {
+        const components = bundle.bundle_config?.items || [];
+        bundle._bundleItemCount = components.length;
+        bundle._bundleAvailableStock = components.length
+          ? Math.min(
+              ...components.map((component) =>
+                Math.floor(
+                  (stockBySku.get(component.sku) ?? 0) / (component.qty || 1),
+                ),
+              ),
+            )
+          : 0;
+
+        // Legacy variant records may not be returned by the batch query even
+        // though the PDP can resolve them by their variant SKU. Use the same
+        // resolver as the storefront when the batch result is zero so admin
+        // and storefront availability cannot disagree.
+        if (bundle._bundleAvailableStock === 0 && components.length > 0) {
+          const resolved = await getBundleAvailability(bundle.bundle_config, {
+            requirePublished: true,
+          });
+          bundle._bundleAvailableStock = resolved.availableQty;
+        }
+      }
+    }
 
     // Transform products for admin dashboard using utility function
     const formattedProducts = products.map((product) =>

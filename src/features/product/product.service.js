@@ -23,6 +23,9 @@ const {
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
 const mongoose = require("mongoose");
+const Product = require("./product.model");
+const Review = require("../../models/Review");
+const { getBundleAvailability } = require("./bundle.service");
 const logger = require("../../utils/logger");
 
 const MIN_FUZZY_QUERY_LENGTH = 3;
@@ -32,6 +35,44 @@ const MIN_FUZZY_QUERY_LENGTH = 3;
 const MAX_FUZZY_QUERY_LENGTH = 32;
 const MIN_VARIANT_QUERY_LENGTH = 3;
 const MAX_SEARCH_VARIANTS = 600;
+
+const attachReviewStats = async (items = []) => {
+  const productIds = items
+    .map((item) => item.parentId || item._id || item.id)
+    .filter((id) => id && mongoose.Types.ObjectId.isValid(String(id)))
+    .map((id) => new mongoose.Types.ObjectId(String(id)));
+
+  if (!productIds.length) return items;
+
+  const stats = await Review.aggregate([
+    {
+      $match: {
+        productId: { $in: productIds },
+        isApproved: true,
+      },
+    },
+    {
+      $group: {
+        _id: "$productId",
+        averageRating: { $avg: "$rating" },
+        totalReviews: { $sum: 1 },
+      },
+    },
+  ]);
+  const statsByProduct = new Map(
+    stats.map((stat) => [String(stat._id), stat]),
+  );
+
+  return items.map((item) => {
+    const productId = String(item.parentId || item._id || item.id || "");
+    const stat = statsByProduct.get(productId);
+    return {
+      ...item,
+      averageRating: stat ? Number(stat.averageRating.toFixed(2)) : 0,
+      totalReviews: stat?.totalReviews || 0,
+    };
+  });
+};
 const SEARCH_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 const VOWELS = new Set(["a", "e", "i", "o", "u"]);
 const COMMON_REPLACEMENTS = {
@@ -520,7 +561,7 @@ class ProductService {
         $addFields: {
           effectivePrice: {
             $cond: {
-              if: { $ifNull: ["$variants", false] },
+              if: { $eq: ["$product_type", "CONFIGURABLE"] },
               then: {
                 $let: {
                   vars: {
@@ -591,7 +632,7 @@ class ProductService {
           },
           isInStock: {
             $cond: {
-              if: { $ifNull: ["$variants", false] },
+              if: { $eq: ["$product_type", "CONFIGURABLE"] },
               then: {
                 // Configurable product variant check
                 $cond: {
@@ -696,12 +737,35 @@ class ProductService {
           },
 
           // Pricing — min current/effective price ("From ₹X"), min & max regular price
-          price: { $min: "$effectivePrice" },
+          price: {
+            $min: {
+              $cond: [
+                { $eq: ["$product_type", "BUNDLE"] },
+                "$effectivePrice",
+                "$effectivePrice",
+              ],
+            },
+          },
+          maxPrice: {
+            $max: "$effectivePrice",
+          },
           regularPrice: {
-            $min: { $ifNull: ["$variants.price", "$price", 0] },
+            $min: {
+              $cond: [
+                { $eq: ["$product_type", "BUNDLE"] },
+                { $ifNull: ["$price", 0] },
+                { $ifNull: ["$variants.price", "$price", 0] },
+              ],
+            },
           },
           maxRegularPrice: {
-            $max: { $ifNull: ["$variants.price", "$price", 0] },
+            $max: {
+              $cond: [
+                { $eq: ["$product_type", "BUNDLE"] },
+                { $ifNull: ["$price", 0] },
+                { $ifNull: ["$variants.price", "$price", 0] },
+              ],
+            },
           },
 
           // Stock — aggregate across variants; simple/bundle use product-level stock.
@@ -709,7 +773,7 @@ class ProductService {
           totalStock: {
             $sum: {
               $cond: {
-                if: { $ifNull: ["$variants", false] },
+                if: { $eq: ["$product_type", "CONFIGURABLE"] },
                 then: {
                   $ifNull: [
                     "$variants.stockObj.available",
@@ -730,7 +794,13 @@ class ProductService {
 
           // Variant count — 0 for simple/bundle (nothing to expand), N for configurable
           variantCount: {
-            $sum: { $cond: [{ $ifNull: ["$variants", false] }, 1, 0] },
+            $sum: {
+              $cond: [
+                { $eq: ["$product_type", "CONFIGURABLE"] },
+                1,
+                0,
+              ],
+            },
           },
 
           // Bundle/choice component count (product-level, not flattened into rows)
@@ -750,6 +820,7 @@ class ProductService {
 
           // Metadata
           colors: { $addToSet: "$variants.attributes.color" },
+          variantSizes: { $addToSet: "$variants.attributes.size" },
         },
       },
 
@@ -843,6 +914,82 @@ class ProductService {
     const data = result[0];
     const total = data.metadata.length > 0 ? data.metadata[0].total : 0;
     const totalPages = Math.ceil(total / limitVal);
+
+    // Bundles are sold as complete sets. Never use the manually entered parent
+    // stock for PLP availability; derive it from the current child inventory.
+    const bundleItems = data.items.filter(
+      (item) => item.product_type === "BUNDLE",
+    );
+    if (bundleItems.length > 0) {
+      const bundleIds = bundleItems.map((item) => item.parentId || item._id);
+      const bundleProducts = await Product.find({ _id: { $in: bundleIds } })
+        .select("bundle_config")
+        .lean();
+      const bundleById = new Map(
+        bundleProducts.map((product) => [String(product._id), product]),
+      );
+      const childSkus = [
+        ...new Set(
+          bundleProducts.flatMap((product) =>
+            (product.bundle_config?.items || []).map((item) => item.sku),
+          ),
+        ),
+      ];
+      const children = await Product.find({
+        status: "published",
+        $or: [
+          { product_type: "SIMPLE", sku: { $in: childSkus } },
+          { product_type: "CONFIGURABLE", "variants.sku": { $in: childSkus } },
+        ],
+      })
+        .select("sku stock stockObj variants")
+        .lean();
+      const childStock = new Map();
+      for (const child of children) {
+        if (child.product_type === "SIMPLE") {
+          childStock.set(
+            child.sku,
+            Number(child.stockObj?.available ?? child.stock ?? 0),
+          );
+        }
+        for (const variant of child.variants || []) {
+          childStock.set(
+            variant.sku,
+            Number(variant.stockObj?.available ?? variant.stock ?? 0),
+          );
+        }
+      }
+      for (const item of bundleItems) {
+        const product = bundleById.get(String(item.parentId || item._id));
+        const components = product?.bundle_config?.items || [];
+        let available = components.length
+          ? Math.min(
+              ...components.map((component) =>
+                Math.floor(
+                  (childStock.get(component.sku) ?? 0) / (component.qty || 1),
+                ),
+              ),
+            )
+          : 0;
+
+        // Keep the list endpoint consistent with the PDP stock resolver. This
+        // fallback handles legacy variant records that are not returned by the
+        // aggregate child lookup, while retaining the batch lookup above for
+        // the normal case.
+        if (available === 0 && components.length > 0) {
+          const resolved = await getBundleAvailability(product.bundle_config, {
+            requirePublished: true,
+          });
+          available = resolved.availableQty;
+        }
+        item.stock = available;
+        item.totalStock = available;
+        item.bundleItemCount = components.length;
+        item.isInStock = available > 0;
+      }
+    }
+
+    data.items = await attachReviewStats(data.items);
 
     return {
       success: true,
@@ -1517,6 +1664,7 @@ class ProductService {
       product_type: options.product_type, // Pass through for bundle child picker
     });
 
+    result.data = await attachReviewStats(result.data);
     return result;
   }
 

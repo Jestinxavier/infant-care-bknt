@@ -1,6 +1,7 @@
 const Product = require("../../models/Product");
 const Collection = require("../../models/Collection");
 const Variant = require("../../models/Variant");
+const Review = require("../../models/Review");
 const { formatProductResponse } = require("../../utils/formatProductResponse");
 const { parseCollectionsInput } = require("../../utils/collectionUtils");
 const logger = require("../../utils/logger");
@@ -375,9 +376,12 @@ const getProductByUrlKey = async (req, res) => {
     ) {
       const childSkus = productObj.bundle_config.items.map((item) => item.sku);
 
-      // Fetch all child products by SKU
+      // Resolve SIMPLE component SKUs directly. Bundle components may also be
+      // CONFIGURABLE variant SKUs, which are stored inside `variants`, not as
+      // the parent product's root SKU.
       const childProducts = await Product.find({
         sku: { $in: childSkus },
+        product_type: "SIMPLE",
         status: "published",
       }).select("sku title url_key stockObj stock");
 
@@ -385,6 +389,25 @@ const getProductByUrlKey = async (req, res) => {
       const childProductMap = new Map();
       childProducts.forEach((child) => {
         childProductMap.set(child.sku, child);
+      });
+
+      const variantProducts = await Product.find({
+        product_type: "CONFIGURABLE",
+        status: "published",
+        "variants.sku": { $in: childSkus },
+      }).select("title url_key variants.sku variants.stockObj variants.stock");
+
+      variantProducts.forEach((parent) => {
+        (parent.variants || []).forEach((variant) => {
+          if (childSkus.includes(variant.sku)) {
+            childProductMap.set(variant.sku, {
+              title: parent.title,
+              url_key: parent.url_key,
+              stockObj: variant.stockObj,
+              stock: variant.stock,
+            });
+          }
+        });
       });
 
       // Check if all child products are in stock
@@ -398,8 +421,10 @@ const getProductByUrlKey = async (req, res) => {
           if (childProduct) {
             const childStock =
               childProduct.stockObj?.available ?? childProduct.stock ?? 0;
-            const childInStock =
-              childProduct.stockObj?.isInStock ?? childStock > 0;
+            // `available` is the authoritative quantity. The derived
+            // isInStock flag can be stale on legacy child records, which
+            // would otherwise make the PDP disagree with the price/stock API.
+            const childInStock = childStock > 0;
 
             if (!childInStock) {
               allChildrenInStock = false;
@@ -422,11 +447,24 @@ const getProductByUrlKey = async (req, res) => {
         },
       );
 
-      // Update bundle stock based on child products
+      // Update bundle stock based on child products. If any child is missing,
+      // unpublished, or out of stock the bundle cannot be assembled, so its
+      // available quantity must be zero even when other children have stock.
       productObj.stockObj = {
-        available: minAvailableQty === Infinity ? 0 : minAvailableQty,
+        available: allChildrenInStock
+          ? minAvailableQty === Infinity
+            ? 0
+            : minAvailableQty
+          : 0,
         isInStock: allChildrenInStock && minAvailableQty > 0,
       };
+    }
+
+    if (
+      productObj.product_type === "BUNDLE" &&
+      !(productObj.bundle_config?.items?.length > 0)
+    ) {
+      productObj.stockObj = { available: 0, isInStock: false };
     }
 
     // Enrich bundle gift slot with images
@@ -481,6 +519,24 @@ const getProductByUrlKey = async (req, res) => {
     productObj.badgeCollectionMeta = productObj.badgeCollection
       ? collectionMetaBySlug[productObj.badgeCollection] || null
       : null;
+
+    // The product document can contain a cached rating from before the latest
+    // review was approved. Keep the PDP rating current with the same approved
+    // review source used by listing and search endpoints.
+    const [ratingStats] = await Review.aggregate([
+      { $match: { productId: productObj._id, isApproved: true } },
+      {
+        $group: {
+          _id: null,
+          averageRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+        },
+      },
+    ]);
+    productObj.averageRating = ratingStats
+      ? Number(ratingStats.averageRating.toFixed(2))
+      : 0;
+    productObj.totalReviews = ratingStats?.totalReviews || 0;
 
     const formattedProduct = formatProductResponse(productObj);
 

@@ -5,6 +5,7 @@ const Variant = require("../../models/Variant");
 const { updateRatings } = require("../../services/ratingService");
 const mongoose = require("mongoose");
 const logger = require("../../utils/logger");
+const { verifyGuestReviewToken } = require("../../utils/guestReviewToken");
 
 /**
  * Get purchased products eligible for review
@@ -14,13 +15,16 @@ const getPurchasedProductsForReview = async (req, res) => {
   try {
     const userId = req.user.id; // From auth middleware
 
-    // Find all shipped or delivered orders for this user
+    // Find all shipped or delivered orders for this user. Order items store
+    // variantId as a string (embedded variant id or legacy Variant _id), so it
+    // cannot be populated directly; populate the product reference instead and
+    // resolve legacy variants in a separate batch.
     const orders = await Order.find({
       userId,
       orderStatus: { $in: ["shipped", "delivered"] },
     }).populate({
-      path: "items.variantId",
-      populate: { path: "productId", select: "name images category" },
+      path: "items.productId",
+      select: "name title images category",
     });
 
     if (!orders || orders.length === 0) {
@@ -31,6 +35,34 @@ const getPurchasedProductsForReview = async (req, res) => {
       });
     }
 
+    const allItems = orders.flatMap((order) => order.items || []);
+    const variantObjectIds = [
+      ...new Set(
+        allItems
+          .map((item) => String(item.variantId || ""))
+          .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      ),
+    ];
+    const legacyVariants = variantObjectIds.length
+      ? await Variant.find({ _id: { $in: variantObjectIds } })
+          .select("color age attributes options sku images")
+          .lean()
+      : [];
+    const legacyVariantById = new Map(
+      legacyVariants.map((variant) => [String(variant._id), variant])
+    );
+
+    const readAttribute = (source, key) => {
+      if (!source) return undefined;
+      if (source instanceof Map) return source.get(key);
+      return source[key];
+    };
+
+    const withPopulatedProduct = (item) =>
+      item.productId && typeof item.productId === "object"
+        ? item.productId
+        : null;
+
     // Collect all variant-order combinations
     const purchasedItems = [];
 
@@ -38,9 +70,8 @@ const getPurchasedProductsForReview = async (req, res) => {
     // user's orders instead of a Review.findOne per line item (N+1).
     const productIds = [
       ...new Set(
-        orders
-          .flatMap((order) => order.items || [])
-          .map((item) => item.variantId?.productId?._id)
+        allItems
+          .map((item) => withPopulatedProduct(item)?._id)
           .filter(Boolean)
           .map((id) => String(id))
       ),
@@ -54,20 +85,49 @@ const getPurchasedProductsForReview = async (req, res) => {
 
     for (const order of orders) {
       for (const item of order.items) {
+        const product = withPopulatedProduct(item);
+        const variant = legacyVariantById.get(String(item.variantId || ""));
+        const variantAttributes = item.variantAttributes || {};
+        const variantSource = variant?.attributes || variant?.options;
+        const size =
+          readAttribute(variantSource, "size") ??
+          readAttribute(variantSource, "Size") ??
+          readAttribute(variantAttributes, "size") ??
+          readAttribute(variantAttributes, "Size") ??
+          null;
+        const color =
+          readAttribute(variantSource, "color") ??
+          readAttribute(variantSource, "Color") ??
+          readAttribute(variantAttributes, "color") ??
+          readAttribute(variantAttributes, "Color") ??
+          variant?.color ??
+          null;
+        const age =
+          readAttribute(variantSource, "age") ??
+          readAttribute(variantAttributes, "age") ??
+          variant?.age ??
+          null;
+
         // Check if already reviewed (One review per product rule)
-        const productId = item.variantId.productId._id;
-        const existingReview = reviewByProduct.get(String(productId)) || null;
+        const productId = product?._id || item.productId || null;
+        const existingReview = productId
+          ? reviewByProduct.get(String(productId)) || null
+          : null;
 
         purchasedItems.push({
           orderId: order._id,
           orderDate: order.placedAt,
-          variantId: item.variantId._id,
-          productId: item.variantId.productId._id,
-          productName: item.variantId.productId.name,
-          productImage: item.variantId.productId.images?.[0] || null,
+          variantId: item.variantId || null,
+          productId,
+          productName: product?.name || product?.title || item.name || "Product",
+          productImage:
+            product?.images?.[0] || item.image || item.variantImage || null,
           variantDetails: {
-            size: item.variantId.size,
-            color: item.variantId.color,
+            size,
+            color,
+            age,
+            name: item.variantName || null,
+            sku: item.variantSku || variant?.sku || null,
             price: item.price,
           },
           quantity: item.quantity,
@@ -88,6 +148,216 @@ const getPurchasedProductsForReview = async (req, res) => {
       success: false,
       message: "Internal Server Error",
           });
+  }
+};
+
+/**
+ * Resolve a guest order from the signed review link. The token is the guest's
+ * proof of access, so the email address never needs to appear in the URL.
+ */
+const getGuestReviewOrder = async (req, res) => {
+  try {
+    const token = String(req.query.token || "");
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Review token is required" });
+    }
+
+    let payload;
+    try {
+      payload = verifyGuestReviewToken(token);
+    } catch {
+      return res.status(401).json({ success: false, message: "This review link is invalid or has expired" });
+    }
+
+    const order = await Order.findOne({ _id: payload.orderId, isGuestOrder: true }).lean();
+    const orderEmail = String(order?.guestInfo?.email || "").trim().toLowerCase();
+    if (!order || orderEmail !== String(payload.email).toLowerCase()) {
+      return res.status(401).json({ success: false, message: "This review link is invalid or has expired" });
+    }
+
+    if (!["shipped", "delivered"].includes(order.orderStatus)) {
+      return res.status(403).json({ success: false, message: "Reviews are available after the order is shipped" });
+    }
+
+    const reviewableItems = (order.items || []).filter((item) => !item.isGift);
+    const existingReviews = await Review.find({ orderId: order._id })
+      .select("productId variantId rating title review status isApproved")
+      .lean();
+    const reviewByProductVariant = new Map(
+      existingReviews.map((review) => [
+        `${String(review.productId)}:${String(review.variantId || "")}`,
+        review,
+      ]),
+    );
+
+    return res.status(200).json({
+      success: true,
+      order: {
+        orderId: order.orderId,
+        orderDbId: String(order._id),
+        orderStatus: order.orderStatus,
+        guestName: order.guestInfo?.name || order.shippingAddress?.fullName || "Customer",
+        items: reviewableItems.map((item) => {
+          const productId = item.productId ? String(item.productId) : "";
+          const variantId = item.variantId ? String(item.variantId) : null;
+          return {
+            productId,
+            variantId,
+            name: item.name || item.productName || "Product",
+            variantName: item.variantName || null,
+            image: item.image || item.variantImage || null,
+            quantity: item.quantity,
+            isReviewed: reviewByProductVariant.has(`${productId}:${String(variantId || "")}`),
+            review: reviewByProductVariant.get(`${productId}:${String(variantId || "")}`) || null,
+          };
+        }),
+      },
+    });
+  } catch (err) {
+    logger.error("❌ Error resolving guest review link:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+/**
+ * Add review for guest users using order details
+ */
+const addGuestReview = async (req, res) => {
+  try {
+    const {
+      productId,
+      variantId,
+      orderId,
+      rating,
+      review,
+      title,
+      guestName,
+      guestEmail,
+      reviewToken,
+    } = req.body;
+
+    let tokenPayload = null;
+    if (reviewToken) {
+      try {
+        tokenPayload = verifyGuestReviewToken(String(reviewToken));
+      } catch {
+        return res.status(401).json({ success: false, message: "This review link is invalid or has expired" });
+      }
+    }
+
+    const resolvedOrderId = tokenPayload?.orderId || orderId;
+    const resolvedGuestEmail = tokenPayload?.email || guestEmail;
+
+    if (!productId || !resolvedOrderId || !rating || !title) {
+      return res.status(400).json({
+        success: false,
+        message: "productId, orderId, rating, and title are required",
+      });
+    }
+
+    if (!resolvedGuestEmail || (!guestName && !tokenPayload)) {
+      return res.status(400).json({
+        success: false,
+        message: "guestName and guestEmail are required",
+      });
+    }
+
+    if (rating < 1 || rating > 5) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Rating must be between 1 and 5" });
+    }
+
+    const Order = require("../../models/Order");
+    const order = await Order.findById(resolvedOrderId);
+    if (!order) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Order not found or unauthorized" });
+    }
+
+    if (order.userId) {
+      return res.status(403).json({
+        success: false,
+        message: "This order belongs to a registered user. Please log in to review.",
+      });
+    }
+
+    if (!["shipped", "delivered"].includes(order.orderStatus)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only review shipped or delivered products",
+      });
+    }
+
+    const orderEmail =
+      order.guestInfo?.email ||
+      order.guestEmail ||
+      order.email ||
+      order.customerEmail ||
+      order.userEmail;
+    if (
+      orderEmail &&
+      orderEmail.toLowerCase() !== resolvedGuestEmail.toLowerCase()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Email does not match the email used for this order",
+      });
+    }
+
+    const itemInOrder = order.items.find((item) => {
+      const pIdMatch = item.productId?.toString() === productId;
+      const vIdMatch = variantId ? item.variantId?.toString() === variantId : true;
+      return pIdMatch && vIdMatch;
+    });
+
+    if (!itemInOrder) {
+      return res.status(403).json({
+        success: false,
+        message: "This product/variant is not part of your order",
+      });
+    }
+
+    const existingReview = await Review.findOne({
+      orderId: resolvedOrderId,
+      productId,
+    });
+    if (existingReview) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already reviewed this product for this order",
+      });
+    }
+
+    const newReview = await Review.create({
+      userId: null,
+      productId,
+      variantId: variantId || null,
+      orderId,
+      title,
+      rating,
+      review: review || "",
+      status: "pending",
+      isApproved: false,
+      isGuest: true,
+      guestName: guestName || tokenPayload?.name || order.guestInfo?.name || "Customer",
+      guestEmail: resolvedGuestEmail.toLowerCase(),
+    });
+
+    await updateRatings(productId, variantId);
+
+    res.status(201).json({
+      success: true,
+      message: "Review submitted successfully. It will be visible after approval.",
+      review: newReview,
+    });
+  } catch (err) {
+    logger.error("❌ Error adding guest review:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
   }
 };
 
@@ -554,11 +824,13 @@ const getTopReviews = async (req, res) => {
 
 module.exports = {
   getPurchasedProductsForReview,
+  getGuestReviewOrder,
   addReview,
+  addGuestReview,
   getMyReviews,
   updateMyReview,
   deleteMyReview,
-  getVariantReviews,
   getProductReviews,
+  getVariantReviews,
   getTopReviews,
 };

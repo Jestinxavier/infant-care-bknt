@@ -890,6 +890,21 @@ const addItem = async (req, res) => {
             "The selected gift is not valid for this bundle. Please choose another.",
         });
       }
+
+      const giftProduct = await Product.findOne({
+        sku: item.selectedGiftSku,
+        product_type: "SIMPLE",
+        status: "published",
+      }).select("stock stockObj");
+      const giftStock = giftProduct?.stockObj?.available ?? giftProduct?.stock ?? 0;
+      if (!giftProduct || giftStock < (item.quantity || 1)) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "GIFT_OUT_OF_STOCK",
+          message: "The selected free gift is no longer available.",
+          available: giftStock,
+        });
+      }
     }
 
     // Create cart if it doesn't exist

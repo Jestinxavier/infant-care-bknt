@@ -2,7 +2,9 @@ const express = require("express");
 const router = express.Router();
 const {
   getPurchasedProductsForReview,
+  getGuestReviewOrder,
   addReview,
+  addGuestReview,
   getMyReviews,
   updateMyReview,
   deleteMyReview,
@@ -113,6 +115,9 @@ const verifyToken = require("../middlewares/authMiddleware");
  */
 router.get("/my-purchases", verifyToken, getPurchasedProductsForReview);
 
+// Guest review links carry a signed, expiring token instead of an email address.
+router.get("/guest-order", getGuestReviewOrder);
+
 /**
  * @swagger
  * /api/v1/review/add:
@@ -171,6 +176,7 @@ router.get("/my-purchases", verifyToken, getPurchasedProductsForReview);
  *         description: Unauthorized
  */
 router.post("/add", verifyToken, addReview);
+router.post("/guest/add", addGuestReview);
 
 /**
  * @swagger

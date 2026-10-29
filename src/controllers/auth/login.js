@@ -40,7 +40,12 @@ const login = async (req, res) => {
       user,
     });
   } catch (err) {
-    logger.error("❌ Login error:", err.message);
+    logger.error("❌ Login error:", {
+      error: err.message,
+      name: err.name,
+      code: err.code,
+      stack: err.stack,
+    });
     const status = err.message === "Invalid credentials" ? 401 : 400;
     res.status(status).json({
       success: false,

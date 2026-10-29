@@ -25,6 +25,7 @@ const escapeRegex = require("../../utils/escapeRegex");
 async function buildOrderFilter(requestData, reqUser) {
   const {
     status,
+    excludeStatuses,
     paymentStatus,
     paymentMethod,
     customerType, // "guest" | "registered"
@@ -82,6 +83,33 @@ async function buildOrderFilter(requestData, reqUser) {
 
   if (status) {
     filter.orderStatus = status;
+  }
+
+  // Optional exclusion list (e.g. hide cancelled/returned from COD collection
+  // lists). Kept separate from `status` so a specific status filter still wins.
+  const excludedStatuses = Array.isArray(excludeStatuses)
+    ? excludeStatuses
+    : typeof excludeStatuses === "string"
+      ? excludeStatuses.split(",")
+      : [];
+  const validStatuses = new Set([
+    "pending",
+    "confirmed",
+    "processing",
+    "shipped",
+    "delivered",
+    "returned",
+    "cancelled",
+  ]);
+  const normalizedExcludedStatuses = excludedStatuses
+    .map((value) => String(value).trim())
+    .filter((value) => validStatuses.has(value));
+
+  if (normalizedExcludedStatuses.length > 0) {
+    filter.$and = [
+      ...(filter.$and || []),
+      { orderStatus: { $nin: normalizedExcludedStatuses } },
+    ];
   }
 
   if (paymentStatus) {
@@ -576,6 +604,7 @@ const updateOrderStatus = async (req, res) => {
           !!partnerValue &&
           (typeof partnerValue !== "object" ||
             Array.isArray(partnerValue) ||
+            partnerValue instanceof mongoose.Types.ObjectId ||
             !!partnerValue.name);
 
         if (!partnerIsValid || !tracking) {
@@ -588,15 +617,6 @@ const updateOrderStatus = async (req, res) => {
       }
 
       updateFields.orderStatus = status;
-
-      // COD: Auto-complete payment when status switches to delivered
-      if (
-        status === "delivered" &&
-        currentOrder.paymentMethod === PAYMENT_METHODS.COD &&
-        currentOrder.paymentStatus === "pending"
-      ) {
-        updateFields.paymentStatus = "paid";
-      }
 
       // Returned: money goes back to the customer. Gateway refund is handled
       // manually outside the admin flow, so here we just record the refund.
@@ -821,7 +841,7 @@ const updateOrderStatus = async (req, res) => {
 
     // Any status or payment-status change affects dashboards/reports. Flush
     // when the order status changed, or when this update flipped payment status
-    // (e.g. COD delivered → paid, paid → refunded on a return).
+    // (e.g. COD marked paid, paid → refunded on a return).
     const statusChanged =
       status !== undefined && currentOrder.orderStatus !== status;
     const paymentStatusChanged =
@@ -854,6 +874,23 @@ const updateOrderStatus = async (req, res) => {
         .sendShipmentEmail(emailRecipient, order)
         .catch((err) =>
           logger.error("Shipment email failed", {
+            orderId: order._id,
+            error: err.message,
+          }),
+        );
+    }
+
+    // Ask for a review once the customer has received the order. This runs
+    // only on the transition to delivered, so repeated updates do not resend it.
+    if (
+      status === "delivered" &&
+      currentOrder.orderStatus !== "delivered" &&
+      emailRecipient?.email
+    ) {
+      emailService
+        .sendReviewRequestEmail(order)
+        .catch((err) =>
+          logger.error("Review request email failed", {
             orderId: order._id,
             error: err.message,
           }),
@@ -1013,7 +1050,7 @@ const markOrderAsPaid = async (req, res) => {
         .json({ success: false, message: "Order not found" });
     }
 
-    // Guard: only allow for PhonePe/Razorpay + pending payment
+    // Guard: only allow for PhonePe/Razorpay + uncollected payment
     if (
       order.paymentMethod !== PAYMENT_METHODS.PHONEPE &&
       order.paymentMethod !== PAYMENT_METHODS.RAZORPAY
@@ -1023,16 +1060,26 @@ const markOrderAsPaid = async (req, res) => {
         message: `This order uses ${order.paymentMethod}. Manual paid marking is only for online (PhonePe/Razorpay) orders.`,
       });
     }
-    if (order.paymentStatus === "paid") {
-      return res
-        .status(400)
-        .json({ success: false, message: "Order is already marked as paid." });
+    if (["cancelled", "returned"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot mark a ${order.orderStatus} order as paid.`,
+      });
+    }
+    if (!["pending", "failed"].includes(order.paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Order payment is already ${order.paymentStatus}.`,
+      });
     }
 
-    // Build status history entry
+    // Only an unpaid pending order needs its status confirmed. Orders that
+    // already moved into processing/shipped/delivered must keep their status.
+    const nextOrderStatus =
+      order.orderStatus === "pending" ? "confirmed" : order.orderStatus;
     const history = order.statusHistory || [];
     history.push({
-      status: "confirmed",
+      status: nextOrderStatus,
       timestamp: new Date(),
       note: `Manually marked as paid by admin. Transaction ID: ${phonepeTransactionId.trim()}`,
       updatedBy: req.user?._id,
@@ -1043,7 +1090,9 @@ const markOrderAsPaid = async (req, res) => {
       {
         $set: {
           paymentStatus: "paid",
-          orderStatus: "confirmed",
+          ...(nextOrderStatus !== order.orderStatus
+            ? { orderStatus: nextOrderStatus }
+            : {}),
           phonepeTransactionId: phonepeTransactionId.trim(),
           statusHistory: history,
         },
@@ -1062,7 +1111,9 @@ const markOrderAsPaid = async (req, res) => {
     res.status(200).json({
       success: true,
       message:
-        "Order marked as paid and confirmed. Invoice email will be sent.",
+        nextOrderStatus === "confirmed"
+          ? "Order marked as paid and confirmed. Invoice email will be sent."
+          : "Order marked as paid. Invoice email will be sent.",
       order: { ...updated, _id: updated._id?.toString() },
     });
 
@@ -1116,17 +1167,30 @@ const markCodOrderAsPaid = async (req, res) => {
         .json({ success: false, message: "Order not found" });
     }
 
-    // Guard: only allow for COD + pending payment
+    // Guard: only allow for COD + an uncollected payment
     if (order.paymentMethod !== PAYMENT_METHODS.COD) {
       return res.status(400).json({
         success: false,
         message: `This order uses ${order.paymentMethod}. COD marking is only for Cash on Delivery orders.`,
       });
     }
-    if (order.paymentStatus === "paid") {
-      return res
-        .status(400)
-        .json({ success: false, message: "Order is already marked as paid." });
+    if (["cancelled", "returned"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot mark a ${order.orderStatus} order as paid.`,
+      });
+    }
+    if (order.orderStatus !== "delivered") {
+      return res.status(400).json({
+        success: false,
+        message: "A COD order must be delivered before it can be marked as paid.",
+      });
+    }
+    if (!["pending", "failed"].includes(order.paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Order payment is already ${order.paymentStatus}.`,
+      });
     }
 
     // Build status history entry
@@ -1166,17 +1230,16 @@ const markCodOrderAsPaid = async (req, res) => {
     // Revenue changed — flush all report caches
     invalidateOrderReportCaches("COD marked as paid");
 
-    // Send invoice email asynchronously (don't block the response)
-    if (updated.userId?.email) {
-      emailService
-        .sendInvoiceEmail(updated.userId, updated)
-        .catch((err) =>
-          logger.error(
-            "❌ Invoice email failed after COD mark-paid:",
-            err.message,
-          ),
-        );
-    }
+    // Send invoice email asynchronously (don't block the response).
+    // `sendInvoiceEmail` resolves guest recipients from the order too.
+    emailService
+      .sendInvoiceEmail(updated.userId, updated)
+      .catch((err) =>
+        logger.error(
+          "❌ Invoice email failed after COD mark-paid:",
+          err.message,
+        ),
+      );
   } catch (err) {
     logger.error("❌ Admin Error marking COD order as paid:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -1357,14 +1420,23 @@ const exportOrders = async (req, res) => {
     }
 
     if (Array.isArray(orderIds) && orderIds.length > 0) {
-      const ids = orderIds
-        .map((id) =>
-          mongoose.Types.ObjectId.isValid(id)
-            ? new mongoose.Types.ObjectId(id)
-            : null,
-        )
+      // The dashboard selects rows by the human-facing `orderId`, but older
+      // clients may still send Mongo `_id`s. Support both rather than silently
+      // exporting every filtered order when custom IDs are present.
+      const rawIds = orderIds
+        .map((id) => String(id ?? "").trim())
         .filter(Boolean);
-      if (ids.length > 0) filter._id = { $in: ids };
+      const objectIds = rawIds
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+
+      const idClauses = [];
+      if (rawIds.length > 0) idClauses.push({ orderId: { $in: rawIds } });
+      if (objectIds.length > 0) idClauses.push({ _id: { $in: objectIds } });
+
+      if (idClauses.length > 0) {
+        filter.$and = [...(filter.$and || []), { $or: idClauses }];
+      }
     }
 
     const orders = await Order.find(filter)

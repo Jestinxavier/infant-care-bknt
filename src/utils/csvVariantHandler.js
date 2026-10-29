@@ -191,10 +191,10 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
       // Check if variant exists
       if (existingIndex >= 0) {
         if (updateExisting) {
-          product.variants[existingIndex] = {
-            ...product.variants[existingIndex],
-            ...variantData,
-          };
+          // Update in place; spreading a Mongoose subdocument drops fields that
+          // are not enumerable (notably the required embedded `id`).
+          const existingVariant = product.variants[existingIndex];
+          existingVariant.set({ ...variantData, id: existingVariant.id });
           results.updated++;
         } else {
           results.skipped++;

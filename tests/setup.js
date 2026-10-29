@@ -26,8 +26,27 @@ jest.mock("../src/services/emailService", () => ({
   sendPasswordResetEmail: jest.fn().mockResolvedValue({ success: true }),
   sendAdminCredentialsEmail: jest.fn().mockResolvedValue({ success: true }),
   sendShipmentEmail: jest.fn().mockResolvedValue({ success: true }),
+  sendOrderCancelledEmail: jest.fn().mockResolvedValue({ success: true }),
+  sendInvoiceEmail: jest.fn().mockResolvedValue({ success: true }),
   sendRefundInitiatedEmail: jest.fn().mockResolvedValue({ success: true }),
+  sendGuestOrderConfirmationEmail: jest.fn().mockResolvedValue({ success: true }),
   sendOrderConfirmationEmail: jest.fn().mockResolvedValue({ success: true }),
+  getOrderRecipient: jest.fn((order) => {
+    if (order.userId?.email) {
+      return {
+        email: order.userId.email,
+        username: order.userId.username || order.userId.email,
+      };
+    }
+    if (order.guestInfo?.email) {
+      return {
+        email: order.guestInfo.email,
+        username: order.guestInfo.name || "Customer",
+      };
+    }
+    return null;
+  }),
+  sendTemplateEmail: jest.fn().mockResolvedValue({ success: true }),
 }));
 
 // Mock cloudinary

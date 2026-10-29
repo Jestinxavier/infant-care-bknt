@@ -297,18 +297,21 @@ const updateAdminUser = async (req, res) => {
     });
 
     const update = {};
-    let action = null;
-    let details = null;
+    const auditEntries = [];
 
     if (role !== undefined && String(role) !== String(target.role)) {
       update.role = role;
-      action = "update_role";
-      details = { from: target.role, to: role };
+      auditEntries.push({
+        action: "update_role",
+        details: { from: target.role, to: role },
+      });
     }
     if (active !== undefined && target.active !== active) {
       update.active = active;
-      action = active ? "activate" : "suspend";
-      details = { ...(details || {}), from: target.active, to: active };
+      auditEntries.push({
+        action: active ? "activate" : "suspend",
+        details: { from: target.active, to: active },
+      });
     }
 
     const updated = await User.findByIdAndUpdate(
@@ -321,12 +324,12 @@ const updateAdminUser = async (req, res) => {
     // effect on the next request instead of waiting out the middleware TTL.
     await cacheDel(`admin:identity:${id}`);
 
-    if (action) {
+    for (const entry of auditEntries) {
       await writeAudit({
         actor: req.user,
-        action,
+        action: entry.action,
         target: updated,
-        details,
+        details: entry.details,
       });
     }
 

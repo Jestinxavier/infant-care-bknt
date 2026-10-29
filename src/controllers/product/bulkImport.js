@@ -57,6 +57,7 @@ const isNonEmptyArray = (v) => Array.isArray(v) && v.length > 0;
 const isNonEmptyObject = (v) =>
   !!v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length > 0;
 
+
 const normalizeImportFieldKey = (key) =>
   String(key || "")
     .trim()
@@ -1774,6 +1775,7 @@ class BulkImportController {
             productType = hasVariants ? "CONFIGURABLE" : "SIMPLE";
           }
         }
+
 
         const parsedCollections = await validateCollectionsAndBadge({
           collections: productData.collections,

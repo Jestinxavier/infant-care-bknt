@@ -94,6 +94,15 @@ const getPriceAndStock = async (req, res) => {
         finalStock = minAvailableQty;
       }
 
+      // A bundle without components cannot be purchased, regardless of any
+      // stale parent-level stock value.
+      if (
+        product.product_type === "BUNDLE" &&
+        !(product.bundle_config?.items?.length > 0)
+      ) {
+        finalStock = 0;
+      }
+
       return res.status(200).json({
         success: true,
         url_key: product.url_key,

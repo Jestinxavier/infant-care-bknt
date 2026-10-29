@@ -65,6 +65,16 @@ const mongoClientOptions = {
   minPoolSize: 1,
 };
 
+mongoose.connection.on("error", (err) => {
+  logger.error("MongoDB connection error", { error: err.message, name: err.name });
+});
+mongoose.connection.on("disconnected", () => {
+  logger.warn("MongoDB disconnected");
+});
+mongoose.connection.on("reconnected", () => {
+  logger.info("MongoDB reconnected");
+});
+
 const getMongoUriCandidates = () => {
   return [process.env.MONGODB_URI].filter(Boolean);
 };

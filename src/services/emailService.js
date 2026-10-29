@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const SiteSetting = require("../models/SiteSetting");
 const { SITE_SETTING_KEYS } = require("../config/siteSettingRegistry");
+const { createGuestReviewToken } = require("../utils/guestReviewToken");
 
 /* =====================================================
    ✅ Template Engine (Variables + Conditionals + Loops)
@@ -531,6 +532,42 @@ const sendRefundInitiatedEmail = async (user, order, refundAmountPaise) => {
   });
 };
 
+/**
+ * Send a review request after delivery. Guest orders receive a signed,
+ * expiring link so they can review without creating an account.
+ */
+const sendReviewRequestEmail = async (order) => {
+  const recipient = await getOrderRecipient(order);
+  if (!recipient?.email || !order?._id) return;
+
+  const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+  let reviewUrl;
+  if (order.isGuestOrder || !order.userId) {
+    const token = createGuestReviewToken(order);
+    if (!token) return;
+    reviewUrl = `${frontendUrl}/orders/track?reviewToken=${encodeURIComponent(token)}`;
+  } else {
+    reviewUrl = `${frontendUrl}/account/orders/${encodeURIComponent(String(order._id))}`;
+  }
+
+  const items = (order.items || []).map((item) => ({
+    productName: item.name || item.productId?.name || item.productName || "Product",
+    quantity: item.quantity || 1,
+  }));
+
+  return sendTemplateEmail({
+    to: recipient.email,
+    subject: `How was your order #${String(order.orderId || "").toUpperCase()}?`,
+    template: "review-request",
+    data: {
+      username: recipient.username || "Customer",
+      orderId: String(order.orderId || "").toUpperCase(),
+      reviewUrl,
+      items,
+    },
+  });
+};
+
 /* =====================================================
    ✅ EXPORTS
 ===================================================== */
@@ -571,6 +608,7 @@ module.exports = {
   sendOrderCancelledEmail,
   sendInvoiceEmail,
   sendRefundInitiatedEmail,
+  sendReviewRequestEmail,
   sendGuestOrderConfirmationEmail,
   sendOrderConfirmationEmail,
   getOrderRecipient,

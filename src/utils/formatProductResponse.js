@@ -151,6 +151,7 @@ const formatProductResponse = (product) => {
     url_key: productObj.url_key,
     title: productObj.title || productObj.name,
     description: productObj.description,
+    shortDescription: productObj.shortDescription || "",
     product_type: productObj.product_type || "SIMPLE",
     // Include bundle config for BUNDLE products
     ...(productObj.product_type === "BUNDLE" && productObj.bundle_config

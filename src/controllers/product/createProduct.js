@@ -33,6 +33,7 @@ const {
   catalogViolationResponse,
 } = require("../../utils/attributeCatalogGuard");
 const bundleService = require("../../features/product/bundle.service");
+const { validateProductPricing } = require("../../utils/validateProductPricing");
 const logger = require("../../utils/logger");
 const { normalizeDesignId } = require("../../utils/designId");
 const { syncProductsByIds } = require("../../services/searchIndexService");
@@ -315,10 +316,45 @@ const createProduct = async (req, res) => {
       }
     }
 
+    if (product_type === "SIMPLE" || product_type === "BUNDLE") {
+      const pricingErrors = validateProductPricing({
+        productType: product_type,
+        price,
+        offerPrice,
+        offerStartAt,
+        offerEndAt,
+      });
+      if (pricingErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_PRODUCT_PRICING",
+          message: "Invalid product pricing",
+          errors: pricingErrors,
+        });
+      }
+    }
+
+    if (product_type === "CONFIGURABLE") {
+      const variantPricingErrors = validateProductPricing({
+        productType: product_type,
+        variants: variantsArray,
+      });
+      if (variantPricingErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_PRODUCT_PRICING",
+          message: "Invalid variant pricing",
+          errors: variantPricingErrors,
+        });
+      }
+    }
+
     // Validate bundle configuration for BUNDLE products
     if (product_type === "BUNDLE") {
       const bundleValidation =
-        await bundleService.validateBundleConfig(bundle_config);
+        await bundleService.validateBundleConfig(bundle_config, {
+          requirePublished: status === "published",
+        });
       if (!bundleValidation.valid) {
         return res.status(400).json({
           success: false,

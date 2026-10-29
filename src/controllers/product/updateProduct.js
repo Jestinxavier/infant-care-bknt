@@ -32,6 +32,7 @@ const {
   catalogViolationResponse,
 } = require("../../utils/attributeCatalogGuard");
 const bundleService = require("../../features/product/bundle.service");
+const { validateProductPricing } = require("../../utils/validateProductPricing");
 const logger = require("../../utils/logger");
 const { normalizeDesignId } = require("../../utils/designId");
 const { triggerRevalidation } = require("../../services/revalidateService");
@@ -170,16 +171,52 @@ const updateProduct = async (req, res) => {
     // Validate bundle configuration for BUNDLE products
     const effectiveProductType =
       product_type !== undefined ? product_type : product.product_type;
-    if (effectiveProductType === "BUNDLE" && bundle_config !== undefined) {
-      const bundleValidation = await bundleService.validateBundleConfig(
-        bundle_config
-      );
-      if (!bundleValidation.valid) {
+    if (effectiveProductType === "SIMPLE" || effectiveProductType === "BUNDLE") {
+      const pricingErrors = validateProductPricing({
+        productType: effectiveProductType,
+        price: price !== undefined ? price : product.price,
+        offerPrice: offerPrice !== undefined ? offerPrice : product.offerPrice,
+        offerStartAt:
+          offerStartAt !== undefined ? offerStartAt : product.offerStartAt,
+        offerEndAt: offerEndAt !== undefined ? offerEndAt : product.offerEndAt,
+      });
+      if (pricingErrors.length > 0) {
         return res.status(400).json({
           success: false,
-          errorCode: "INVALID_BUNDLE_CONFIG",
-          message: "Invalid bundle configuration",
-          errors: bundleValidation.errors,
+          errorCode: "INVALID_PRODUCT_PRICING",
+          message: "Invalid product pricing",
+          errors: pricingErrors,
+        });
+      }
+      if (bundle_config !== undefined) {
+        const bundleValidation = await bundleService.validateBundleConfig(
+          bundle_config,
+          {
+            requirePublished:
+              (status !== undefined ? status : product.status) === "published",
+          },
+        );
+        if (!bundleValidation.valid) {
+          return res.status(400).json({
+            success: false,
+            errorCode: "INVALID_BUNDLE_CONFIG",
+            message: "Invalid bundle configuration",
+            errors: bundleValidation.errors,
+          });
+        }
+      }
+    }
+    if (effectiveProductType === "CONFIGURABLE" && variantsArray !== undefined) {
+      const variantPricingErrors = validateProductPricing({
+        productType: effectiveProductType,
+        variants: variantsArray,
+      });
+      if (variantPricingErrors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          errorCode: "INVALID_PRODUCT_PRICING",
+          message: "Invalid variant pricing",
+          errors: variantPricingErrors,
         });
       }
     }

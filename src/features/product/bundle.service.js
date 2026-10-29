@@ -32,7 +32,7 @@ const PRODUCT_TYPES = {
  * @param {Object} bundle_config - Bundle configuration with items array
  * @returns {Object} { isInStock: boolean, availableQty: number }
  */
-const getBundleAvailability = async (bundle_config) => {
+const getBundleAvailability = async (bundle_config, options = {}) => {
   if (
     !bundle_config ||
     !bundle_config.items ||
@@ -51,6 +51,7 @@ const getBundleAvailability = async (bundle_config) => {
   const simpleProducts = await Product.find({
     sku: { $in: childSkus },
     product_type: PRODUCT_TYPES.SIMPLE,
+    ...(options.requirePublished ? { status: "published" } : {}),
   }).select("sku stock stockObj");
 
   for (const p of simpleProducts) {
@@ -62,6 +63,7 @@ const getBundleAvailability = async (bundle_config) => {
   if (variantSkus.length > 0) {
     const configurableProducts = await Product.find({
       "variants.sku": { $in: variantSkus },
+      ...(options.requirePublished ? { status: "published" } : {}),
     }).select("variants.sku variants.stockObj variants.stock");
 
     for (const p of configurableProducts) {
@@ -97,7 +99,7 @@ const getBundleAvailability = async (bundle_config) => {
  * @param {Object} bundle_config - Bundle configuration to validate
  * @returns {Object} { valid: boolean, errors: string[] }
  */
-const validateBundleConfig = async (bundle_config) => {
+const validateBundleConfig = async (bundle_config, options = {}) => {
   const errors = [];
 
   if (!bundle_config) {
@@ -121,8 +123,10 @@ const validateBundleConfig = async (bundle_config) => {
       skus.push(item.sku);
     }
 
-    if (!item.qty || typeof item.qty !== "number" || item.qty < 1) {
+    if (typeof item.qty !== "number" || item.qty < 1) {
       errors.push(`Item ${i + 1}: qty must be a positive number`);
+    } else if (!Number.isInteger(item.qty)) {
+      errors.push(`Item ${i + 1}: qty must be a positive whole number`);
     }
   }
 
@@ -130,22 +134,41 @@ const validateBundleConfig = async (bundle_config) => {
     return { valid: false, errors };
   }
 
+  const duplicateSkus = skus.filter(
+    (sku, index) => skus.indexOf(sku) !== index,
+  );
+  if (duplicateSkus.length > 0) {
+    errors.push(
+      `Duplicate bundle SKU${duplicateSkus.length > 1 ? "s" : ""}: ${[
+        ...new Set(duplicateSkus),
+      ].join(", ")}`,
+    );
+    return { valid: false, errors };
+  }
+
+  const requirePublished = options.requirePublished === true;
+
   // Verify child SKUs: must be SIMPLE (root sku) or CONFIGURABLE variant
   const simpleProducts = await Product.find({
     sku: { $in: skus },
     product_type: PRODUCT_TYPES.SIMPLE,
-  }).select("sku product_type");
+    ...(requirePublished ? { status: "published" } : {}),
+  }).select("sku product_type stock stockObj");
 
   const foundSkus = new Map(); // sku -> "SIMPLE" | "CONFIGURABLE"
+  const unavailableSkus = new Set();
   for (const p of simpleProducts) {
     foundSkus.set(p.sku, p.product_type);
+    const available = Number(p.stockObj?.available ?? p.stock ?? 0);
+    if (available <= 0) unavailableSkus.add(p.sku);
   }
 
   const unfoundSkus = skus.filter((s) => !foundSkus.has(s));
   if (unfoundSkus.length > 0) {
     const variantProducts = await Product.find({
       "variants.sku": { $in: unfoundSkus },
-    }).select("product_type variants.sku");
+      ...(requirePublished ? { status: "published" } : {}),
+    }).select("product_type variants");
 
     for (const p of variantProducts) {
       for (const v of p.variants || []) {
@@ -154,6 +177,10 @@ const validateBundleConfig = async (bundle_config) => {
           p.product_type === PRODUCT_TYPES.CONFIGURABLE
         ) {
           foundSkus.set(v.sku, "CONFIGURABLE");
+          const available = Number(
+            v.stockObj?.available ?? v.stock ?? 0,
+          );
+          if (available <= 0) unavailableSkus.add(v.sku);
         }
       }
     }
@@ -163,7 +190,40 @@ const validateBundleConfig = async (bundle_config) => {
     if (!foundSkus.has(sku)) {
       errors.push(`SKU "${sku}" not found`);
     }
-    // Both SIMPLE and CONFIGURABLE (variant) are valid - no type restriction
+    if (unavailableSkus.has(sku)) {
+      errors.push(`SKU "${sku}" cannot be added because it is out of stock`);
+    }
+    // Both SIMPLE and CONFIGURABLE (variant) are valid bundle components.
+  }
+
+  const giftSlot = bundle_config.gift_slot;
+  if (giftSlot?.enabled) {
+    const giftOptions = Array.isArray(giftSlot.options) ? giftSlot.options : [];
+    if (giftOptions.length < 2) {
+      errors.push("Enabled gift slot must contain at least 2 options");
+    } else {
+      const giftSkus = giftOptions.map((option) => option?.sku).filter(Boolean);
+      if (giftSkus.length !== new Set(giftSkus).size) {
+        errors.push("Gift slot options must use unique SKUs");
+      }
+
+      const gifts = await Product.find({
+        sku: { $in: giftSkus },
+        product_type: PRODUCT_TYPES.SIMPLE,
+        ...(requirePublished ? { status: "published" } : {}),
+      }).select("sku stock stockObj");
+      const giftMap = new Map(gifts.map((gift) => [
+        gift.sku,
+        Number(gift.stockObj?.available ?? gift.stock ?? 0),
+      ]));
+      for (const sku of giftSkus) {
+        if (!giftMap.has(sku)) {
+          errors.push(`Gift SKU "${sku}" not found as a SIMPLE product`);
+        } else if (giftMap.get(sku) <= 0) {
+          errors.push(`Gift SKU "${sku}" cannot be used because it is out of stock`);
+        }
+      }
+    }
   }
 
   return {

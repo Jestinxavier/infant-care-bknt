@@ -5,7 +5,8 @@ const reviewSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null,
     },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -30,6 +31,9 @@ const reviewSchema = new mongoose.Schema(
       default: "pending",
     },
     isApproved: { type: Boolean, default: false },
+    isGuest: { type: Boolean, default: false },
+    guestName: { type: String, trim: true },
+    guestEmail: { type: String, trim: true, lowercase: true },
   },
   { timestamps: true },
 );
@@ -41,6 +45,14 @@ reviewSchema.index({ status: 1 });
 reviewSchema.index({ productId: 1, isApproved: 1, createdAt: -1 });
 reviewSchema.index({ variantId: 1, isApproved: 1, createdAt: -1 });
 // Prevents a user from submitting two reviews for the same product+order combination
-reviewSchema.index({ userId: 1, productId: 1, orderId: 1 }, { unique: true });
+reviewSchema.index(
+  { userId: 1, productId: 1, orderId: 1 },
+  { unique: true, partialFilterExpression: { userId: { $type: "objectId" } } },
+);
+// Prevent guests from submitting multiple reviews for the same product+order
+reviewSchema.index(
+  { orderId: 1, productId: 1 },
+  { unique: true, partialFilterExpression: { isGuest: true } },
+);
 
 module.exports = mongoose.model("Review", reviewSchema);

@@ -91,7 +91,7 @@ const getAllReviews = async (req, res) => {
         updatedAt: 1,
         variantId: 1,
         userId: { _id: 1, username: 1, email: 1 },
-        productId: { _id: 1, name: 1, images: 1, slug: 1 },
+        productId: { _id: 1, name: 1, images: 1, slug: 1, sku: 1 },
         orderId: { _id: 1, orderId: 1, totalAmount: 1, placedAt: 1 },
       },
     });

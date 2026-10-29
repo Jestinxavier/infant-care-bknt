@@ -704,7 +704,13 @@ const initiateRefund = async (req, res) => {
     }
 
     // ── 2. Order lookup ──────────────────────────────────────────────────────
-    const order = await Order.findOne({ orderId }).lean();
+    // Detail pages link by Mongo `_id`, while older callers use the custom
+    // human-facing `orderId`. Accept both so refunds work from either route.
+    const rawOrderId = String(orderId).trim();
+    const orderQuery = /^[a-f\d]{24}$/i.test(rawOrderId)
+      ? { $or: [{ _id: rawOrderId }, { orderId: rawOrderId }] }
+      : { orderId: rawOrderId };
+    const order = await Order.findOne(orderQuery).lean();
     if (!order) {
       logger.warn(`⚠️ [initiateRefund] Order not found in DB: ${orderId}`);
       return res
@@ -730,7 +736,11 @@ const initiateRefund = async (req, res) => {
         : orderAmountPaise;
 
       logger.info("[initiateRefund] Delegating refund to Razorpay SDK", { orderId, amountToRefund });
-      const razorpayRefundResult = await razorpaySDK.initiateRefund(orderId, amountToRefund, reason);
+      const razorpayRefundResult = await razorpaySDK.initiateRefund(
+        order.orderId || rawOrderId,
+        amountToRefund,
+        reason,
+      );
 
       let newOrderStatus = order.orderStatus;
       let pushToHistory = null;
@@ -773,9 +783,9 @@ const initiateRefund = async (req, res) => {
       }
 
       const updatedOrder = await Order.findOneAndUpdate(
-        { orderId },
+        { _id: order._id },
         updateQuery,
-        { new: true }
+        { new: true },
       );
 
       if (updatedOrder && stockShouldBeRestored) {
@@ -817,7 +827,7 @@ const initiateRefund = async (req, res) => {
       );
       return res.status(400).json({
         success: false,
-        message: "Refund is only supported for PhonePe payments",
+        message: "Refund is not supported for this payment method",
       });
     }
 
@@ -963,7 +973,7 @@ const initiateRefund = async (req, res) => {
     }
 
     const updatedOrder = await Order.findOneAndUpdate(
-      { orderId },
+      { _id: order._id },
       updateQuery,
       { new: true },
     );
