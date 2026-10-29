@@ -15,7 +15,7 @@
  * Usage:
  *   node scripts/migrate-cms-about.js                 (live — writes to DB)
  *   node scripts/migrate-cms-about.js --dry-run       (preview — no writes)
- *   node scripts/migrate-cms-about.js --slug our-story  (custom slug, default "about-us")
+ *   node scripts/migrate-cms-about.js --slug <slug>     (custom slug, default "our-story")
  *   node scripts/migrate-cms-about.js --force         (overwrite an existing page)
  *
  * Required env var (read from .env automatically): MONGODB_URI
@@ -31,7 +31,7 @@ const IS_DRY_RUN = process.argv.includes("--dry-run");
 const FORCE = process.argv.includes("--force");
 const SLUG = (() => {
   const idx = process.argv.indexOf("--slug");
-  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : "about-us";
+  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : "our-story";
 })();
 
 const stats = {

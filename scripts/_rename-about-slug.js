@@ -10,7 +10,7 @@ const CmsPage = require("../src/features/cms/pages/cmsPage.model");
 const run = async () => {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI not found");
-  await mongoose.connect(uri麵);
+  await mongoose.connect(uri);
   console.log("✅ Connected");
 
   const src = await CmsPage.findOne({ slug: "about-us" });
