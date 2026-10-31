@@ -25,7 +25,7 @@ const {
 } = require("../src/utils/attributeValuePolicy");
 const { rewriteProductReferences } = require("../src/utils/attributeValueRewrite");
 
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const ATTR_CODE = "material";
 
 // Each entry: canonical/target value → { label?, newValue?, mergeAway?: [] }

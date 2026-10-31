@@ -29,7 +29,7 @@ const {
   resolveCatalogValueForAttribute,
 } = require("../src/utils/attributeCatalogGuard");
 
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 
 // A. Short form → canonical value (Size only). Only applied when the canonical
 //    value exists in the catalogue; missing canonicals are reported and skipped.

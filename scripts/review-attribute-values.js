@@ -73,7 +73,10 @@ async function main() {
 
     const rows = [];
     for (const value of values) {
-      const res = validateAllowedValueEntry(value, { uiType: attribute.uiType });
+      const res = validateAllowedValueEntry(value, {
+        code: attribute.code,
+        uiType: attribute.uiType,
+      });
       const hardErrors = Object.values(res.errors);
       const flags = res.flags.length
         ? res.flags.map((f) => FLAG_LABELS[f] || f).join(", ")

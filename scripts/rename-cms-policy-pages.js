@@ -26,7 +26,7 @@ require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const CmsPage = require("../src/features/cms/pages/cmsPage.model");
 
-const IS_DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: IS_DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 
 const POLICY_NAMES = {
   "privacy-policy": "Privacy Policy",

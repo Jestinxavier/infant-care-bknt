@@ -2,8 +2,9 @@ require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const DeliveryPartner = require("../src/models/DeliveryPartner");
 const indianDeliveryPartners = require("./data/indianDeliveryPartners.json");
+const { parseMode } = require("./lib/cliMode");
 
-const seedDeliveryPartners = async () => {
+const seedDeliveryPartners = async ({ dryRun = false } = {}) => {
     try {
         const mongoUri = process.env.MONGODB_URI;
         if (!mongoUri) {
@@ -26,25 +27,28 @@ const seedDeliveryPartners = async () => {
 
             if (existingPartner) {
                 // Update existing partner to match JSON (useful for updating URLs)
-                existingPartner.trackingUrlTemplate = partnerData.trackingUrlTemplate;
-                existingPartner.requiresTrackingUrl = partnerData.requiresTrackingUrl;
-                existingPartner.isActive = partnerData.isActive;
-                await existingPartner.save();
+                if (!dryRun) {
+                    existingPartner.trackingUrlTemplate = partnerData.trackingUrlTemplate;
+                    existingPartner.requiresTrackingUrl = partnerData.requiresTrackingUrl;
+                    existingPartner.isActive = partnerData.isActive;
+                    await existingPartner.save();
+                }
 
-                console.log(`🔄 Updated "${partnerData.name}"`);
+                console.log(`${dryRun ? "○ Would update" : "🔄 Updated"} "${partnerData.name}"`);
                 updatedCount++;
             } else {
-                await DeliveryPartner.create(partnerData);
-                console.log(`✅ Created "${partnerData.name}"`);
+                if (!dryRun) await DeliveryPartner.create(partnerData);
+                console.log(`${dryRun ? "○ Would create" : "✅ Created"} "${partnerData.name}"`);
                 createdCount++;
             }
         }
 
         console.log("\n📊 Summary:");
-        console.log(`   ✅ Created: ${createdCount}`);
-        console.log(`   🔄 Updated: ${updatedCount}`);
+        console.log(`   ${dryRun ? "○ Would create" : "✅ Created"}: ${createdCount}`);
+        console.log(`   ${dryRun ? "○ Would update" : "🔄 Updated"}: ${updatedCount}`);
         console.log(`   skipped: ${skippedCount}`);
         console.log(`   📦 Total Processed: ${indianDeliveryPartners.length}`);
+        if (dryRun) console.log("   🔍 DRY RUN — no changes written.");
 
         // Display all partners
         const allPartners = await DeliveryPartner.find({});
@@ -66,7 +70,8 @@ const seedDeliveryPartners = async () => {
 };
 
 if (require.main === module) {
-    seedDeliveryPartners();
+    const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+    seedDeliveryPartners({ dryRun });
 }
 
 module.exports = { seedDeliveryPartners };

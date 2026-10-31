@@ -28,7 +28,7 @@ const {
 } = require("../src/config/meilisearch");
 const { reindexAllProducts } = require("../src/services/searchIndexService");
 
-const IS_DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: IS_DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 
 const log = (msg) => process.stdout.write(msg + "\n");
 

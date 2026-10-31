@@ -20,7 +20,7 @@ const DEFAULT_NOISE_PATTERNS = [
 ];
 
 const args = new Set(process.argv.slice(2));
-const live = args.has("--live");
+const { apply: live } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const allSub500 = args.has("--all-sub-500");
 
 const patterns = (

@@ -8,6 +8,13 @@ const bcrypt = require("bcryptjs");
 const User = require("../src/models/user");
 require("dotenv").config();
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 async function fixPassword(email, newPassword) {
   try {
     // Connect to MongoDB

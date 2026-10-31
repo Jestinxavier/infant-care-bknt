@@ -2,6 +2,13 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const SiteSetting = require("../src/models/SiteSetting");
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 const setActiveGateway = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);

@@ -18,6 +18,10 @@ const LABEL_MIN_LENGTH = 2;
 const LABEL_MAX_LENGTH = 80;
 const LABEL_REVIEW_LENGTH = 48;
 const VALUE_MAX_LENGTH = 80;
+const {
+  canonicalSizeLabel,
+  canonicalSizeValue,
+} = require("./attributeValueNormalizer");
 // Aliases that preserve a renamed value's old code (so old filter URLs still
 // resolve) can be as long as the value code itself, hence the same 80 cap.
 const SYNONYM_MAX_LENGTH = 80;
@@ -129,11 +133,19 @@ const validateAllowedValueEntry = (entry = {}, opts = {}) => {
   }
 
   const value = toValueToken(entry.value || toSlug(label));
-  if (!value) {
+  // Month-range sizes have exactly one identity/label pair, so a registry
+  // edit can never reintroduce "0-3m" or "0 - 3 Months".
+  const monthRange =
+    String(opts.code || "").toLowerCase() === "size"
+      ? canonicalSizeValue(entry.value) || (!entry.value ? canonicalSizeValue(label) : null)
+      : null;
+  const canonicalValue = monthRange || value;
+  const canonicalLabel = monthRange ? canonicalSizeLabel(monthRange) : label;
+  if (!canonicalValue) {
     errors.value = "Value could not be derived from the label";
-  } else if (value.length > VALUE_MAX_LENGTH) {
+  } else if (canonicalValue.length > VALUE_MAX_LENGTH) {
     errors.value = `Value cannot exceed ${VALUE_MAX_LENGTH} characters`;
-  } else if (!SLUG_PATTERN.test(value)) {
+  } else if (!SLUG_PATTERN.test(canonicalValue)) {
     errors.value = "Value must be a lowercase slug (letters, numbers, hyphens)";
   }
 
@@ -152,7 +164,7 @@ const validateAllowedValueEntry = (entry = {}, opts = {}) => {
   if (rawSynonyms.length > MERGE_SYNONYM_CAP) {
     synonymProblems.push(`At most ${MERGE_SYNONYM_CAP} aliases are allowed`);
   }
-  const seen = new Set([value]);
+  const seen = new Set([canonicalValue]);
   for (const raw of rawSynonyms) {
     const syn = toValueToken(raw);
     if (!syn) {
@@ -178,13 +190,13 @@ const validateAllowedValueEntry = (entry = {}, opts = {}) => {
   }
 
   const ok = Object.keys(errors).length === 0;
-  const flags = ok ? reviewFlagsFor(label, value) : [];
+  const flags = ok ? reviewFlagsFor(canonicalLabel, canonicalValue) : [];
 
   return {
     ok,
     errors,
-    label,
-    value,
+    label: canonicalLabel,
+    value: canonicalValue,
     hex: hexRaw || undefined,
     synonyms,
     needsReview: flags.length > 0,
@@ -216,6 +228,7 @@ const prepareAllowedValues = (list, opts = {}) => {
 
   list.forEach((entry, index) => {
     const res = validateAllowedValueEntry(entry, {
+      code: opts.code,
       uiType: opts.uiType,
       requireHex: opts.requireHex,
     });

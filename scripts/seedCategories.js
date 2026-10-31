@@ -1,6 +1,7 @@
 require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const Category = require("../src/models/Category");
+const { parseMode } = require("./lib/cliMode");
 
 const defaultCategories = [
   { name: "Rompers", displayOrder: 1 },
@@ -36,7 +37,7 @@ const defaultCategories = [
   { name: "Diapers / Diaper Covers", displayOrder: 31 },
 ];
 
-const seedCategories = async () => {
+const seedCategories = async ({ dryRun = false } = {}) => {
   try {
     const mongoUri = process.env.MONGODB_URI;
     if (!mongoUri) {
@@ -64,21 +65,26 @@ const seedCategories = async () => {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/(^-|-$)/g, "");
 
-        await Category.create({
-          name: categoryData.name,
-          code: code,
-          displayOrder: categoryData.displayOrder,
-          isActive: true
-        });
-        console.log(`✅ Created category: "${categoryData.name}"`);
+        if (dryRun) {
+          console.log(`○ Would create category: "${categoryData.name}" (code: ${code})`);
+        } else {
+          await Category.create({
+            name: categoryData.name,
+            code: code,
+            displayOrder: categoryData.displayOrder,
+            isActive: true
+          });
+          console.log(`✅ Created category: "${categoryData.name}"`);
+        }
         createdCount++;
       }
     }
 
     console.log("\n📊 Summary:");
-    console.log(`   ✅ Created: ${createdCount}`);
+    console.log(`   ${dryRun ? "○ Would create" : "✅ Created"}: ${createdCount}`);
     console.log(`   ⏭️  Skipped: ${skippedCount}`);
     console.log(`   📦 Total: ${defaultCategories.length}`);
+    if (dryRun) console.log("   🔍 DRY RUN — no changes written.");
 
     // Display all categories
     const allCategories = await Category.find({ isActive: true }).sort({ displayOrder: 1 });
@@ -98,7 +104,8 @@ const seedCategories = async () => {
 };
 
 if (require.main === module) {
-  seedCategories();
+  const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+  seedCategories({ dryRun });
 }
 
 module.exports = { seedCategories };

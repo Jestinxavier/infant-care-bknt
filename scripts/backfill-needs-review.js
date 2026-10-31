@@ -30,7 +30,7 @@ const { reviewFlagsFor } = require("../src/utils/attributeValuePolicy");
 
 const URI_FLAG = process.argv.indexOf("--uri");
 const ATTR_FLAG = process.argv.indexOf("--attribute");
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const MONGO_URI_OVERRIDE =
   URI_FLAG !== -1 && process.argv[URI_FLAG + 1]
     ? process.argv[URI_FLAG + 1]

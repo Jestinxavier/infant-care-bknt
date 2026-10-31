@@ -2,7 +2,7 @@
  * Quick script to generate url_key for all existing products that don't have one
  * This is a simpler version that only generates url_key without full migration
  *
- * Usage: node src/scripts/generateUrlKeysForExistingProducts.js
+ * Usage: node scripts/generateUrlKeysForExistingProducts.js [--dry-run|--apply]
  */
 
 const mongoose = require("mongoose");
@@ -10,8 +10,9 @@ require("dotenv").config();
 
 const Product = require("../src/models/Product");
 const { generateUniqueUrlKey } = require("../src/utils/slugGenerator");
+const { parseMode } = require("./lib/cliMode");
 
-const generateUrlKeys = async () => {
+const generateUrlKeys = async ({ dryRun = false } = {}) => {
   try {
     // Connect to MongoDB
     const mongoUri = process.env.MONGODB_URI;
@@ -56,11 +57,13 @@ const generateUrlKeys = async () => {
           checkUrlKeyExists
         );
 
-        product.url_key = urlKey;
-        await product.save();
+        if (!dryRun) {
+          product.url_key = urlKey;
+          await product.save();
+        }
 
         console.log(
-          `  ✓ Generated url_key for: ${
+          `  ${dryRun ? "○" : "✓"} ${dryRun ? "Would set" : "Generated"} url_key for: ${
             product.title || product.name
           } -> ${urlKey}`
         );
@@ -75,9 +78,9 @@ const generateUrlKeys = async () => {
     }
 
     console.log("\n📊 Summary:");
-    console.log(`  ✅ Generated: ${generated}`);
+    console.log(`  ${dryRun ? "○ Would generate" : "✅ Generated"}: ${generated}`);
     console.log(`  ❌ Errors: ${errors}`);
-    console.log("\n✅ URL key generation completed!");
+    console.log(`\n${dryRun ? "🔍 DRY RUN — no changes written." : "✅ URL key generation completed!"}`);
 
     // Close connection
     await mongoose.connection.close();
@@ -90,7 +93,8 @@ const generateUrlKeys = async () => {
 
 // Run script
 if (require.main === module) {
-  generateUrlKeys()
+  const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+  generateUrlKeys({ dryRun })
     .then(() => process.exit(0))
     .catch((err) => {
       console.error(err);

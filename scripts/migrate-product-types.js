@@ -15,7 +15,7 @@ const mongoose = require("mongoose");
 const Product = require("../src/features/product/product.model");
 const { PRODUCT_TYPES } = Product;
 
-const DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 
 const migrateProductTypes = async () => {
   try {

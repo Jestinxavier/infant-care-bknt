@@ -1,4 +1,5 @@
 // utils/formatCartResponse.js
+const { formatLabel } = require("./formatLabel");
 
 /**
  * Loose token normalizer for matching attribute values/labels.
@@ -23,31 +24,38 @@ function attributeTokenMatches(candidate, value) {
 
 /**
  * Resolve attribute values to labels using product's variantOptions.
- * e.g. { size: "M" } → { size: "Medium" }
+ * e.g. { color: "blue" } → { color: "Blue" }, { size: "0-3-months" } → { size: "0-3M" }
  * @param {Object|null} attrs - Normalized attributes { code: value }
  * @param {Array|null} variantOptions - Product's variantOptions array
  * @returns {Object|null} Attributes with label values
  */
 function resolveAttributeLabels(attrs, variantOptions) {
-  if (!attrs || !Array.isArray(variantOptions) || variantOptions.length === 0) {
-    return attrs;
-  }
+  if (!attrs) return attrs;
   const resolved = {};
   for (const [key, val] of Object.entries(attrs)) {
-    const option = variantOptions.find(
-      (o) =>
-        (o.code && o.code.toLowerCase() === key.toLowerCase()) ||
-        (o.name && o.name.toLowerCase() === key.toLowerCase())
-    );
-    if (option && Array.isArray(option.values)) {
-      const found = option.values.find(
-        (v) =>
-          attributeTokenMatches(v.value, val) ||
-          attributeTokenMatches(v.label, val)
+    const isSize = key.toLowerCase() === "size";
+    const option =
+      Array.isArray(variantOptions) &&
+      variantOptions.find(
+        (o) =>
+          (o.code && o.code.toLowerCase() === key.toLowerCase()) ||
+          (o.name && o.name.toLowerCase() === key.toLowerCase())
       );
-      resolved[key] = found?.label || val;
+    const found =
+      option && Array.isArray(option.values)
+        ? option.values.find(
+            (v) =>
+              attributeTokenMatches(v.value, val) ||
+              attributeTokenMatches(v.label, val)
+          )
+        : null;
+
+    if (isSize) {
+      // Size presentation is derived from the stored value, so an old
+      // product-level label cannot resurrect "0 - 3 Months".
+      resolved[key] = formatLabel(found?.value ?? val);
     } else {
-      resolved[key] = val;
+      resolved[key] = found?.label || val;
     }
   }
   return resolved;

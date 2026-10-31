@@ -23,7 +23,7 @@ const AttributeDefinition = require("../src/models/AttributeDefinition");
 const { normalizeCode, toTitleCase } = require("../src/utils/normalizeValue");
 
 // Configuration
-const DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 
 async function connectDB() {
   const mongoUri =

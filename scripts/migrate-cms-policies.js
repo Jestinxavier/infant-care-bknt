@@ -19,7 +19,7 @@ const Policy = require("../src/models/Policy");
 const CmsPage = require("../src/features/cms/pages/cmsPage.model");
 const { validateBlocks } = require("../src/features/cms/pages/pages.validation");
 
-const IS_DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: IS_DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 const FORCE = process.argv.includes("--force");
 
 function log(msg) {

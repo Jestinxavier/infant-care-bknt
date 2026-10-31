@@ -4,6 +4,13 @@ const SiteSetting = require("../src/models/SiteSetting");
 
 dotenv.config();
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 const addDeliveryCodCost = async () => {
   try {
     if (!process.env.MONGODB_URI) {

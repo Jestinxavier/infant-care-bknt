@@ -5,7 +5,7 @@ const CmsPage = require("../src/features/cms/pages/cmsPage.model");
 const run = async () => {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI not set");
-  await mongoose.connect(urionge);
+  await mongoose.connect(uri);
   const page = await CmsPage.findOne({ slug: "faqs" }).lean();
   if (!page) {
     console.log("❌ No CMS page with slug 'faqs'");

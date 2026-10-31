@@ -6,8 +6,10 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 const Product = require("../src/models/Product");
+const { parseMode } = require("./lib/cliMode");
 
 const crypto = require("crypto");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
 
 const generateShortCode = (value) => {
   if (!value || typeof value !== "string") return "UNK";
@@ -90,17 +92,18 @@ const syncCodes = async () => {
     });
 
     if (modified) {
-      await product.save();
+      if (!dryRun) await product.save();
       updatedCount++;
       console.log(
-        `✅ Updated: ${product.title} (${product.variantOptions.length} options)`
+        `${dryRun ? "○ Would update" : "✅ Updated"}: ${product.title} (${product.variantOptions.length} options)`
       );
     }
   }
 
   console.log(`\n📊 Summary:`);
-  console.log(`   Products updated: ${updatedCount}`);
-  console.log(`   Codes added: ${codesAdded}`);
+  console.log(`   Products ${dryRun ? "that would be updated" : "updated"}: ${updatedCount}`);
+  console.log(`   Codes ${dryRun ? "that would be added" : "added"}: ${codesAdded}`);
+  if (dryRun) console.log("\n🔍 DRY RUN — no changes written.");
 };
 
 // Run

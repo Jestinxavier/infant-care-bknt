@@ -5,7 +5,9 @@
 
 const fs = require("fs");
 const path = require("path");
+const { parseMode } = require("./lib/cliMode");
 
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
 const SRC = path.join(__dirname, "../src");
 const TARGETS = ["controllers", "routes", "services", "jobs", "features"];
 
@@ -86,10 +88,12 @@ for (const target of TARGETS) {
     }
 
     content = replaceConsoleCalls(content);
-    fs.writeFileSync(file, content, "utf8");
-    console.log(`✅ ${path.relative(SRC, file)}`);
+    if (!dryRun) fs.writeFileSync(file, content, "utf8");
+    console.log(`${dryRun ? "○ Would update" : "✅"} ${path.relative(SRC, file)}`);
     processed++;
   }
 }
 
-console.log(`\nDone: ${processed} files updated, ${skipped} skipped (no console usage).`);
+console.log(
+  `\n${dryRun ? "DRY RUN — " : ""}Done: ${processed} files ${dryRun ? "would be" : ""} updated, ${skipped} skipped (no console usage).`,
+);

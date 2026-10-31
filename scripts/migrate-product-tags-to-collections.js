@@ -3,6 +3,13 @@ const mongoose = require("mongoose");
 const Collection = require("../src/models/Collection");
 const { generateSlug } = require("../src/utils/slugGenerator");
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 const toNameFromSlug = (slug) =>
   String(slug || "")
     .split("-")

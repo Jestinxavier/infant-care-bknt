@@ -15,9 +15,9 @@
  *   3. SEED clean values when the definition has none, and FOLD near-duplicate
  *      slug variants (e.g. "0-6", "0-6m", "3-6-m") into their canonical token
  *      ("0-6-months") as SYNONYMS instead of separate rows.
- *   4. RELABEL auto-seeded values so numeric ranges keep their hyphen
- *      ("0-3-months" → "0-3 Months", never "0 3 Months"). Merchants' own
- *      custom labels are preserved.
+ *   4. RELABEL auto-seeded values so month ranges use the single storefront
+ *      format ("0-3-months" → "0-3M"). Merchants' own custom labels are
+ *      preserved for every other value.
  *   5. SYNC usageCount from actual product references so the delete guard
  *      stays meaningful.
  *
@@ -34,8 +34,12 @@ require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const Attribute = require("../src/models/AttributeDefinition");
 const Product = require("../src/models/Product");
+const {
+  canonicalSizeLabel,
+  canonicalSizeValue,
+} = require("../src/utils/attributeValueNormalizer");
 
-const IS_DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: IS_DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 const log = (msg) => process.stdout.write(msg + "\n");
 
 const DEFINITIONS = [
@@ -72,10 +76,13 @@ const isCleanToken = (value) => {
   return true;
 };
 
-// Display label. Numeric range slugs keep a spaced hyphen ("0-3-months" →
-// "0 - 3 Months"), word slugs use spaces ("free-size" → "Free Size").
-const humanizeLabel = (slug, dash = " - ") =>
-  String(slug)
+// Display label. Month ranges use the single storefront format ("0-3-months"
+// → "0-3M"); other slugs use title-case words ("free-size" → "Free Size").
+const humanizeLabel = (slug, dash = " ") => {
+  const monthLabel = canonicalSizeLabel(slug);
+  if (monthLabel) return monthLabel;
+
+  return String(slug)
     .split("-")
     .reduce((acc, part, i, arr) => {
       const prev = arr[i - 1];
@@ -83,6 +90,7 @@ const humanizeLabel = (slug, dash = " - ") =>
       const word = part.charAt(0).toUpperCase() + part.slice(1);
       return acc + (i === 0 ? "" : keepDash ? dash : " ") + word;
     }, "");
+};
 
 // Compact form WITHOUT spacing ("0-3 Months"). Only used to detect auto-seeded
 // labels that still carry the old compact hyphen so they can be re-labeled.
@@ -125,7 +133,9 @@ const withColorHex = (rows) =>
 function buildCleanValues(rawSlugs, code) {
   const fold = FOLD_TO_CANONICAL[code] || {};
   const canonical = new Map(); // canonical token -> Set of seen aliases
-  for (const raw of rawSlugs) {
+  for (const rawValue of rawSlugs) {
+    const raw =
+      code === "size" ? canonicalSizeValue(rawValue) || rawValue : rawValue;
     const token = fold[raw] || raw;
     if (!canonical.has(token)) canonical.set(token, new Set());
     if (fold[raw] && raw !== token) canonical.get(token).add(raw);
@@ -263,13 +273,18 @@ const run = async () => {
     const fold = FOLD_ALIASES[def.code] || {};
     const toCanonical = FOLD_TO_CANONICAL[def.code] || {};
     const rows = new Map(); // value -> working row (synonyms as a Set)
+    const foldedAliases = new Map(); // canonical value -> Set of folded spellings
     let foldedHere = 0;
 
     for (const v of values) {
-      const target = toCanonical[v.value];
+      const target =
+        toCanonical[v.value] ||
+        (def.code === "size" ? canonicalSizeValue(v.value) : null);
       if (target && target !== v.value) {
-        // Raw short-form slug → folded into its canonical value below.
+        // Old/short-form spelling -> folded into its canonical value below.
         foldedHere += 1;
+        if (!foldedAliases.has(target)) foldedAliases.set(target, new Set());
+        foldedAliases.get(target).add(v.value);
         continue;
       }
       rows.set(v.value, {
@@ -282,7 +297,11 @@ const run = async () => {
     }
 
     // Ensure every canonical target exists (even if never seeded before).
-    for (const canon of Object.keys(fold)) {
+    const canonicalTargets = new Set([
+      ...Object.keys(fold),
+      ...foldedAliases.keys(),
+    ]);
+    for (const canon of canonicalTargets) {
       if (!rows.has(canon)) {
         rows.set(canon, {
           value: canon,
@@ -302,15 +321,26 @@ const run = async () => {
         if (!rows.has(alias)) row.synonyms.add(alias);
       }
     }
+    for (const [canon, aliases] of foldedAliases) {
+      const row = rows.get(canon);
+      if (!row) continue;
+      for (const alias of aliases) row.synonyms.add(alias);
+    }
 
     const nextValues = withColorHex(
       [...rows.values()]
         .map((row) => {
+          // Month ranges always carry the canonical display label. Other
+          // values are relabeled only when they still match an auto-label
+          // format, so merchant-customised labels survive.
+          const monthLabel =
+            def.code === "size" ? canonicalSizeLabel(row.value) : null;
           const want =
-            legacyHumanizeLabel(row.value) === row.label ||
+            monthLabel ||
+            (legacyHumanizeLabel(row.value) === row.label ||
             compactLabel(row.value) === row.label
               ? humanizeLabel(row.value)
-              : row.label;
+              : row.label);
           if (want !== row.label) relabeled.push(`${def.code}/${row.value}`);
           return {
             ...row,
@@ -321,8 +351,12 @@ const run = async () => {
         .sort((a, b) => a.value.localeCompare(b.value)),
     );
 
+    if (foldedHere > 0) folded.push(`${def.code} (-${foldedHere})`);
+
     if (IS_DRY_RUN) {
-      if (foldedHere > 0) log(`⚠️  [${def.code}] would fold ${foldedHere} short-form value(s) into synonyms`);
+      if (foldedHere > 0) {
+        log(`⚠️  [${def.code}] would fold ${foldedHere} short-form value(s) into synonyms`);
+      }
       nextValues.forEach((v) => {
         const prev = values.find((x) => x.value === v.value);
         if (prev && prev.label !== v.label) {
@@ -337,7 +371,6 @@ const run = async () => {
     }
 
     await Attribute.updateOne({ _id: existing._id }, { $set: { allowedValues: nextValues } });
-    if (foldedHere > 0) folded.push(`${def.code} (-${foldedHere})`);
     if (nextValues.some((v, i) => v.label !== values[i]?.label)) log(`✅ [${def.code}] labels + synonyms refreshed`);
   }
 

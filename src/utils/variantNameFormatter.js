@@ -24,10 +24,14 @@ const formatVariantOptionName = (name) => {
 };
 
 /**
- * Processes variant options array, capitalizing names and adding "M" suffix for size patterns
- * Also processes value labels to append "M" for matching patterns
+ * Processes variant options array, capitalizing option names.
+ *
+ * Labels are intentionally NOT rewritten here. The Attribute Registry is the
+ * single label source, so appending a suffix (previously " M", which turned
+ * "0-3M" into "0-3M M") would create a second vocabulary.
+ *
  * @param {Array} variantOptions - Array of variant option objects
- * @returns {Array} - Processed variant options with formatted names and labels
+ * @returns {Array} - Processed variant options with formatted names
  */
 const processVariantOptions = (variantOptions) => {
   if (!variantOptions || !Array.isArray(variantOptions)) return variantOptions;
@@ -36,52 +40,9 @@ const processVariantOptions = (variantOptions) => {
     // Add null check for option
     if (!option || typeof option !== "object") return option;
 
-    // Get a sample value to detect if this is a size field
-    const sampleValue =
-      option.values && Array.isArray(option.values) && option.values.length > 0
-        ? option.values[0]?.value
-        : "";
-
-    // Check if this is a size field with matching pattern (number hyphen number = months)
-    // Allow optional spaces around hyphen, e.g. "0-3", "0 - 3"
-    const sizePattern = /^\d+\s*-\s*\d+$/;
-    const isSizeField =
-      option.code?.toLowerCase()?.trim() === "size" ||
-      option.name?.toLowerCase()?.trim() === "size";
-    const matchesSizePattern =
-      sampleValue && sizePattern.test(sampleValue.toString().trim());
-
-    // Process values - add "M" to labels if it's a size field with matching pattern
-    let processedValues = option.values;
-    if (isSizeField && matchesSizePattern && Array.isArray(option.values)) {
-      processedValues = option.values.map((valueItem) => {
-        if (!valueItem || typeof valueItem !== "object") return valueItem;
-
-        // Check if this specific value matches the pattern
-        const itemMatchesPattern =
-          valueItem.value &&
-          sizePattern.test(valueItem.value.toString().trim());
-
-        if (itemMatchesPattern) {
-          const label = valueItem.label ? String(valueItem.label).trim() : "";
-          const suffix = " M";
-          const alreadyHasMSuffix = label.endsWith(suffix) || label === "M";
-          const newLabel =
-            label && !alreadyHasMSuffix ? label + suffix : valueItem.label;
-          return {
-            ...valueItem,
-            label: newLabel,
-          };
-        }
-
-        return valueItem;
-      });
-    }
-
     return {
       ...option,
       name: formatVariantOptionName(option.name),
-      values: processedValues,
     };
   });
 };

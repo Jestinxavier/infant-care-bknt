@@ -38,8 +38,12 @@ const {
 const {
   SIZE_SYNONYM_MAP,
 } = require("../src/utils/catalogAttributeResolver");
+const {
+  canonicalSizeLabel,
+  canonicalSizeValue,
+} = require("../src/utils/attributeValueNormalizer");
 
-const DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 const ADD_MISSING = process.argv.includes("--add-missing");
 const URI_FLAG = process.argv.indexOf("--uri");
 const MONGO_URI_OVERRIDE =
@@ -60,20 +64,27 @@ const slugify = (value) =>
     .replace(/-+$/, "");
 
 // Map a SIZE_SYNONYM_MAP canonical filter slug to the DB allowed-value value
-// used by the store Attribute Registry (singular "0-3-month", hyphen form).
+// used by the store Attribute Registry. Month ranges keep the plural
+// "-months" identity so they collapse onto the existing registry rows.
 const sizeTrainingValue = (canonical) => {
-  if (canonical === "newborn") return "new-born";
-  if (canonical.endsWith("-months")) {
-    return canonical.replace(/-months$/, "-month");
-  }
-  return canonical;
+  return canonicalSizeValue(canonical) || canonical;
 };
 
-// Produce store-compliant labels: "0-3-month" -> "0-3 Month", "new-born" -> "New Born".
+// Registry identity per meaning. Month spellings collapse via the canonical
+// month value; other sizes use the storefront filter canonical so "small"
+// and "s" are recognised as the same option instead of creating duplicates.
+const sizeRowKey = (value) => {
+  const month = canonicalSizeValue(value);
+  if (month) return month;
+  return normalizeFilterTokenByKey("size", value) || slugify(value);
+};
+
+// Produce store-compliant labels: "0-3-months" -> "0-3M", "newborn" -> "Newborn".
 const trainingLabel = (value) => {
+  const monthLabel = canonicalSizeLabel(value);
+  if (monthLabel) return monthLabel;
   if (/^[slm]$/.test(value)) return value.toUpperCase();
-  const v = String(value).replace(/(\d+)-(\d+)-month$/i, "$1-$2 Month");
-  return v
+  return String(value)
     .replace(/-/g, " ")
     .split(" ")
     .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
@@ -85,12 +96,7 @@ async function connectDB() {
     MONGO_URI_OVERRIDE ||
     process.env.MONGODB_URI ||
     "mongodb://localhost:27017/infant_care";
-  await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 10000 });
-  console.error(
-    "DBG readyState after connect:",
-    mongoose.connection.readyState,
-    mongoose.connection.host,
-  );
+  await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 30000 });
   console.log(
     `✅ Connected to MongoDB: ${mongoUri.replace(/\/\/.*@/, "//***@").substring(0, 80)}`,
   );
@@ -102,6 +108,8 @@ async function main() {
     `Mode: ${DRY_RUN ? "DRY RUN (no changes saved)" : "LIVE"} | ` +
       `add-missing: ${ADD_MISSING ? "ON" : "OFF"}\n`,
   );
+
+  await connectDB();
 
   // Pre-build: canonical slug -> set of all static variant slugs
   const synonymsByCanonical = new Map();
@@ -138,11 +146,11 @@ async function main() {
   }
 
   const attributes = await AttributeDefinition.find({}).lean();
-  console.error("DBG find done rows:", attributes.length);
   let changed = 0;
   let dryChanged = 0;
   let addedCount = 0;
   let dryAddedCount = 0;
+  let synonymAdditions = 0;
 
   for (const attribute of attributes) {
     const code = String(attribute.code || "").toLowerCase().trim();
@@ -160,7 +168,7 @@ async function main() {
       );
       const merged = [
         ...new Set([...(Array.isArray(av.synonyms) ? av.synonyms : []), ...derived]),
-      ].sort();
+      ];
 
       const existing = Array.isArray(av.synonyms) ? av.synonyms : [];
       if (
@@ -178,27 +186,54 @@ async function main() {
     // The size attribute must exist (created via Settings → Product Attributes
     // or a previous seed) before we can add values to it.
     if (ADD_MISSING && code === "size") {
-      const existingValues = new Set(
-        updatedValues.map((av) => slugify(av.value)),
+      // Index by meaning (month range identity), not exact slug, so an old
+      // "0-12m" row can never coexist with "0-12-months".
+      const rowsByIdentity = new Map(
+        updatedValues.map((av) => [sizeRowKey(av.value), av]),
       );
+
       for (const [canonical, variants] of Object.entries(SIZE_SYNONYM_MAP)) {
         const dbValue = sizeTrainingValue(canonical);
-        if (existingValues.has(slugify(dbValue))) continue;
+        const identity = sizeRowKey(dbValue);
+        const existingRow = rowsByIdentity.get(identity);
+
+        if (existingRow) {
+          // Same meaning already exists: add the training spellings as
+          // synonyms instead of creating a duplicate option.
+          const ownSlug = slugify(existingRow.value);
+          const candidates = [
+            canonical,
+            dbValue,
+            ...(Array.isArray(variants) ? variants : []),
+          ]
+            .map(slugify)
+            .filter((s) => s && s !== ownSlug);
+          const before = new Set(existingRow.synonyms || []);
+          const merged = [...new Set([...before, ...candidates])];
+          if (merged.length !== before.size) {
+            existingRow.synonyms = merged;
+            synonymAdditions += merged.length - before.size;
+            attrChanged = true;
+          }
+          continue;
+        }
+
         const ownSlug = slugify(dbValue);
         const normalizedSynonyms = [
           ...new Set(
-            [canonical, ...(Array.isArray(variants) ? variants : [])]
+            [canonical, dbValue, ...(Array.isArray(variants) ? variants : [])]
               .map(slugify)
               .filter((s) => s && s !== ownSlug),
           ),
         ].sort();
-        updatedValues.push({
+        const row = {
           value: dbValue,
           label: trainingLabel(dbValue),
           synonyms: normalizedSynonyms,
           isActive: true,
-        });
-        existingValues.add(slugify(dbValue));
+        };
+        updatedValues.push(row);
+        rowsByIdentity.set(identity, row);
         added.push(dbValue);
         attrChanged = true;
       }

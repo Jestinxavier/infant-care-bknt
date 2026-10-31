@@ -3,6 +3,13 @@ require("dotenv").config();
 
 const Product = require("../src/models/Product");
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/infant_care";
 

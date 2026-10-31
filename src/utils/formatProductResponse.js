@@ -4,6 +4,7 @@
  */
 const { resolvePrice } = require("./pricingUtils");
 const { ensureImageUrl, ensureImageUrls } = require("./cloudinaryUrlUtils");
+const { formatLabel } = require("./formatLabel");
 
 const formatProductResponse = (product) => {
   const productObj = product.toObject ? product.toObject() : product;
@@ -74,7 +75,13 @@ const formatProductResponse = (product) => {
       name: option.name,
       code: option.code,
       values: (option.values || []).map((val) => ({
-        label: val.label || val.value,
+        // Size labels are presentation data. Resolve them from the canonical
+        // value so old product-level labels do not override the registry/UI
+        // format (for example, 0 - 6 Months → 0-6M).
+        label:
+          String(option.code || option.name || "").toLowerCase() === "size"
+            ? formatLabel(val.value)
+            : val.label || val.value,
         value: val.value,
         // hex is sourced from the global attribute catalog
       })),

@@ -13,7 +13,7 @@ require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const Product = require("../src/models/Product");
 
-const IS_DRY_RUN = process.argv.includes("--dry-run");
+const { dryRun: IS_DRY_RUN } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "apply" });
 const log = (msg) => process.stdout.write(msg + "\n");
 
 const run = async () => {

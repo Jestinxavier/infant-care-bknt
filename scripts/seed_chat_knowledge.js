@@ -18,6 +18,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const KnowledgeBase = require("../src/models/KnowledgeBase");
 const logger = require("../src/utils/logger");
+const { parseMode } = require("./lib/cliMode");
 
 const SAMPLE_ENTRIES = [
   {
@@ -106,7 +107,7 @@ const SAMPLE_ENTRIES = [
   },
 ];
 
-async function seed({ force = false } = {}) {
+async function seed({ force = false, dryRun = false } = {}) {
   if (!process.env.MONGODB_URI) {
     console.error("MONGODB_URI is not set in .env");
     process.exit(1);
@@ -117,6 +118,20 @@ async function seed({ force = false } = {}) {
   });
 
   const existing = await KnowledgeBase.countDocuments({ active: true });
+
+  if (dryRun) {
+    console.log(`🔍 DRY RUN — ${existing} active entries currently in the knowledge base.`);
+    console.log(
+      force
+        ? `   Would wipe all entries and insert ${SAMPLE_ENTRIES.length} starter entries.`
+        : existing > 0
+          ? "   --force not passed; nothing would be inserted."
+          : `   Would insert ${SAMPLE_ENTRIES.length} starter entries.`,
+    );
+    await mongoose.disconnect();
+    return;
+  }
+
   if (existing > 0 && !force) {
     console.log(
       `Knowledge base already has ${existing} active entries — nothing to do. ` +
@@ -149,7 +164,8 @@ async function seed({ force = false } = {}) {
 }
 
 const argv = process.argv.slice(2);
-seed({ force: argv.includes("--force") }).catch((err) => {
+const { dryRun } = parseMode(argv, { defaultMode: "apply" });
+seed({ force: argv.includes("--force"), dryRun }).catch((err) => {
   logger.error("Seed failed", err);
   process.exit(1);
 });

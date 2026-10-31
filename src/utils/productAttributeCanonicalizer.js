@@ -7,7 +7,7 @@
  * against the AttributeDefinition catalogue and:
  *
  *   - rewrites it to the registered canonical `value` when a match is found
- *     (self-healing: "0-3" → "0-3m", "Red " → "red", legacy aliases, …)
+ *     (self-healing: "0-3" → "0-3-months", "Red " → "red", legacy aliases, …)
  *   - rewrites the display `label` to the catalogue label (so imported/
  *     legacy rows show nice labels, never raw slugs)
  *   - returns the list of unresolved values instead of guessing

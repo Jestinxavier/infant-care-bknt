@@ -18,14 +18,12 @@
 const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
+const { flagValue, parseMode, redactUri } = require("./lib/cliMode");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const flagValue = (name) => {
-  const i = process.argv.indexOf(name);
-  return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
-};
-const MONGO_URI_OVERRIDE = flagValue("--uri");
-const OUT_DIR = flagValue("--out") || path.join(__dirname, "..", "backups");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+const MONGO_URI_OVERRIDE = flagValue(process.argv, "--uri");
+const OUT_DIR = flagValue(process.argv, "--out") || path.join(__dirname, "..", "backups");
 
 async function main() {
   const mongoUri =
@@ -37,14 +35,23 @@ async function main() {
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const targetDir = path.join(OUT_DIR, `${dbName}-${stamp}`);
-  fs.mkdirSync(targetDir, { recursive: true });
 
   console.log(`\n💾 Backing up "${dbName}" → ${targetDir}`);
-  console.log(`Connecting to: ${mongoUri.replace(/\/\/[^@]*@/, "//***@")}\n`);
+  console.log(`Connecting to: ${redactUri(mongoUri)}\n`);
 
   const collections = (await db.listCollections().toArray()).sort((a, b) =>
     a.name.localeCompare(b.name),
   );
+
+  if (dryRun) {
+    console.log(`🔍 DRY RUN — would back up ${collections.length} collection(s). No files written.`);
+    console.log(`   Target: ${targetDir}`);
+    console.log(`   Collections: ${collections.map((c) => c.name).join(", ")}`);
+    await mongoose.disconnect();
+    return;
+  }
+
+  fs.mkdirSync(targetDir, { recursive: true });
 
   const manifest = { database: dbName, createdAt: new Date().toISOString(), collections: [] };
   let totalDocs = 0;

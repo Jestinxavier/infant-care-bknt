@@ -34,7 +34,7 @@ const {
   resolveCatalogValueForAttribute,
 } = require("../src/utils/attributeCatalogGuard");
 
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const REPORT = process.argv.includes("--report");
 const ATTR_CODE = "color";
 

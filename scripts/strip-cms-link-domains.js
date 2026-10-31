@@ -41,7 +41,7 @@ const flagValues = (name) => {
   return out;
 };
 
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const MONGO_URI_OVERRIDE = flagValue("--uri");
 const ONLY_COLLECTION = flagValue("--collection");
 const EXTRA_DOMAINS = flagValues("--domain");

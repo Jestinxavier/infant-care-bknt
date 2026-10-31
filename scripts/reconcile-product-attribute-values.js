@@ -9,7 +9,7 @@
  *   - filterAttributes.<key>[]               → canonical value
  *
  * DRY RUN BY DEFAULT. Prints, per attribute value, how many products would be
- * rewritten ("0-3" → "0-3m") and lists values that cannot be resolved (those
+ * rewritten ("0-3" → "0-3-months") and lists values that cannot be resolved (those
  * need a human decision in Settings → Product Attributes first).
  *
  * Usage:
@@ -33,7 +33,7 @@ const flagValue = (name) => {
   const i = flagIndex(name);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
 };
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const MONGO_URI_OVERRIDE = flagValue("--uri");
 const ATTRIBUTE_FILTER = flagValue("--attribute");
 const LIMIT = flagValue("--limit") ? parseInt(flagValue("--limit"), 10) : 0;

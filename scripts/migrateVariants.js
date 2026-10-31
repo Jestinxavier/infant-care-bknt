@@ -11,7 +11,7 @@
  * - Rollback capability
  *
  * USAGE:
- * node scripts/migrateVariants.js [--execute]
+ * node scripts/migrateVariants.js [--apply]   (aliases: --execute, --write, --live)
  */
 
 // Load environment variables first
@@ -27,7 +27,8 @@ const {
 } = require("../src/utils/skuGenerator");
 
 // Configuration
-const DRY_RUN = !process.argv.includes("--execute");
+const { apply: EXECUTE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
+const DRY_RUN = !EXECUTE;
 const BACKUP_PATH = "./backup/variants_backup.json";
 
 /**
@@ -179,8 +180,12 @@ const runMigration = async () => {
   console.log("");
 
   try {
-    // Create backup
-    const backup = await createBackup();
+    // Create backup (only when applying — dry runs must not write files)
+    if (DRY_RUN) {
+      console.log("🔍 DRY RUN — skipping backup file write.");
+    } else {
+      await createBackup();
+    }
     console.log("");
 
     // Get all legacy variants
@@ -286,7 +291,7 @@ const runMigration = async () => {
 
     if (DRY_RUN) {
       console.log("\n💡 To execute the migration, run:");
-      console.log("   node scripts/migrateVariants.js --execute");
+      console.log("   node scripts/migrateVariants.js --apply");
     } else {
       console.log("\n✅ Migration completed successfully!");
       console.log(`   Backup saved at: ${BACKUP_PATH}`);

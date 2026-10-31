@@ -18,16 +18,14 @@ const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { flagValue, parseMode, redactUri } = require("./lib/cliMode");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const flagValue = (name) => {
-  const i = process.argv.indexOf(name);
-  return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null;
-};
-const MONGO_URI_OVERRIDE = flagValue("--uri");
-const DIR = flagValue("--dir");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+const MONGO_URI_OVERRIDE = flagValue(process.argv, "--uri");
+const DIR = flagValue(process.argv, "--dir");
 const MERGE = process.argv.includes("--merge");
-const ONLY = flagValue("--collections");
+const ONLY = flagValue(process.argv, "--collections");
 
 async function readJsonl(filePath) {
   const docs = [];
@@ -68,6 +66,20 @@ async function main() {
   console.log(
     `\n♻️  Restoring ${collections.length} collection(s) ${MERGE ? "(merge/upsert)" : "(REPLACE — drops first)"} → ${db.databaseName}\n`,
   );
+  console.log(`   Source: ${dir}`);
+  console.log(`   Mongo:  ${redactUri(mongoUri)}\n`);
+
+  if (dryRun) {
+    console.log(`🔍 DRY RUN — no writes. ${MERGE ? "Would upsert" : "Would REPLACE (drop first)"}:`);
+    for (const { name, count } of collections) {
+      const exists = fs.existsSync(path.join(dir, `${name}.jsonl`));
+      console.log(
+        `   ${exists ? "•" : "⚠️"} ${name.padEnd(32)} ${String(count ?? "?").padStart(7)} docs${exists ? "" : " (file missing)"}`,
+      );
+    }
+    await mongoose.disconnect();
+    return;
+  }
 
   for (const { name } of collections) {
     const filePath = path.join(dir, `${name}.jsonl`);

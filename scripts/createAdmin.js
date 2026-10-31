@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const User = require("../src/models/user");
 const { sendAdminCredentialsEmail } = require("../src/services/emailService");
 const toCamelCase = require("../src/utils/toCamelCase");
+const { parseMode } = require("./lib/cliMode");
 
 /**
  * Generate a secure random password
@@ -38,7 +39,7 @@ const generateSecurePassword = (length = 12) => {
 /**
  * Create admin user
  */
-const createAdmin = async () => {
+const createAdmin = async ({ dryRun = false } = {}) => {
   try {
     // Connect to MongoDB
     const mongoUri = process.env.MONGODB_URI;
@@ -72,6 +73,15 @@ const createAdmin = async () => {
       console.log(
         "\n💡 To reset the password, delete the user first or update manually.",
       );
+      await mongoose.disconnect();
+      return;
+    }
+
+    if (dryRun) {
+      console.log("\n🔍 DRY RUN — would create admin user. No changes written.");
+      console.log(`📧 Email: ${adminEmail}`);
+      console.log(`👤 Username: ${adminUsername}`);
+      console.log("🔑 Password: would generate a 16-character secure password");
       await mongoose.disconnect();
       return;
     }
@@ -136,7 +146,8 @@ const createAdmin = async () => {
 
 // Run the script
 if (require.main === module) {
-  createAdmin();
+  const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+  createAdmin({ dryRun });
 }
 
 module.exports = { createAdmin };

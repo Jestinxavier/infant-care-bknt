@@ -2,7 +2,7 @@
  * Script to generate url_key for all existing variants that don't have one
  * This ensures all variants have explicit url_key stored in the database
  *
- * Usage: node src/scripts/generateVariantUrlKeys.js
+ * Usage: node scripts/generateVariantUrlKeys.js [--dry-run|--apply]
  */
 
 const mongoose = require("mongoose");
@@ -10,8 +10,9 @@ require("dotenv").config();
 
 const Product = require("../src/models/Product");
 const { generateSlug } = require("../src/utils/slugGenerator");
+const { parseMode } = require("./lib/cliMode");
 
-const generateVariantUrlKeys = async () => {
+const generateVariantUrlKeys = async ({ dryRun = false } = {}) => {
   try {
     // Connect to MongoDB
     const mongoUri = process.env.MONGODB_URI;
@@ -74,10 +75,12 @@ const generateVariantUrlKeys = async () => {
         });
 
         if (needsUpdate) {
-          product.variants = updatedVariants;
-          await product.save();
+          if (!dryRun) {
+            product.variants = updatedVariants;
+            await product.save();
+          }
           console.log(
-            `  ✓ Generated url_key for ${
+            `  ${dryRun ? "○ Would generate" : "✓ Generated"} url_key for ${
               updatedVariants.filter(
                 (v) =>
                   v.url_key &&
@@ -99,10 +102,10 @@ const generateVariantUrlKeys = async () => {
     }
 
     console.log("\n📊 Summary:");
-    console.log(`  ✅ Updated: ${updated}`);
+    console.log(`  ${dryRun ? "○ Would update" : "✅ Updated"}: ${updated}`);
     console.log(`  ⏭️  Skipped: ${skipped}`);
     console.log(`  ❌ Errors: ${errors}`);
-    console.log("\n✅ Variant URL key generation completed!");
+    console.log(`\n${dryRun ? "🔍 DRY RUN — no changes written." : "✅ Variant URL key generation completed!"}`);
 
     // Close connection
     await mongoose.connection.close();
@@ -115,7 +118,8 @@ const generateVariantUrlKeys = async () => {
 
 // Run script
 if (require.main === module) {
-  generateVariantUrlKeys()
+  const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+  generateVariantUrlKeys({ dryRun })
     .then(() => process.exit(0))
     .catch((err) => {
       console.error(err);

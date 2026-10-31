@@ -130,6 +130,7 @@ const createAttribute = async (req, res) => {
     }
 
     const preparedValues = prepareAllowedValues(allowedValues || [], {
+      code: normalizedCode,
       uiType: uiType || "dropdown",
       requireHex: (uiType || "dropdown") === "swatch",
     });
@@ -238,6 +239,7 @@ const updateAttribute = async (req, res) => {
     if (position !== undefined) attribute.position = position;
     if (allowedValues !== undefined) {
       const preparedValues = prepareAllowedValues(allowedValues, {
+        code: attribute.code,
         uiType: type ?? attribute.uiType,
         requireHex: false,
         // Existing codes are legacy — preserved (flagged) so reorder/merge
@@ -357,7 +359,11 @@ const addAllowedValue = async (req, res) => {
     // Enforce the shared value policy (label/value/hex/alias rules)
     const policy = validateAllowedValueEntry(
       { label, value, hex, synonyms },
-      { uiType: attribute.uiType, requireHex: attribute.uiType === "swatch" },
+      {
+        code: attribute.code,
+        uiType: attribute.uiType,
+        requireHex: attribute.uiType === "swatch",
+      },
     );
     if (!policy.ok) {
       return res.status(400).json({
@@ -454,7 +460,7 @@ const updateAllowedValue = async (req, res) => {
           hex: hex !== undefined ? hex : undefined,
           synonyms: synonyms !== undefined ? synonyms : valueObj.synonyms,
         },
-        { uiType: attribute.uiType },
+        { code: attribute.code, uiType: attribute.uiType },
       );
       if (!policy.ok) {
         return res.status(400).json({

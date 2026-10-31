@@ -29,7 +29,7 @@ const Product = require("../src/models/Product");
 const { refreshAttributeAliasLookups } = require("../src/utils/filterAttributeRules");
 const { toValueToken } = require("../src/utils/attributeValuePolicy");
 
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 const ATTR_CODE = "color";
 
 // New Color value to register before rewriting.

@@ -2,6 +2,13 @@ require("dotenv").config({ path: "../.env" }); // Adjust path to .env
 const mongoose = require("mongoose");
 const Category = require("../src/models/Category"); // Adjust path to Category model
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 const migrateCategories = async () => {
   try {
     // Connect to MongoDB

@@ -400,7 +400,7 @@ productSchema.pre("save", async function (next) {
   // STRUCTURAL BACKSTOP (Layer 2): canonicalize every attribute value this
   // product carries against the AttributeDefinition catalogue BEFORE
   // filterAttributes is derived, so no write path can persist a duplicate
-  // spelling/casing of an approved value. Self-healing: "0-3" → "0-3m",
+  // spelling/casing of an approved value. Self-healing: "0-3" → "0-3-months",
   // "Red " → "red", legacy aliases → canonical value + label. Values that
   // match nothing in the catalogue are left untouched and logged (the API
   // guard rejects them at the boundary); we never invent a value.

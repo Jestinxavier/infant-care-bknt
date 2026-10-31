@@ -550,10 +550,17 @@ const sendReviewRequestEmail = async (order) => {
     reviewUrl = `${frontendUrl}/account/orders/${encodeURIComponent(String(order._id))}`;
   }
 
-  const items = (order.items || []).map((item) => ({
-    productName: item.name || item.productId?.name || item.productName || "Product",
-    quantity: item.quantity || 1,
-  }));
+  // Gifts are included in the order for fulfilment, but are not reviewable.
+  // Keep them out of the email so every listed item can actually be reviewed.
+  const items = (order.items || [])
+    .filter((item) => !item.isGift)
+    .map((item) => ({
+      productName: item.name || item.productId?.name || item.productName || "Product",
+      quantity: item.quantity || 1,
+    }));
+
+  // Do not send a review request for an order that contains only free gifts.
+  if (items.length === 0) return;
 
   return sendTemplateEmail({
     to: recipient.email,

@@ -1614,7 +1614,7 @@ class BulkImportController {
                   ) {
                     // Try to find rich metadata (hex, label) from the parsed frontend options
                     // Prefer the attribute catalog label so imported products show
-                    // display labels (e.g. "0-3 Months"), never raw slug values.
+                    // display labels (e.g. "0-3M"), never raw slug values.
                     const catalogLabel = resolveOptionValueLabel(attrDef, canonicalVal);
                     let hexCode = null;
                     let label =

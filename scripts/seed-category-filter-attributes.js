@@ -20,7 +20,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const Category = require("../src/models/Category");
 const { cacheDelPattern } = require("../src/utils/redisCache");
 
-const WRITE = process.argv.includes("--write");
+const { apply: WRITE } = require("./lib/cliMode").parseMode(process.argv.slice(2), { defaultMode: "dry" });
 
 const GARMENT = [
   "color",

@@ -2,6 +2,13 @@ require("dotenv").config({ path: "../.env" });
 const mongoose = require("mongoose");
 const Product = require("../src/models/Product");
 
+const { parseMode } = require("./lib/cliMode");
+const { dryRun } = parseMode(process.argv.slice(2), { defaultMode: "apply" });
+if (dryRun) {
+  console.log("🔍 DRY RUN — no changes written. Remove --dry-run to execute this legacy one-off.");
+  process.exit(0);
+}
+
 // Status options: 'draft', 'published', 'archived'
 const TARGET_STATUS = process.argv[2] || "published";
 

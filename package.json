@@ -30,8 +30,6 @@
     "backfill:synonyms": "node scripts/backfill_attribute_synonyms.js",
     "review:values": "node scripts/review-attribute-values.js",
     "review:values:backfill": "node scripts/backfill-needs-review.js",
-    "attributes:runbook": "node scripts/run-attribute-runbook.js",
-    "attributes:runbook:live": "node scripts/run-attribute-runbook.js --write",
     "purge:error-logs": "node scripts/purgeNoiseErrorLogs.js"
   },
   "keywords": [

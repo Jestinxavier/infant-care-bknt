@@ -14,6 +14,9 @@ const {
   resolveAttributeLabel,
   normalizeImportProducts,
 } = require("../../utils/catalogAttributeResolver");
+const {
+  canonicalSizeLabel,
+} = require("../../utils/attributeValueNormalizer");
 
 const CSV_HEADERS = [
   "product_type",
@@ -136,13 +139,13 @@ function buildSystemPrompt(kb) {
     .join("\n");
 
   // Size vocabulary (training data) keeps the model from repeating the same
-  // "0-3-months vs 0-3 Month" mistake.
+  // "0-3-months vs 0-3M" mistake.
   const sizeTrainingRows = Object.entries(SIZE_SYNONYM_MAP)
     .slice(0, 22)
-    .map(
-      ([canonical, aliases]) =>
-        `- "${canonical}" ≤ "0-3 Month"-style canonical label ← ${aliases.slice(0, 10).join(", ")}`
-    )
+    .map(([canonical, aliases]) => {
+      const label = canonicalSizeLabel(canonical) || canonical;
+      return `- "${label}" (value: "${canonical}") ← ${aliases.slice(0, 10).join(", ")}`;
+    })
     .join("\n");
 
   return `You are the Expert Catalog Ingestion & CSV Import AI for InfantCare (an e-commerce store for baby and infant products).
@@ -160,11 +163,13 @@ ${attrList}
 ${collList}
 
 ### 3a. SIZE NORMALIZATION TRAINING (CRITICAL — MEMORIZE THIS):
-Age-range sizes MUST use the exact canonical label "0-3 Month" / "3-6 Month" / "6-9 Month"
-/ "9-12 Month" / "0-6 Month" / "6-12 Month" / "12-18 Month" / "18-24 Month" (singular "Month",
-with a space, never "0-3-months" or "0-3 Months"). "New Born", "Premature", "Free Size",
-"S", "M", "L" and dimension sizes like "90x90cm" are also canonical labels.
-The store's synonym (training) map that collapses user spellings to canonical labels:
+Age-range sizes MUST use the exact canonical label "0-3M" / "3-6M" / "6-9M"
+/ "9-12M" / "0-6M" / "6-12M" / "12-18M" / "18-24M" (compact "M" suffix
+with no spaces, never "0-3-months", "0-3 Months" or "0-3 Month"). "Newborn",
+"Premature", "Free Size", "S", "M", "L" and dimension sizes like "90x90cm"
+are also canonical labels.
+The store's synonym (training) map that collapses user spellings to canonical
+labels and values:
 ${sizeTrainingRows}
 
 ALWAYS OUTPUT THE EXACT CANONICAL LABEL VERBATIM — never abbreviations and never the raw user spelling.
@@ -215,7 +220,7 @@ ${CSV_HEADERS.join(",")}
      - badge: ""
      - variant_color: Must match an allowed color label (e.g. "Blue", "Pink", "Red", "White")
      - hex_code: Valid hex code matching the color (e.g. "#0464e9", "#ffc0cb", "#ffffff")
-     - variant_size: CRITICAL — the value MUST be the exact canonical label from the Size Normalization Training above (e.g. "0-3 Month", "3-6 Month", "S", "New Born"). DO NOT add a leading single quote and DO NOT use "0-3-months", "0-3 Months", "0-3m", or hyphenated forms. Your CSV parser normalizes programmatically, so apostrophes are unnecessary and would fail validation.
+     - variant_size: CRITICAL — the value MUST be the exact canonical label from the Size Normalization Training above (e.g. "0-3M", "3-6M", "S", "Newborn"). DO NOT add a leading single quote and DO NOT use "0-3-months", "0-3 Months", "0-3 Month", or "0-3m". Your CSV parser normalizes programmatically, so apostrophes are unnecessary and would fail validation.
      - seo_title: ""
      - seo_description: ""
      - status: ""
@@ -256,7 +261,7 @@ You MUST respond with ONLY a valid JSON object in this format:
           "stock": 50,
           "variant_color": "Blue",
           "hex_code": "#0464e9",
-          "variant_size": "'0-3 Month'"
+          "variant_size": "0-3M"
         }
       ]
     }
@@ -540,7 +545,7 @@ function deterministicGenerateProducts(prompt, rawData, kb, structuredData = {})
     }
   }
   if (!foundSizes.length) {
-    foundSizes.push("0-3 Month", "3-6 Month");
+    foundSizes.push("0-3M", "3-6M");
   }
 
   // Parent Row (price, offer_price, stock MUST be empty for CONFIGURABLE parent)
@@ -577,7 +582,7 @@ function deterministicGenerateProducts(prompt, rawData, kb, structuredData = {})
     for (const v of structuredData.variants) {
       const vColor = v.color || foundColors[0]?.label || "Blue";
       const vHex = v.hex || foundColors.find((c) => c.label.toLowerCase() === vColor.toLowerCase())?.hex || "#000000";
-      let vSize = v.size || foundSizes[0] || "0-3 Month";
+      let vSize = v.size || foundSizes[0] || "0-3M";
       vSize = toCanonicalSize(vSize);
       const vPrice = Number(v.price) || price;
       const vOfferPrice = v.offerPrice ? Number(v.offerPrice) : (offerPrice !== "" ? offerPrice : "");
@@ -893,7 +898,7 @@ Remember:
    - If CONFIGURABLE: Parent row price & stock MUST be empty; Child SIMPLE rows MUST have price, stock, variant_color, hex_code, variant_size, and empty category.
    - If SIMPLE: Standalone row MUST have price, stock, category, and empty variant fields.
 2. Category MUST strictly match "${subcategory || category || "one of the active store categories"}".
-3. For size values, ALWAYS output the exact canonical label from the Size Normalization Training in the system prompt (e.g. "0-3 Month", "3-6 Month", "S", "New Born"). Do NOT use "0-3-months", "0-3 Months", "0-3m" or add a leading apostrophe.
+3. For size values, ALWAYS output the exact canonical label from the Size Normalization Training in the system prompt (e.g. "0-3M", "3-6M", "S", "Newborn"). Do NOT use "0-3-months", "0-3 Months", "0-3 Month", "0-3m" or add a leading apostrophe.
 4. For colors, supply the correct hex_code from the attribute registry.
 5. Create rich details_json with description, grid, and pair sections.
 6. Return valid JSON only with keys "summary", "csv", and "products".`;
@@ -953,7 +958,7 @@ ${rawCsv ? `\nRAW CSV SNIPPET:\n${rawCsv.slice(0, 3000)}` : ""}
 1. "Category not found": Map to the closest active category in the store knowledge base.
 2. "Unknown attribute" / "Invalid value for attribute": Check the allowed values for that attribute in the Knowledge Base and replace with the canonical allowed value.
 3. "Duplicate SKU": Clear the SKU (empty string) so the backend can auto-generate a unique SKU, or append a unique suffix like "-1", "-2".
-4. SIZE VALUES (CRITICAL): Use the Size Normalization Training in the system prompt. Every size MUST become the exact canonical label (e.g. "0-3-months" -> "0-3 Month", "3-6-months" -> "3-6 Month", "small" -> "S", "nb" -> New Born). NEVER emit "0-3-months", "0-3 Months", "0-3m", and NEVER add a leading single quote. If a size was corrupted (e.g. "03-Jan" or "0-3"), map it to the closest numeric age range canonical label.
+4. SIZE VALUES (CRITICAL): Use the Size Normalization Training in the system prompt. Every size MUST become the exact canonical label (e.g. "0-3-months" -> "0-3M", "3-6-months" -> "3-6M", "small" -> "S", "nb" -> "Newborn"). NEVER emit "0-3-months", "0-3 Months", "0-3 Month", "0-3m", and NEVER add a leading single quote. If a size was corrupted (e.g. "03-Jan" or "0-3"), map it to the closest numeric age range canonical label.
 5. "Price required" / "Stock required": Provide reasonable standard values if missing (e.g. Price from parent or standard 499, stock 50).
 6. "Duplicate variant configuration": Ensure distinct color/size combinations.
 7. Return a JSON object with:

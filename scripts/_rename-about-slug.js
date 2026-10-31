@@ -6,6 +6,10 @@
 require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const CmsPage = require("../src/features/cms/pages/cmsPage.model");
+const { dryRun: IS_DRY_RUN } = require("./lib/cliMode").parseMode(
+  process.argv.slice(2),
+  { defaultMode: "apply" },
+);
 
 const run = async () => {
   const uri = process.env.MONGODB_URI;
@@ -22,13 +26,13 @@ const run = async () => {
   }
   if (dst) {
     console.log(`ℹ️  'our-story' already exists — deleting the obsolete 'about-us' copy (dedupe)`);
-    if (!process.argv.includes("--dry-run")) {
+    if (!IS_DRY_RUN) {
       await CmsPage.deleteOne({ _id: src._id });
     }
-    console.log(`   → ${process.argv.includes("--dry-run") ? "DRY" : "deleted"} 'about-us' (our-story remains)`);
+    console.log(`   → ${IS_DRY_RUN ? "DRY" : "deleted"} 'about-us' (our-story remains)`);
   } else {
-    console.log(`♻️  Renaming 'about-us' → 'our-story'${process.argv.includes("--dry-run") ? " (DRY)" : ""}`);
-    if (!process.argv.includes("--dry-run")) {
+    console.log(`♻️  Renaming 'about-us' → 'our-story'${IS_DRY_RUN ? " (DRY)" : ""}`);
+    if (!IS_DRY_RUN) {
       await CmsPage.updateOne({ _id: src._id }, { $set: { slug: "our-story" } });
     }
   }
