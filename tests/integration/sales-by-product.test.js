@@ -59,6 +59,36 @@ async function seedOrder(items, extra = {}) {
 }
 
 describe("Sales by Product report", () => {
+  it("spreads a partial refund across the order's items by value", async () => {
+    const item = (name, sku, price, quantity) => ({
+      productId: new mongoose.Types.ObjectId().toString(),
+      variantId: null,
+      quantity,
+      price,
+      regularPrice: price,
+      name,
+      sku,
+      image: "",
+      urlKey: sku.toLowerCase(),
+      variantName: null,
+      variantSku: null,
+      variantAttributes: null,
+    });
+    // ₹1000 order (₹500 + ₹500) with ₹250 refunded: 25% off each item.
+    await seedOrder(
+      [item("Bottle", "RF-BTL", 250, 2), item("Blanket", "RF-BLK", 500, 1)],
+      { refundedAmountPaise: 25000 },
+    );
+
+    const body = await callCtrl(getSalesByProduct, { period: "all" });
+    const bySku = Object.fromEntries((body.rows || []).map((r) => [r.sku, r]));
+    expect(bySku["RF-BTL"].revenue).toBe(375);
+    expect(bySku["RF-BLK"].revenue).toBe(375);
+    // Units are unchanged: a partial refund returns money, not goods.
+    expect(bySku["RF-BTL"].unitsSold).toBe(2);
+    expect(body.summary.revenue).toBe(750);
+  });
+
   it("sums item snapshots and preserves name/price/units/revenue", async () => {
     const p = await seedProduct({ name: "Bottle", sku: "BTL42", price: 250 });
     await seedOrder([

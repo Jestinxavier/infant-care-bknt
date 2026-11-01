@@ -124,6 +124,36 @@ exports.getSalesByProduct = async (req, res) => {
       // Group item snapshots by product + variant so each variant is a row.
       const grouped = await Order.aggregate([
         { $match: match },
+        // Partial refunds keep an order "paid" but aren't tied to an item, so
+        // spread each one across the order in proportion to the order total:
+        // ₹250 refunded on a ₹1000 order keeps 75% of every item's revenue.
+        // Units sold are unchanged (money was returned, not goods).
+        {
+          $addFields: {
+            _keptRatio: {
+              $cond: [
+                { $gt: ["$totalAmount", 0] },
+                {
+                  $max: [
+                    0,
+                    {
+                      $subtract: [
+                        1,
+                        {
+                          $divide: [
+                            { $divide: [{ $ifNull: ["$refundedAmountPaise", 0] }, 100] },
+                            "$totalAmount",
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                1,
+              ],
+            },
+          },
+        },
         { $unwind: "$items" },
         {
           $group: {
@@ -142,7 +172,9 @@ exports.getSalesByProduct = async (req, res) => {
             urlKey: { $first: "$items.urlKey" },
             unitsSold: { $sum: "$items.quantity" },
             revenue: {
-              $sum: { $multiply: ["$items.price", "$items.quantity"] },
+              $sum: {
+                $multiply: ["$items.price", "$items.quantity", "$_keptRatio"],
+              },
             },
             orders: { $addToSet: "$_id" },
           },
@@ -218,7 +250,8 @@ exports.getSalesByProduct = async (req, res) => {
           price: Number(r.price) || 0,
           regularPrice: Number(r.regularPrice) || 0,
           unitsSold: r.unitsSold || 0,
-          revenue: Number(r.revenue) || 0,
+          // Refund splitting can produce fractions of a paisa; round to paise.
+          revenue: Math.round((Number(r.revenue) || 0) * 100) / 100,
           orders: r.orders || 0,
         };
       });
