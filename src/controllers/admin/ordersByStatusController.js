@@ -1,4 +1,5 @@
 const Order = require("../../models/Order");
+const { NET_REVENUE } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -111,7 +112,7 @@ exports.getOrdersByStatus = async (req, res) => {
               count: { $sum: 1 },
               total: { $sum: "$totalAmount" },
               paid: {
-                $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, "$totalAmount", 0] },
+                $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, NET_REVENUE, 0] },
               },
             },
           },

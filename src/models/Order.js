@@ -174,6 +174,13 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Razorpay order created for this order at checkout. Signature verification
+    // must match against this so a valid payment for one order can't be
+    // replayed to mark a different order as paid.
+    razorpayOrderId: {
+      type: String,
+      default: null,
+    },
     // Refund tracking (populated when a refund is initiated via PhonePe)
     // States mirror PhonePe's actual refund lifecycle:
     //   PENDING   → Refund submitted, being processed
@@ -199,6 +206,18 @@ const orderSchema = new mongoose.Schema(
     },
     refundAmountPaise: {
       type: Number,
+      default: null,
+    },
+    // Running total across all refunds (partial refunds accumulate here).
+    // The order is only marked refunded/cancelled once this reaches the total.
+    refundedAmountPaise: {
+      type: Number,
+      default: 0,
+    },
+    // Set while a refund is being sent to the gateway so a concurrent request
+    // can't initiate a second refund for the same order.
+    refundLockedAt: {
+      type: Date,
       default: null,
     },
     // Each failed or successful refund attempt is pushed here (supports retries)

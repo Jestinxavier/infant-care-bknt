@@ -46,9 +46,13 @@ async function createCart({ items = 1, status = "active" } = {}) {
   });
 }
 
-async function createOrder({ orderId = uniqueOrderId() } = {}) {
+async function createOrder({
+  orderId = uniqueOrderId(),
+  razorpayOrderId = `order_${orderId}`,
+} = {}) {
   return Order.create({
     orderId,
+    razorpayOrderId,
     items: [
       {
         productId: new mongoose.Types.ObjectId(),
@@ -67,11 +71,12 @@ async function createOrder({ orderId = uniqueOrderId() } = {}) {
     shippingCost: 0,
     discount: 0,
     shippingAddress: address(),
+    // Checkout creates online orders as pending until payment is confirmed.
     paymentStatus: "pending",
-    orderStatus: "processing",
+    orderStatus: "pending",
     paymentMethod: "RAZORPAY",
     placedAt: new Date(),
-    statusHistory: [{ status: "processing", timestamp: new Date() }],
+    statusHistory: [{ status: "pending", timestamp: new Date() }],
   });
 }
 
@@ -169,9 +174,32 @@ describe("Payments surface", () => {
     expect(invalid.status).toBe(400);
     expect(invalid.body.message).toMatch(/signature verification failed/i);
 
-    const failedOrder = await Order.findOne({ orderId: order.orderId });
-    expect(failedOrder.paymentStatus).toBe("failed");
-    expect(failedOrder.orderStatus).toBe("cancelled");
+    // The endpoint is public: a bad signature must not cancel the order (or
+    // restore its stock), otherwise anyone could cancel any order.
+    const untouched = await Order.findOne({ orderId: order.orderId });
+    expect(untouched.paymentStatus).toBe("pending");
+    expect(untouched.orderStatus).toBe("pending");
+  });
+
+  it("rejects a valid payment replayed against a different order", async () => {
+    const cheapOrder = await createOrder();
+    const targetOrder = await createOrder();
+    const paymentId = `pay_${cheapOrder.orderId}`;
+
+    // Signature is genuine, but for the cheap order's Razorpay order.
+    const response = await request(app)
+      .post(`${BASE}/razorpay/verify`)
+      .send({
+        orderId: targetOrder.orderId,
+        razorpay_order_id: cheapOrder.razorpayOrderId,
+        razorpay_payment_id: paymentId,
+        razorpay_signature: signatureFor(cheapOrder.razorpayOrderId, paymentId),
+      });
+    expect(response.status).toBe(400);
+
+    const target = await Order.findOne({ orderId: targetOrder.orderId });
+    expect(target.paymentStatus).toBe("pending");
+    expect(target.orderStatus).toBe("pending");
   });
 
   it("confirms a paid order after a valid Razorpay signature", async () => {
@@ -205,9 +233,26 @@ describe("Payments surface", () => {
     const payment = await Payment.findOne({ orderId: order._id });
     expect(payment.status).toBe("success");
     expect(payment.transactionId).toBe(razorpayPaymentId);
+
+    // Replaying the same verification must not regress a shipped order or
+    // resend the confirmation email.
+    await Order.updateOne({ _id: order._id }, { $set: { orderStatus: "shipped" } });
+    const emailsBefore = emailService.sendOrderConfirmationEmail.mock.calls.length;
+    const replay = await request(app)
+      .post(`${BASE}/razorpay/verify`)
+      .send({
+        orderId: order.orderId,
+        razorpay_order_id: razorpayOrderId,
+        razorpay_payment_id: razorpayPaymentId,
+        razorpay_signature: signatureFor(razorpayOrderId, razorpayPaymentId),
+      });
+    expect(replay.status).toBe(200);
+    const afterReplay = await Order.findOne({ orderId: order.orderId });
+    expect(afterReplay.orderStatus).toBe("shipped");
+    expect(emailService.sendOrderConfirmationEmail.mock.calls.length).toBe(emailsBefore);
   });
 
-  it("succeeds when a valid signature references an unknown order", async () => {
+  it("returns 404 when a valid signature references an unknown order", async () => {
     const orderId = uniqueOrderId();
     const razorpayOrderId = `order_${orderId}`;
     const razorpayPaymentId = `pay_${orderId}`;
@@ -220,7 +265,6 @@ describe("Payments surface", () => {
         razorpay_payment_id: razorpayPaymentId,
         razorpay_signature: signatureFor(razorpayOrderId, razorpayPaymentId),
       });
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
+    expect(response.status).toBe(404);
   });
 });

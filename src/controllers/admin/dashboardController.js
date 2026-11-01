@@ -2,6 +2,7 @@ const User = require("../../models/user");
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const Order = require("../../models/Order");
+const { NET_REVENUE } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -135,6 +136,18 @@ exports.getDashboardStats = async (req, res) => {
         isCustomRange = true;
         if (customDateRange.$gte) {
           startDate.setTime(customDateRange.$gte.getTime());
+        } else {
+          // Only `to` given: the range runs from the first order, not from "now"
+          // (which made the day count and previous-period comparison meaningless).
+          const earliest = await Order.findOne({})
+            .sort({ createdAt: 1 })
+            .select("createdAt")
+            .lean();
+          startDate.setTime(
+            earliest?.createdAt
+              ? new Date(earliest.createdAt).getTime()
+              : todayStart.getTime(),
+          );
         }
         const rangeStart = customDateRange.$gte || startDate;
         const rangeEnd = customDateRange.$lte || now;
@@ -229,7 +242,7 @@ exports.getDashboardStats = async (req, res) => {
       ] = await Promise.all([
         Order.aggregate([
           { $match: salesMatch },
-          { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
+          { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE } } },
         ]),
         Order.countDocuments(salesMatch),
         User.countDocuments({ role: "user" }),
@@ -312,7 +325,7 @@ exports.getDashboardStats = async (req, res) => {
                   createdAt: { $lt: midpoint },
                 },
               },
-              { $group: { _id: null, total: { $sum: "$totalAmount" }, count: { $sum: 1 } } },
+              { $group: { _id: null, total: { $sum: NET_REVENUE }, count: { $sum: 1 } } },
             ]),
             Order.aggregate([
               {
@@ -322,7 +335,7 @@ exports.getDashboardStats = async (req, res) => {
                   createdAt: { $gte: midpoint },
                 },
               },
-              { $group: { _id: null, total: { $sum: "$totalAmount" }, count: { $sum: 1 } } },
+              { $group: { _id: null, total: { $sum: NET_REVENUE }, count: { $sum: 1 } } },
             ]),
           ]);
 
@@ -361,7 +374,7 @@ exports.getDashboardStats = async (req, res) => {
                 ...prevDateMatch,
               },
             },
-            { $group: { _id: null, totalRevenue: { $sum: "$totalAmount" } } },
+            { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE } } },
           ]),
           Order.countDocuments({
             orderStatus: { $nin: ["cancelled", "returned"] },
@@ -386,7 +399,7 @@ exports.getDashboardStats = async (req, res) => {
         {
           $group: {
             _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
-            total: { $sum: "$totalAmount" },
+            total: { $sum: NET_REVENUE },
             orders: { $sum: 1 },
           },
         },
@@ -463,7 +476,7 @@ exports.getDashboardStats = async (req, res) => {
           {
             $group: {
               _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: "Asia/Kolkata" } },
-              total: { $sum: "$totalAmount" },
+              total: { $sum: NET_REVENUE },
               orders: { $sum: 1 },
             },
           },
@@ -516,8 +529,8 @@ exports.getDashboardStats = async (req, res) => {
                 timezone: "Asia/Kolkata",
               },
             },
-            revenue: { $sum: "$totalAmount" },
-            grossProfit: { $sum: "$totalAmount" },
+            revenue: { $sum: NET_REVENUE },
+            grossProfit: { $sum: NET_REVENUE },
             orders: { $sum: 1 },
             items: { $sum: "$totalQuantity" },
           },
@@ -656,7 +669,8 @@ exports.getDashboardStats = async (req, res) => {
       const [codTotalRes] = await Order.aggregate([
         {
           $match: {
-            orderStatus: { $ne: "cancelled" },
+            // Same exclusions as codPendingMatch: returned COD isn't collectible
+            orderStatus: { $nin: ["cancelled", "returned"] },
             paymentMethod: "COD",
             ...dateMatch,
           },

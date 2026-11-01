@@ -310,6 +310,22 @@ function transformForDashboard(product, options = {}) {
           variants: product.variants,
           variantOptions: product.variantOptions,
           images: product.images || [],
+          // The CSV export must round-trip through import, so it needs the
+          // stored values, not the listing's display aggregates. These
+          // override the display fields above:
+          // - sku: the parent's own SKU, never the first variant's (that
+          //   would duplicate a variant SKU in the file)
+          // - price: the stored parent price, not the min variant price
+          sku: product.sku || "",
+          price: product.price ?? product.pricing?.price,
+          offerPrice: product.offerPrice,
+          offerStartAt: product.offerStartAt,
+          offerEndAt: product.offerEndAt,
+          categoryCode: product.categoryCode,
+          description: product.description,
+          details: product.details,
+          metaTitle: product.metaTitle,
+          metaDescription: product.metaDescription,
         }
       : {}),
 

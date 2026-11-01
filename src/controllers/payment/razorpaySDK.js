@@ -13,6 +13,44 @@ const {
 
 const RAZORPAY_TIMEOUT_MS = 15000;
 
+// Constant-time comparison for hex HMAC signatures.
+const safeEqualHex = (expected, received) => {
+  if (typeof received !== "string") return false;
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(received, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
+const razorpayAuthHeader = () => {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keyId || !keySecret) {
+    throw new Error("Razorpay API credentials are not configured");
+  }
+  return `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;
+};
+
+/**
+ * A valid signature only proves the payment belongs to `razorpayOrderId`. Check
+ * that this Razorpay order was created for our `order` (and for its amount) so a
+ * payment for a cheap order can't be replayed to mark an expensive one as paid.
+ * Orders created before razorpayOrderId was persisted are checked against the
+ * Razorpay order's receipt + amount instead.
+ */
+const razorpayOrderBelongsTo = async (order, razorpayOrderId) => {
+  if (order.razorpayOrderId) {
+    return order.razorpayOrderId === razorpayOrderId;
+  }
+  const { data } = await axios.get(
+    `https://api.razorpay.com/v1/orders/${encodeURIComponent(razorpayOrderId)}`,
+    { headers: { Authorization: razorpayAuthHeader() }, timeout: RAZORPAY_TIMEOUT_MS },
+  );
+  return (
+    data?.receipt === order.orderId &&
+    Number(data?.amount) === Math.round(order.totalAmount * 100)
+  );
+};
+
 // Shared Helper: Mark Order as Paid
 const markOrderAsPaid = async (orderId, transactionId, rawResponse, req = null) => {
   logger.info(`[RAZORPAY] Marking order ${orderId} as paid with transaction ${transactionId}`);
@@ -23,12 +61,32 @@ const markOrderAsPaid = async (orderId, transactionId, rawResponse, req = null) 
     return;
   }
 
+  // Only an order still awaiting payment can be marked paid. Replays (callback +
+  // webhook, retried webhooks) must not regress a shipped order to "confirmed"
+  // or resend the confirmation email.
+  if (!["pending", "failed"].includes(order.paymentStatus)) {
+    logger.info(`[RAZORPAY] Order ${orderId} payment already ${order.paymentStatus}; skipping`);
+    return;
+  }
+
+  // Only a pending order moves to confirmed. If the order was already cancelled
+  // (e.g. payment captured after a failure), record the payment but keep it
+  // cancelled so an admin can refund it.
+  const nextOrderStatus =
+    order.orderStatus === "pending" ? "confirmed" : order.orderStatus;
+  if (["cancelled", "returned"].includes(order.orderStatus)) {
+    logger.error(
+      `[RAZORPAY] Payment captured for ${order.orderStatus} order ${orderId} — needs manual refund`,
+      { transactionId },
+    );
+  }
+
   const updatedOrder = await Order.findOneAndUpdate(
-    { orderId },
+    { orderId, paymentStatus: { $in: ["pending", "failed"] } },
     {
       $set: {
         paymentStatus: "paid",
-        orderStatus: "confirmed",
+        orderStatus: nextOrderStatus,
         paymentMethod: PAYMENT_METHODS.RAZORPAY,
         phonepeTransactionId: transactionId, // Set phonepeTransactionId for compatibility with dashboard UI
       },
@@ -83,13 +141,21 @@ const markOrderAsPaid = async (orderId, transactionId, rawResponse, req = null) 
 const handlePaymentFailure = async (orderId, rawResponse) => {
   logger.warn(`[RAZORPAY] Handling payment failure for order ${orderId}`);
 
-  const order = await Order.findOne({ orderId });
-  if (!order) return;
-
-  await Order.updateOne(
-    { orderId },
-    { $set: { paymentStatus: "failed", orderStatus: "cancelled" } }
+  // Claim the transition atomically: only an unpaid, still-open order can fail.
+  // A repeated failure (callback + webhook, webhook retries) or a failure for an
+  // already-paid order matches nothing, so stock is restored exactly once.
+  const order = await Order.findOneAndUpdate(
+    {
+      orderId,
+      paymentStatus: { $in: ["pending", "failed"] },
+      orderStatus: { $nin: ["cancelled", "returned"] },
+    },
+    { $set: { paymentStatus: "failed", orderStatus: "cancelled" } },
   );
+  if (!order) {
+    logger.info(`[RAZORPAY] Failure for ${orderId} ignored: order missing, paid, or already closed`);
+    return;
+  }
   invalidateOrderReportCaches("Razorpay payment failed/cancelled");
 
   await Payment.findOneAndUpdate(
@@ -157,6 +223,10 @@ const initiatePayment = async ({ orderId, amount }) => {
     });
 
     logger.info("[RAZORPAY] Razorpay order created", { orderId, razorpayOrderId: response.data.id });
+    await Order.updateOne(
+      { orderId },
+      { $set: { razorpayOrderId: response.data.id } },
+    );
     return {
       razorpayOrderId: response.data.id,
       amount: response.data.amount,
@@ -202,7 +272,11 @@ const checkOrderStatus = async (req, res) => {
       .update(`${razorpay_payment_link_id}|${razorpay_payment_link_reference_id}|${razorpay_payment_link_status}|${razorpay_payment_id}`)
       .digest("hex");
 
-    const isSignatureValid = expectedSignature === razorpay_signature;
+    // The signature covers reference_id, not the separate `orderId` query param,
+    // so the two must match or a valid callback could be replayed for another order.
+    const isSignatureValid =
+      safeEqualHex(expectedSignature, razorpay_signature) &&
+      razorpay_payment_link_reference_id === orderId;
 
     if (!isSignatureValid) {
       logger.error("[RAZORPAY] Callback signature verification failed", { orderId });
@@ -265,11 +339,28 @@ const verifyPaymentSignature = async (req, res) => {
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest("hex");
 
-    const isSignatureValid = expectedSignature === razorpay_signature;
-
-    if (!isSignatureValid) {
+    // A bad signature proves nothing about the order, so it must not change
+    // state: this endpoint is public, and treating it as a payment failure let
+    // anyone cancel any order (and restore its stock) with a garbage signature.
+    if (!safeEqualHex(expectedSignature, razorpay_signature)) {
       logger.error("[RAZORPAY] Signature verification failed", { orderId });
-      await handlePaymentFailure(orderId, req.body);
+      return res.status(400).json({
+        success: false,
+        message: "Payment signature verification failed",
+      });
+    }
+
+    const order = await Order.findOne({ orderId })
+      .select("orderId razorpayOrderId totalAmount")
+      .lean();
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+    if (!(await razorpayOrderBelongsTo(order, razorpay_order_id))) {
+      logger.error("[RAZORPAY] Payment does not belong to order", {
+        orderId,
+        razorpay_order_id,
+      });
       return res.status(400).json({
         success: false,
         message: "Payment signature verification failed",
@@ -309,16 +400,21 @@ const razorpayWebhook = async (req, res) => {
       return res.status(400).send("INVALID CALLBACK");
     }
 
-    if (webhookSecret) {
-      const expectedSignature = crypto
-        .createHmac("sha256", webhookSecret)
-        .update(req.rawBody)
-        .digest("hex");
+    // Never process an unverified webhook: without the secret anyone could post
+    // a forged "order.paid" event.
+    if (!webhookSecret) {
+      logger.error("❌ Razorpay webhook: RAZORPAY_WEBHOOK_SECRET is not configured");
+      return res.status(500).send("WEBHOOK NOT CONFIGURED");
+    }
 
-      if (expectedSignature !== signature) {
-        logger.error("❌ Razorpay webhook: Signature verification failed");
-        return res.status(400).send("INVALID CALLBACK");
-      }
+    const expectedSignature = crypto
+      .createHmac("sha256", webhookSecret)
+      .update(req.rawBody)
+      .digest("hex");
+
+    if (!safeEqualHex(expectedSignature, signature)) {
+      logger.error("❌ Razorpay webhook: Signature verification failed");
+      return res.status(400).send("INVALID CALLBACK");
     }
 
     const eventData = JSON.parse(req.rawBody);

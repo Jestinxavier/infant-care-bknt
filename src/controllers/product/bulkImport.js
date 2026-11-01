@@ -16,6 +16,33 @@ const {
   generateUniqueSku,
 } = require("../../utils/skuGenerator");
 const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
+const {
+  collectLiveUrlKeys,
+  collectSkus,
+  isUrlKeyTaken,
+  isSkuTaken,
+  buildUrlKeyHistory,
+  findBundlesUsingSkus,
+  describeBundleUsage,
+} = require("../../utils/productIdentifiers");
+
+/** Normalize CSV url_keys to slug form so validate and commit agree. */
+function normalizeImportUrlKeys(products) {
+  products.forEach((p) => {
+    if (typeof p?.url_key === "string" && p.url_key.trim()) {
+      p.url_key = generateSlug(p.url_key.trim());
+    } else if (p) {
+      p.url_key = undefined;
+    }
+  });
+}
+
+/** Error that aborts (and rolls back) the commit with a readable message. */
+function identifierConflict(message) {
+  const error = new Error(message);
+  error.code = "IDENTIFIER_CONFLICT";
+  return error;
+}
 const { normalizeDesignId } = require("../../utils/designId");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
 const { formatVariantName } = require("../../utils/formatVariantName");
@@ -213,11 +240,15 @@ async function preloadIdentifierOwners(products, session) {
   if (urlKeys.size > 0) {
     or.push({ url_key: { $in: Array.from(urlKeys) } });
     or.push({ "variants.url_key": { $in: Array.from(urlKeys) } });
+    // Retired keys still belong to their product (they 301 to it).
+    or.push({ "urlKeyHistory.urlKey": { $in: Array.from(urlKeys) } });
   }
-  if (or.length === 0) return { skuOwners, urlKeyOwners };
+  if (or.length === 0) {
+    return { skuOwners, urlKeyOwners, preloadedSkus: skus, preloadedUrlKeys: urlKeys };
+  }
 
   const finder = Product.find({ $or: or }).select(
-    "_id sku url_key variants.sku variants.url_key"
+    "_id sku url_key variants.sku variants.url_key urlKeyHistory.urlKey"
   );
   const docs = session
     ? await finder.session(session).lean()
@@ -237,9 +268,12 @@ async function preloadIdentifierOwners(products, session) {
       if (v.sku) addTo(skuOwners, v.sku.trim(), pid);
       if (v.url_key) addTo(urlKeyOwners, v.url_key.trim(), pid);
     });
+    (prod.urlKeyHistory || []).forEach((h) => {
+      if (h?.urlKey) addTo(urlKeyOwners, h.urlKey.trim(), pid);
+    });
   });
 
-  return { skuOwners, urlKeyOwners };
+  return { skuOwners, urlKeyOwners, preloadedSkus: skus, preloadedUrlKeys: urlKeys };
 }
 
 function buildVariantTitle(parentTitle, productVariantOptions, attributesMap) {
@@ -543,6 +577,7 @@ class BulkImportController {
 
     // Re-imports matched by SKU become updates of the existing product
     await resolveExistingProductsBySku(products);
+    normalizeImportUrlKeys(products);
 
     for (let i = 0; i < products.length; i++) {
       const product = products[i];
@@ -1039,6 +1074,113 @@ class BulkImportController {
       }
     }
 
+    // Variant SKUs owned by a different product, variant SKUs reusing their
+    // own parent SKU, and SKUs repeated within this CSV. Commit honours typed
+    // SKUs exactly, so these must be fixed in the file.
+    const batchSkuRows = new Map();
+    const noteBatchSku = (sku, row) => {
+      if (!sku) return;
+      if (!batchSkuRows.has(sku)) batchSkuRows.set(sku, []);
+      batchSkuRows.get(sku).push(row);
+    };
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const rowNum = i + 1;
+      noteBatchSku(p.sku, rowNum);
+      (p.variants || []).forEach((v, j) => {
+        const variantRow = `${rowNum}.${j + 1}`;
+        noteBatchSku(v.sku, variantRow);
+        if (!v.sku) return;
+        if (p.sku && v.sku === p.sku) {
+          errors.push({
+            row: variantRow,
+            field: "sku",
+            message: `Variant SKU "${v.sku}" is the same as its product SKU.`,
+          });
+        }
+        const owner = skuOwnerMap.get(v.sku);
+        if (
+          !v.isNewVariant &&
+          owner &&
+          (p.isNewProduct || String(owner) !== String(p.csvId))
+        ) {
+          errors.push({
+            row: variantRow,
+            field: "sku",
+            message: `Variant SKU "${v.sku}" already exists on another product.`,
+          });
+        }
+      });
+    }
+    batchSkuRows.forEach((rows, sku) => {
+      if (rows.length > 1) {
+        errors.push({
+          row: rows[0],
+          field: "sku",
+          message: `SKU "${sku}" is used more than once in this file (rows ${rows.join(", ")}).`,
+        });
+      }
+    });
+
+    // url_key: a new product must not take a live or retired key of any
+    // product; an update must not take one owned by a different product.
+    const csvUrlKeys = Array.from(
+      new Set(products.map((p) => p.url_key).filter(Boolean))
+    );
+    if (csvUrlKeys.length > 0) {
+      const urlKeyOwners = await Product.find({
+        $or: [
+          { url_key: { $in: csvUrlKeys } },
+          { "variants.url_key": { $in: csvUrlKeys } },
+          { "urlKeyHistory.urlKey": { $in: csvUrlKeys } },
+        ],
+      })
+        .select("_id url_key variants.url_key urlKeyHistory.urlKey")
+        .lean();
+      const ownersByKey = new Map();
+      urlKeyOwners.forEach((doc) => {
+        [
+          doc.url_key,
+          ...(doc.variants || []).map((v) => v.url_key),
+          ...(doc.urlKeyHistory || []).map((h) => h.urlKey),
+        ]
+          .filter(Boolean)
+          .forEach((key) => {
+            if (!ownersByKey.has(key)) ownersByKey.set(key, new Set());
+            ownersByKey.get(key).add(String(doc._id));
+          });
+      });
+      const batchUrlKeyRows = new Map();
+      products.forEach((p, i) => {
+        if (!p.url_key) return;
+        const rowNum = i + 1;
+        if (!batchUrlKeyRows.has(p.url_key)) batchUrlKeyRows.set(p.url_key, []);
+        batchUrlKeyRows.get(p.url_key).push(rowNum);
+        const owners = ownersByKey.get(p.url_key);
+        const takenByOther =
+          owners &&
+          (p.isNewProduct
+            ? owners.size > 0
+            : [...owners].some((id) => id !== String(p.csvId)));
+        if (takenByOther) {
+          errors.push({
+            row: rowNum,
+            field: "url_key",
+            message: `URL key "${p.url_key}" is already used (or was used) by another product.`,
+          });
+        }
+      });
+      batchUrlKeyRows.forEach((rows, key) => {
+        if (rows.length > 1) {
+          errors.push({
+            row: rows[0],
+            field: "url_key",
+            message: `URL key "${key}" is used more than once in this file (rows ${rows.join(", ")}).`,
+          });
+        }
+      });
+    }
+
     // Determine which are updates vs creates
     const updateCount = products.filter(
       (p) => p.csvId && !p.csvId.startsWith("TMP_")
@@ -1317,10 +1459,12 @@ class BulkImportController {
         products,
         isTransactionStarted ? session : undefined
       );
+      normalizeImportUrlKeys(products);
 
       // Load every pre-existing SKU / url_key once so the uniqueness checks
       // below are in-memory Set lookups instead of one findOne per candidate.
-      const { skuOwners, urlKeyOwners } = await preloadIdentifierOwners(
+      const { skuOwners, urlKeyOwners, preloadedSkus, preloadedUrlKeys } =
+        await preloadIdentifierOwners(
         products,
         isTransactionStarted ? session : undefined
       );
@@ -1335,16 +1479,27 @@ class BulkImportController {
         return false;
       };
 
-      const skuExistsGlobally = (sku, excludeProductId = null) => {
+      const dbSession = isTransactionStarted ? session : undefined;
+
+      // Values that came from the CSV were preloaded, so the maps are the
+      // full answer. Generated candidates (title slugs, suffixed SKUs) were
+      // not, so they fall back to a DB lookup instead of being assumed free.
+      const skuExistsGlobally = async (sku, excludeProductId = null) => {
         if (!sku) return false;
         if (usedSkusInBatch.has(sku)) return true;
-        return hasOtherOwner(skuOwners, sku, excludeProductId);
+        if (preloadedSkus.has(sku)) {
+          return hasOtherOwner(skuOwners, sku, excludeProductId);
+        }
+        return isSkuTaken(sku, { excludeProductId, session: dbSession });
       };
 
-      const urlKeyExistsGlobally = (urlKey, excludeProductId = null) => {
+      const urlKeyExistsGlobally = async (urlKey, excludeProductId = null) => {
         if (!urlKey) return false;
         if (usedUrlKeysInBatch.has(urlKey)) return true;
-        return hasOtherOwner(urlKeyOwners, urlKey, excludeProductId);
+        if (preloadedUrlKeys.has(urlKey)) {
+          return hasOtherOwner(urlKeyOwners, urlKey, excludeProductId);
+        }
+        return isUrlKeyTaken(urlKey, { excludeProductId, session: dbSession });
       };
 
       // Step 2: Create/Update products
@@ -1402,17 +1557,55 @@ class BulkImportController {
         }
         if (finalProductSku) usedSkusInBatch.add(finalProductSku);
 
-        // 0b. For new products: ensure unique url_key (avoids E11000 duplicate key in bulk import)
+        // Current state of an updated product: its live/retired URLs and
+        // SKUs drive history, variant URL reuse and bundle protection.
+        let existingDocQuery = isUpdate
+          ? Product.findById(productData.csvId).select(
+              "sku url_key urlKeyHistory variants.sku variants.url_key"
+            )
+          : null;
+        if (existingDocQuery && dbSession) {
+          existingDocQuery = existingDocQuery.session(dbSession);
+        }
+        const existingDoc = existingDocQuery ? await existingDocQuery.lean() : null;
+
+        // 0b. url_key: honour the CSV value (validate already rejected
+        // conflicts); generate from the title only when it is missing.
         if (!isUpdate) {
-          const checkUrlKeyExists = async (urlKey) => {
-            return urlKeyExistsGlobally(urlKey);
-          };
-          productData.url_key = await generateUniqueUrlKey(
-            productData.title,
-            checkUrlKeyExists
-          );
+          if (productData.url_key) {
+            if (await urlKeyExistsGlobally(productData.url_key)) {
+              throw identifierConflict(
+                `URL key "${productData.url_key}" is already used (or was used) by another product.`
+              );
+            }
+          } else {
+            productData.url_key = await generateUniqueUrlKey(
+              productData.title,
+              (urlKey) => urlKeyExistsGlobally(urlKey)
+            );
+          }
+          usedUrlKeysInBatch.add(productData.url_key);
+        } else if (
+          productData.url_key &&
+          productData.url_key !== existingDoc?.url_key
+        ) {
+          if (await urlKeyExistsGlobally(productData.url_key, finalProductId)) {
+            throw identifierConflict(
+              `URL key "${productData.url_key}" is already used (or was used) by another product.`
+            );
+          }
           usedUrlKeysInBatch.add(productData.url_key);
         }
+
+        // Base for generated variant URLs. Update rows may omit url_key, so
+        // fall back to the stored one (never "undefined-...").
+        const parentUrlBase = productData.url_key || existingDoc?.url_key || "";
+        // Re-imported variants keep their URL so links do not change.
+        const existingVariantUrlBySku = new Map(
+          (existingDoc?.variants || [])
+            .filter((v) => v?.sku && v?.url_key)
+            .map((v) => [v.sku.toLowerCase().trim(), v.url_key])
+        );
 
         // 1. Process Temp Images
         if (productData.imageMetadata) {
@@ -1444,8 +1637,9 @@ class BulkImportController {
         const uniqueVariantOptions = new Map();
 
         if (productData.variants && productData.variants.length > 0) {
-          const usedVariantSkus = new Set();
-          const usedVariantUrlKeys = new Set();
+          // Seed with the parent's own identifiers so no variant reuses them.
+          const usedVariantSkus = new Set(finalProductSku ? [finalProductSku] : []);
+          const usedVariantUrlKeys = new Set(parentUrlBase ? [parentUrlBase] : []);
 
           const ensureUniqueVariantSku = async (inputSku, variantIndex) => {
             const fallbackBase = `${finalProductSku || "VAR"}-${String(
@@ -1472,7 +1666,7 @@ class BulkImportController {
             inputUrlKey,
             variantIndex
           ) => {
-            const fallbackBase = `${productData.url_key || "product"}-variant-${
+            const fallbackBase = `${parentUrlBase || "product"}-variant-${
               variantIndex + 1
             }`;
             const normalizedBase = generateSlug(
@@ -1697,15 +1891,45 @@ class BulkImportController {
                 )}`;
               }
             }
-            finalVariantSku = await ensureUniqueVariantSku(
-              finalVariantSku,
-              variantIndex
-            );
+            const providedVariantSku = (variantData.sku || "").toString().trim();
+            if (providedVariantSku) {
+              // A SKU typed in the CSV is used exactly or rejected; only
+              // generated SKUs get a de-duplicating suffix.
+              if (
+                usedVariantSkus.has(providedVariantSku) ||
+                (await skuExistsGlobally(
+                  providedVariantSku,
+                  isUpdate ? finalProductId : null
+                ))
+              ) {
+                throw identifierConflict(
+                  `Variant SKU "${providedVariantSku}" is already used by this product or another product.`
+                );
+              }
+              finalVariantSku = providedVariantSku;
+              usedVariantSkus.add(finalVariantSku);
+              usedSkusInBatch.add(finalVariantSku);
+            } else {
+              finalVariantSku = await ensureUniqueVariantSku(
+                finalVariantSku,
+                variantIndex
+              );
+            }
 
-            const variantUrlKey = await ensureUniqueVariantUrlKey(
-              `${productData.url_key}-${finalVariantSku.toLowerCase()}`,
-              variantIndex
+            const keptVariantUrlKey = existingVariantUrlBySku.get(
+              finalVariantSku.toLowerCase().trim()
             );
+            let variantUrlKey;
+            if (keptVariantUrlKey && !usedVariantUrlKeys.has(keptVariantUrlKey)) {
+              variantUrlKey = keptVariantUrlKey;
+              usedVariantUrlKeys.add(variantUrlKey);
+              usedUrlKeysInBatch.add(variantUrlKey);
+            } else {
+              variantUrlKey = await ensureUniqueVariantUrlKey(
+                `${parentUrlBase}-${finalVariantSku.toLowerCase()}`,
+                variantIndex
+              );
+            }
             const variantName = buildVariantTitle(
               productData.title,
               Array.from(uniqueVariantOptions.values()),
@@ -1768,7 +1992,7 @@ class BulkImportController {
           productType = productType.toUpperCase();
           // Validate it's a valid product type
           if (
-            !["SIMPLE", "CONFIGURABLE", "BUNDLE", "CHOICE_GROUP"].includes(
+            !["SIMPLE", "CONFIGURABLE", "BUNDLE"].includes(
               productType
             )
           ) {
@@ -2008,6 +2232,44 @@ class BulkImportController {
             updateData.product_type = productType;
           }
 
+          // Final identifiers after this update (fields the CSV omitted keep
+          // their stored value).
+          const finalState = {
+            sku: updateData.sku !== undefined ? updateData.sku : existingDoc?.sku,
+            url_key:
+              updateData.url_key !== undefined
+                ? updateData.url_key
+                : existingDoc?.url_key,
+            variants:
+              updateData.variants !== undefined
+                ? updateData.variants
+                : existingDoc?.variants || [],
+          };
+
+          // Bundles reference products by exact SKU; refuse to drop one.
+          const finalSkus = new Set(collectSkus(finalState));
+          const removedSkus = collectSkus(existingDoc).filter(
+            (sku) => !finalSkus.has(sku)
+          );
+          if (removedSkus.length > 0) {
+            const bundles = await findBundlesUsingSkus(removedSkus, {
+              excludeProductId: productData.csvId,
+              session: dbSession,
+            });
+            if (bundles.length > 0) {
+              throw identifierConflict(
+                `These SKUs are used by bundles and cannot be changed or removed: ${describeBundleUsage(bundles)}. Update the bundles first.`
+              );
+            }
+          }
+
+          // Retire renamed/removed parent and variant URLs so old links 301.
+          updateData.urlKeyHistory = buildUrlKeyHistory(
+            existingDoc?.urlKeyHistory,
+            collectLiveUrlKeys(existingDoc),
+            collectLiveUrlKeys(finalState)
+          );
+
           await Product.findByIdAndUpdate(
             productData.csvId,
             updateData,
@@ -2162,8 +2424,9 @@ class BulkImportController {
       }
 
       // Defense-in-depth: an update tried to adopt a SKU owned by another
-      // product. Roll back any creates done earlier in this batch.
-      if (error.code === "SKU_CONFLICT") {
+      // product, or a SKU/url_key conflict or bundle dependency surfaced at
+      // commit. Roll back any creates done earlier in this batch.
+      if (error.code === "SKU_CONFLICT" || error.code === "IDENTIFIER_CONFLICT") {
         if (isTransactionStarted) {
           try {
             await session.abortTransaction();
@@ -2177,7 +2440,7 @@ class BulkImportController {
         }
         return res.status(400).json(
           ApiResponse.error(error.message, {
-            code: "SKU_CONFLICT",
+            code: error.code,
           }).toJSON()
         );
       }

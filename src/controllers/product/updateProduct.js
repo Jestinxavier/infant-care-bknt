@@ -11,6 +11,15 @@ const {
   generateVariantSku,
 } = require("../../utils/skuGenerator");
 const {
+  collectLiveUrlKeys,
+  collectSkus,
+  isUrlKeyTaken,
+  isSkuTaken,
+  buildUrlKeyHistory,
+  findBundlesUsingSkus,
+  describeBundleUsage,
+} = require("../../utils/productIdentifiers");
+const {
   extractImagePublicIds,
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
@@ -146,6 +155,8 @@ const updateProduct = async (req, res) => {
       name,
     } = parsedBody;
     const productId = bodyProductId || req.params.productId;
+    // Multipart bodies send booleans as strings ("false" is truthy).
+    const shouldRefreshSlug = refreshSlug === true || refreshSlug === "true";
 
     // DEBUG: Log bundle-related fields
     logger.info("📦 [updateProduct] Received bundle fields:", {
@@ -167,6 +178,13 @@ const updateProduct = async (req, res) => {
         message: "Product not found",
       });
     }
+
+    // Snapshot identifiers before any change: renamed/removed URLs are
+    // retired into urlKeyHistory, and SKUs bundles depend on are protected.
+    const previousUrlKeys = collectLiveUrlKeys(product);
+    const previousSkus = collectSkus(product);
+    const conflict = (message) =>
+      res.status(409).json({ success: false, errorCode: "IDENTIFIER_CONFLICT", message });
 
     // Validate bundle configuration for BUNDLE products
     const effectiveProductType =
@@ -228,16 +246,9 @@ const updateProduct = async (req, res) => {
       product.name = newTitle; // Sync for backward compatibility
 
       // Regenerate url_key only if refreshSlug is true
-      if (refreshSlug) {
-        const checkUrlKeyExists = async (urlKey) => {
-          const existing = await Product.findOne({
-            $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
-            _id: { $ne: productId },
-          })
-            .select("_id")
-            .lean();
-          return !!existing;
-        };
+      if (shouldRefreshSlug) {
+        const checkUrlKeyExists = (urlKey) =>
+          isUrlKeyTaken(urlKey, { excludeProductId: productId });
 
         product.url_key = await generateUniqueUrlKey(
           newTitle,
@@ -329,11 +340,6 @@ const updateProduct = async (req, res) => {
     }
     if (filterAttributes !== undefined) {
       product.filterAttributes = sanitizedFilterAttributes;
-    }
-
-    // CLEANUP: Explicitly remove choice_config if it exists (deprecated/misplaced)
-    if (product.toObject().choice_config) {
-      product.choice_config = undefined;
     }
 
     // Update quantity-based tier pricing
@@ -437,7 +443,17 @@ const updateProduct = async (req, res) => {
 
     // Update additional fields
     // Update SKU with auto-generation fallback
-    if (sku !== undefined) product.sku = sku;
+    if (sku !== undefined) {
+      const nextSku = typeof sku === "string" ? sku.trim() : sku;
+      if (
+        nextSku &&
+        nextSku !== product.sku &&
+        (await isSkuTaken(nextSku, { excludeProductId: productId }))
+      ) {
+        return conflict(`SKU "${nextSku}" is already used by another product.`);
+      }
+      product.sku = nextSku;
+    }
 
     if (
       !product.sku ||
@@ -467,7 +483,21 @@ const updateProduct = async (req, res) => {
         logger.error("Failed generate SKU update:", e);
       }
     }
-    if (url_key !== undefined) product.url_key = url_key;
+    // An explicit "regenerate from title" wins over the url_key the form
+    // always echoes back.
+    if (url_key !== undefined && !shouldRefreshSlug) {
+      const nextUrlKey = typeof url_key === "string" ? url_key.trim() : url_key;
+      if (
+        nextUrlKey &&
+        nextUrlKey !== product.url_key &&
+        (await isUrlKeyTaken(nextUrlKey, { excludeProductId: productId }))
+      ) {
+        return conflict(
+          `URL key "${nextUrlKey}" is already used (or was used) by another product.`
+        );
+      }
+      product.url_key = nextUrlKey;
+    }
     if (subtitle !== undefined) product.subtitle = subtitle;
     // Optional design-family identifier. Empty string/null clears it
     // (product stops sharing reviews). Canonicalized so formatting variants
@@ -576,29 +606,26 @@ const updateProduct = async (req, res) => {
 
     // Update variants (new structure)
     if (variantsArray !== undefined && Array.isArray(variantsArray)) {
-      const usedVariantSkus = new Set();
-      const usedVariantUrlKeys = new Set();
+      // Seed with the parent's own identifiers so no variant can reuse them.
+      const usedVariantSkus = new Set(product.sku ? [product.sku] : []);
+      const usedVariantUrlKeys = new Set(product.url_key ? [product.url_key] : []);
+      const variantIdentifierErrors = [];
 
-      const checkAnySkuExists = async (s) => {
-        if (!s) return false;
-        const existing = await Product.findOne({
-          $or: [{ sku: s }, { "variants.sku": s }],
-          _id: { $ne: productId },
-        })
-          .select("_id")
-          .lean();
-        return !!existing;
-      };
+      const checkAnySkuExists = (s) =>
+        isSkuTaken(s, { excludeProductId: productId });
+      const checkAnyUrlKeyExists = (urlKey) =>
+        isUrlKeyTaken(urlKey, { excludeProductId: productId });
 
-      const checkAnyUrlKeyExists = async (urlKey) => {
-        if (!urlKey) return false;
-        const existing = await Product.findOne({
-          $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
-          _id: { $ne: productId },
-        })
-          .select("_id")
-          .lean();
-        return !!existing;
+      // A SKU/url_key the admin typed is kept as-is or rejected; only
+      // generated values are de-duplicated with a suffix.
+      const rejectIfTaken = async (value, used, checkTaken, label) => {
+        if (used.has(value) || (await checkTaken(value))) {
+          variantIdentifierErrors.push(
+            `Variant ${label} "${value}" is already used by this product or another product.`
+          );
+        }
+        used.add(value);
+        return value;
       };
 
       const ensureUniqueVariantSku = async (inputSku, index) => {
@@ -768,24 +795,35 @@ const updateProduct = async (req, res) => {
             : undefined;
 
         // Auto-generate variant SKU when missing (align with createProduct / product.service)
-        let variantSku = v.sku;
-        if (
-          !variantSku ||
-          (typeof variantSku === "string" && !variantSku.trim())
-        ) {
-          const attrsObj = Object.fromEntries(attributesMap);
-          variantSku = generateVariantSku(product.sku, attrsObj);
-        }
-        variantSku = await ensureUniqueVariantSku(variantSku, index);
+        // attrsObj is shared by SKU and url_key generation, so it lives
+        // outside both branches.
+        const attrsObj = Object.fromEntries(attributesMap);
+        const providedSku = typeof v.sku === "string" ? v.sku.trim() : "";
+        const variantSku = providedSku
+          ? await rejectIfTaken(providedSku, usedVariantSkus, checkAnySkuExists, "SKU")
+          : await ensureUniqueVariantSku(
+              generateVariantSku(product.sku, attrsObj),
+              index
+            );
 
         // Generate variant url_key: <parent-url-key>-<color>-<size> (SEO-friendly)
-        let variantUrlKey = v.url_key;
-        if (!variantUrlKey && product.url_key) {
-          variantUrlKey = generateVariantUrlKey(product.url_key, attrsObj, {
-            fallbackSuffix: variantSku,
-          });
-        }
-        variantUrlKey = await ensureUniqueVariantUrlKey(variantUrlKey, index);
+        const providedUrlKey =
+          typeof v.url_key === "string" ? v.url_key.trim() : "";
+        const variantUrlKey = providedUrlKey
+          ? await rejectIfTaken(
+              providedUrlKey,
+              usedVariantUrlKeys,
+              checkAnyUrlKeyExists,
+              "URL key"
+            )
+          : await ensureUniqueVariantUrlKey(
+              product.url_key
+                ? generateVariantUrlKey(product.url_key, attrsObj, {
+                    fallbackSuffix: variantSku,
+                  })
+                : "",
+              index
+            );
         const variantName = buildVariantTitle(
           product.title,
           product.variantOptions || [],
@@ -823,6 +861,9 @@ const updateProduct = async (req, res) => {
         });
       }
 
+      if (variantIdentifierErrors.length > 0) {
+        return conflict(variantIdentifierErrors.join(" "));
+      }
       product.variants = processedVariants;
       product.markModified("variants");
 
@@ -940,6 +981,29 @@ const updateProduct = async (req, res) => {
         product.status = "draft";
       }
     }
+
+    // SKUs this save removes or renames must not be referenced by a bundle,
+    // or that bundle would point at a product that no longer exists.
+    const currentSkus = new Set(collectSkus(product));
+    const removedSkus = previousSkus.filter((s) => !currentSkus.has(s));
+    if (removedSkus.length > 0) {
+      const bundles = await findBundlesUsingSkus(removedSkus, {
+        excludeProductId: productId,
+      });
+      if (bundles.length > 0) {
+        return conflict(
+          `These SKUs are used by bundles and cannot be changed or removed: ${describeBundleUsage(bundles)}. Update the bundles first.`
+        );
+      }
+    }
+
+    // Retire URLs this save renamed or removed (parent and variants) so old
+    // links 301 to the product instead of 404ing.
+    product.urlKeyHistory = buildUrlKeyHistory(
+      product.urlKeyHistory,
+      previousUrlKeys,
+      collectLiveUrlKeys(product)
+    );
 
     await product.save();
 

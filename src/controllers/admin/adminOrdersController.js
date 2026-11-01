@@ -5,6 +5,7 @@ const emailService = require("../../services/emailService");
 const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
+const { neutralizeCsvFormula } = require("../../utils/reportCsv");
 const {
   canTransitionStatus,
 } = require("../../features/order/rules/order.rules");
@@ -17,6 +18,48 @@ const { formatVariantName } = require("../../utils/formatVariantName");
 const { cacheGetOrSet } = require("../../utils/redisCache");
 
 const escapeRegex = require("../../utils/escapeRegex");
+
+const MAX_EXPORT_ORDERS = 20000;
+
+/**
+ * Resolve an admin-supplied order identifier (custom orderId, "#orderId", or
+ * Mongo _id) to a query. Returns null for non-string input so a body like
+ * `{ orderId: {} }` gets a 400 instead of crashing into a 500.
+ */
+function buildOrderLookupQuery(orderId) {
+  if (typeof orderId !== "string" || !orderId.trim()) return null;
+  const trimmed = orderId.trim();
+  const byCustomId = {
+    orderId: {
+      $regex: new RegExp(`^${escapeRegex(trimmed.replace(/^#/, ""))}$`, "i"),
+    },
+  };
+  return mongoose.Types.ObjectId.isValid(trimmed)
+    ? { $or: [{ _id: trimmed }, byCustomId] }
+    : byCustomId;
+}
+
+const invalidOrderIdResponse = (res) =>
+  res.status(400).json({ success: false, message: "Order ID is required" });
+
+/**
+ * Oldest order date the user may view, or null when unrestricted. The `admin`
+ * role only sees the last ORDER_DATE_RESTRICTION_DAYS days (superadmins see all).
+ */
+function getOrderRestrictionDate(reqUser) {
+  if (reqUser?.role !== "admin") return null;
+  const restrictionDate = new Date();
+  restrictionDate.setUTCDate(
+    restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
+  );
+  restrictionDate.setUTCHours(0, 0, 0, 0);
+  return restrictionDate;
+}
+
+// Filter values arrive from JSON bodies, so only accept plain strings — an
+// object like { $ne: null } would otherwise act as a query operator.
+const asFilterString = (value) =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
 
 /**
  * Build the admin order filter from request data (query or body).
@@ -40,14 +83,8 @@ async function buildOrderFilter(requestData, reqUser) {
   let filter = {};
 
   // ===== ROLE-BASED DATE RESTRICTIONS =====
-  const userRole = reqUser?.role;
-  if (userRole === "admin") {
-    const restrictionDate = new Date();
-    restrictionDate.setUTCDate(
-      restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
-    );
-    restrictionDate.setUTCHours(0, 0, 0, 0);
-
+  const restrictionDate = getOrderRestrictionDate(reqUser);
+  if (restrictionDate) {
     if (from) {
       const fromDate = new Date(from);
       fromDate.setUTCHours(0, 0, 0, 0);
@@ -82,8 +119,8 @@ async function buildOrderFilter(requestData, reqUser) {
     }
   }
 
-  if (status) {
-    filter.orderStatus = status;
+  if (asFilterString(status)) {
+    filter.orderStatus = asFilterString(status);
   }
 
   // Optional exclusion list (e.g. hide cancelled/returned from COD collection
@@ -113,12 +150,12 @@ async function buildOrderFilter(requestData, reqUser) {
     ];
   }
 
-  if (paymentStatus) {
-    filter.paymentStatus = paymentStatus;
+  if (asFilterString(paymentStatus)) {
+    filter.paymentStatus = asFilterString(paymentStatus);
   }
 
-  if (paymentMethod) {
-    filter.paymentMethod = paymentMethod;
+  if (asFilterString(paymentMethod)) {
+    filter.paymentMethod = asFilterString(paymentMethod);
   }
 
   // Customer type filter (guest vs registered)
@@ -149,7 +186,7 @@ async function buildOrderFilter(requestData, reqUser) {
   }
 
   // Advanced Search
-  if (search) {
+  if (typeof search === "string" && search) {
     const safeSearch = escapeRegex(search);
     const searchRegex = new RegExp(safeSearch, "i");
     // Remove leading '#' for ID searching
@@ -428,30 +465,8 @@ const getOrderStatusCounts = async (req, res) => {
  */
 const getOrderById = async (req, res) => {
   try {
-    const { orderId } = req.params;
-
-    if (!orderId) {
-      return res.status(400).json({
-        success: false,
-        message: "Order ID is required",
-      });
-    }
-
-    // Check if orderId is a valid ObjectId (MongoDB ID)
-    let query = { orderId: orderId };
-    const sanitizedId = escapeRegex(orderId.replace(/^#/, ""));
-
-    if (mongoose.Types.ObjectId.isValid(orderId)) {
-      // It could be either, so we search both
-      query = {
-        $or: [
-          { _id: orderId },
-          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
-        ],
-      };
-    } else {
-      query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
-    }
+    const query = buildOrderLookupQuery(req.params.orderId);
+    if (!query) return invalidOrderIdResponse(res);
 
     const order = await Order.findOne(query)
       .populate({
@@ -471,6 +486,18 @@ const getOrderById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Order not found",
+      });
+    }
+
+    // Same role-based window as the order list, so an admin can't read older
+    // orders (and their customer details) by opening them directly.
+    const restrictionDate = getOrderRestrictionDate(req.user);
+    if (restrictionDate && new Date(order.createdAt) < restrictionDate) {
+      return res.status(403).json({
+        success: false,
+        errorCode: "DATE_RESTRICTED",
+        message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
+        maxDate: restrictionDate.toISOString().split("T")[0],
       });
     }
 
@@ -519,31 +546,8 @@ const updateOrderStatus = async (req, res) => {
   try {
     const { orderId, status, trackingId, deliveryNote } = req.body;
 
-    if (!orderId) {
-      return res.status(400).json({
-        success: false,
-        message: "Order ID is required",
-      });
-    }
-
-    // Check if orderId is a valid ObjectId (MongoDB ID)
-    let query = { orderId: orderId };
-
-    const sanitizedId = escapeRegex(orderId.replace(/^#/, ""));
-
-    // Sanitize and allow case-insensitive search for custom IDs
-    if (mongoose.Types.ObjectId.isValid(orderId)) {
-      // It could be either, so we search both
-      query = {
-        $or: [
-          { _id: orderId },
-          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
-        ],
-      };
-    } else {
-      // Just search by custom ID (case insensitive)
-      query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
-    }
+    const query = buildOrderLookupQuery(orderId);
+    if (!query) return invalidOrderIdResponse(res);
 
     const currentOrder = await Order.findOne(query);
 
@@ -785,27 +789,13 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
-    // Restore product stock when cancelling or returning an order (simple, variant, bundle, gift)
-    if (
+    // Restore product stock when cancelling or returning an order (simple,
+    // variant, bundle, gift). This runs only after the conditional update below
+    // succeeds, so concurrent cancel requests can't both restore stock.
+    const needsStockRestore =
       (status === "cancelled" || status === "returned") &&
       currentOrder.orderStatus !== status &&
-      currentOrder.items?.length > 0
-    ) {
-      try {
-        await restoreOrderStock(currentOrder);
-      } catch (restoreErr) {
-        logger.error("Failed to restore stock on order cancel/return", {
-          orderId: currentOrder._id,
-          error: restoreErr.message,
-        });
-        return res.status(500).json({
-          success: false,
-          message:
-            "Order status could not be updated. Stock restore failed. Please try again.",
-          error: restoreErr.message,
-        });
-      }
-    }
+      currentOrder.items?.length > 0;
 
     // 3. Perform Update — include the orderStatus we read as a match condition so that
     //    a concurrent status change causes a 409 rather than silently overwriting it.
@@ -829,6 +819,34 @@ const updateOrderStatus = async (req, res) => {
         message:
           "Order was modified by another request. Please refresh and try again.",
       });
+    }
+
+    if (needsStockRestore) {
+      try {
+        await restoreOrderStock(currentOrder);
+      } catch (restoreErr) {
+        logger.error("Failed to restore stock on order cancel/return", {
+          orderId: currentOrder._id,
+          error: restoreErr.message,
+        });
+        // Roll the status change back so the admin can retry the cancel/return.
+        await Order.updateOne(
+          { _id: currentOrder._id, orderStatus: status },
+          {
+            $set: {
+              orderStatus: currentOrder.orderStatus,
+              paymentStatus: currentOrder.paymentStatus,
+              refundedAt: currentOrder.refundedAt ?? null,
+            },
+            $pop: { statusHistory: 1 },
+          },
+        );
+        return res.status(500).json({
+          success: false,
+          message:
+            "Order status could not be updated. Stock restore failed. Please try again.",
+        });
+      }
     }
 
     res.status(200).json({
@@ -939,28 +957,8 @@ const updateOrderStatus = async (req, res) => {
  */
 const sendOrderInvoice = async (req, res) => {
   try {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Order ID is required" });
-    }
-
-    // Resolve orderId
-    let query = { orderId: orderId };
-    const sanitizedId = escapeRegex(orderId.replace(/^#/, ""));
-
-    if (mongoose.Types.ObjectId.isValid(orderId)) {
-      query = {
-        $or: [
-          { _id: orderId },
-          { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
-        ],
-      };
-    } else {
-      query = { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
-    }
+    const query = buildOrderLookupQuery(req.body.orderId);
+    if (!query) return invalidOrderIdResponse(res);
 
     const order = await Order.findOne(query)
       .populate("userId", "username email phone")
@@ -1016,12 +1014,12 @@ const markOrderAsPaid = async (req, res) => {
   try {
     const { orderId, phonepeTransactionId } = req.body;
 
-    if (!orderId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Order ID is required" });
-    }
-    if (!phonepeTransactionId || !String(phonepeTransactionId).trim()) {
+    const query = buildOrderLookupQuery(orderId);
+    if (!query) return invalidOrderIdResponse(res);
+    if (
+      typeof phonepeTransactionId !== "string" ||
+      !phonepeTransactionId.trim()
+    ) {
       return res
         .status(400)
         .json({
@@ -1029,17 +1027,6 @@ const markOrderAsPaid = async (req, res) => {
           message: "PhonePe Transaction ID is required",
         });
     }
-
-    // Resolve order
-    const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
-    let query = mongoose.Types.ObjectId.isValid(orderId)
-      ? {
-          $or: [
-            { _id: orderId },
-            { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
-          ],
-        }
-      : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
 
     const order = await Order.findOne(query)
       .populate("userId", "username email phone")
@@ -1086,8 +1073,11 @@ const markOrderAsPaid = async (req, res) => {
       updatedBy: req.user?._id,
     });
 
-    const updated = await Order.findByIdAndUpdate(
-      order._id,
+    // Conditional on the payment still being unpaid, so a webhook confirming
+    // the same payment concurrently can't produce a second paid transition
+    // (and a second confirmation email).
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, paymentStatus: { $in: ["pending", "failed"] } },
       {
         $set: {
           paymentStatus: "paid",
@@ -1104,9 +1094,10 @@ const markOrderAsPaid = async (req, res) => {
       .lean();
 
     if (!updated) {
-      return res
-        .status(500)
-        .json({ success: false, message: "Failed to update order" });
+      return res.status(409).json({
+        success: false,
+        message: "Order payment changed meanwhile. Refresh and try again.",
+      });
     }
 
     res.status(200).json({
@@ -1139,24 +1130,8 @@ const markOrderAsPaid = async (req, res) => {
  */
 const markCodOrderAsPaid = async (req, res) => {
   try {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Order ID is required" });
-    }
-
-    // Resolve order
-    const sanitizedId = escapeRegex(String(orderId).replace(/^#/, ""));
-    let query = mongoose.Types.ObjectId.isValid(orderId)
-      ? {
-          $or: [
-            { _id: orderId },
-            { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } },
-          ],
-        }
-      : { orderId: { $regex: new RegExp(`^${sanitizedId}$`, "i") } };
+    const query = buildOrderLookupQuery(req.body.orderId);
+    if (!query) return invalidOrderIdResponse(res);
 
     const order = await Order.findOne(query)
       .populate("userId", "username email phone")
@@ -1203,8 +1178,9 @@ const markCodOrderAsPaid = async (req, res) => {
       updatedBy: req.user?._id,
     });
 
-    const updated = await Order.findByIdAndUpdate(
-      order._id,
+    // Conditional so a double-click can't send the invoice twice.
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, paymentStatus: { $in: ["pending", "failed"] } },
       {
         $set: {
           paymentStatus: "paid",
@@ -1217,9 +1193,10 @@ const markCodOrderAsPaid = async (req, res) => {
       .lean();
 
     if (!updated) {
-      return res
-        .status(500)
-        .json({ success: false, message: "Failed to update order" });
+      return res.status(409).json({
+        success: false,
+        message: "Order payment changed meanwhile. Refresh and try again.",
+      });
     }
 
     res.status(200).json({
@@ -1249,7 +1226,8 @@ const markCodOrderAsPaid = async (req, res) => {
 
 const csvCell = (value) => {
   if (value === null || value === undefined) return "";
-  const str = String(value);
+  // Customer-controlled text (names, addresses) must not run as a formula.
+  const str = typeof value === "string" ? neutralizeCsvFormula(value) : String(value);
   return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 };
 
@@ -1438,6 +1416,17 @@ const exportOrders = async (req, res) => {
       if (idClauses.length > 0) {
         filter.$and = [...(filter.$and || []), { $or: idClauses }];
       }
+    }
+
+    // The whole export is built in memory, so refuse runaway ranges instead of
+    // risking the API process on an unfiltered all-time export.
+    const matchingCount = await Order.countDocuments(filter);
+    if (matchingCount > MAX_EXPORT_ORDERS) {
+      return res.status(413).json({
+        success: false,
+        errorCode: "EXPORT_TOO_LARGE",
+        message: `This export matches ${matchingCount} orders. Narrow the date range or filters to ${MAX_EXPORT_ORDERS} orders or fewer.`,
+      });
     }
 
     const orders = await Order.find(filter)

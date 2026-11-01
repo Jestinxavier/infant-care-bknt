@@ -291,9 +291,41 @@ describe("Refund surface", () => {
     expect(afterComplete.refundAttempts[0].state).toBe("COMPLETED");
     expect(afterComplete.refundAttempts[0].resolvedAt).toBeInstanceOf(Date);
 
+    // A terminal state is applied once per attempt: a later poll reporting a
+    // different state for the same, already-resolved refund changes nothing.
     axios.get.mockResolvedValue({
       data: { id: refundId, status: "failed", amount: 50000 },
     });
+    const repeatPoll = await request(app)
+      .get(`${BASE}/${refundId}`)
+      .set(auth(superAdminToken));
+    expect(repeatPoll.status).toBe(200);
+    const afterRepeat = await Order.findById(order._id).lean();
+    expect(afterRepeat.refundStatus).toBe("COMPLETED");
+    expect(afterRepeat.paymentStatus).toBe(order.paymentStatus);
+  });
+
+  it("reopens the order and releases the amount when a refund fails", async () => {
+    const refundId = "rfnd_failed";
+    const order = await createOrder({
+      paymentStatus: "refunded",
+      orderStatus: "cancelled",
+      refundId,
+      refundStatus: "PENDING",
+      refundedAmountPaise: 50000,
+      refundAttempts: [
+        {
+          merchantRefundId: refundId,
+          state: "PENDING",
+          amountPaise: 50000,
+          initiatedAt: new Date(),
+        },
+      ],
+    });
+    axios.get.mockResolvedValue({
+      data: { id: refundId, status: "failed", amount: 50000 },
+    });
+
     const failed = await request(app)
       .get(`${BASE}/${refundId}`)
       .set(auth(superAdminToken));
@@ -303,5 +335,48 @@ describe("Refund surface", () => {
     const afterFailure = await Order.findById(order._id).lean();
     expect(afterFailure.refundStatus).toBe("FAILED");
     expect(afterFailure.paymentStatus).toBe("paid");
+    expect(afterFailure.refundedAmountPaise).toBe(0);
+
+    // Polling the failed refund again must not release the amount twice.
+    await request(app).get(`${BASE}/${refundId}`).set(auth(superAdminToken));
+    const afterSecondPoll = await Order.findById(order._id).lean();
+    expect(afterSecondPoll.refundedAmountPaise).toBe(0);
+  });
+
+  it("keeps the order open on a partial refund and caps later refunds at the remainder", async () => {
+    const order = await createOrder({ orderStatus: "delivered" });
+    axios.post.mockResolvedValue({
+      data: { id: "rfnd_partial", status: "pending", amount: 10000 },
+    });
+
+    const partial = await request(app)
+      .post(BASE)
+      .set(auth(superAdminToken))
+      .send({ orderId: order.orderId, refundAmount: 10000 });
+    expect(partial.status).toBe(200);
+
+    const afterPartial = await Order.findById(order._id).lean();
+    expect(afterPartial.paymentStatus).toBe("paid");
+    expect(afterPartial.orderStatus).toBe("delivered");
+    expect(afterPartial.refundedAmountPaise).toBe(10000);
+    expect(afterPartial.refundLockedAt).toBeNull();
+
+    const remaining = Math.round(order.totalAmount * 100) - 10000;
+    const tooMuch = await request(app)
+      .post(BASE)
+      .set(auth(superAdminToken))
+      .send({ orderId: order.orderId, refundAmount: remaining + 1 });
+    expect(tooMuch.status).toBe(400);
+  });
+
+  it("rejects a second refund while one is in progress", async () => {
+    const order = await createOrder({ refundLockedAt: new Date() });
+
+    const response = await request(app)
+      .post(BASE)
+      .set(auth(superAdminToken))
+      .send({ orderId: order.orderId });
+    expect(response.status).toBe(409);
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });

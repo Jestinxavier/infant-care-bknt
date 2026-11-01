@@ -350,6 +350,21 @@ describe("Order surface", () => {
       .set(auth(adminToken));
     expect(missing.status).toBe(404);
 
+    // The admin role's date window also applies when opening an order directly.
+    const old = await createOrder({ user, orderStatus: "delivered", paymentStatus: "paid" });
+    // Raw driver: Mongoose treats createdAt as immutable and drops it from updates.
+    await Order.collection.updateOne(
+      { _id: old._id },
+      { $set: { createdAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) } },
+    );
+    const restricted = await request(app)
+      .get(`/api/v1/admin/orders/${old.orderId}`)
+      .set(auth(adminToken));
+    expect(restricted.status).toBe(403);
+    expect(restricted.body.errorCode).toBe("DATE_RESTRICTED");
+    expect(restricted.body.maxDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await Order.deleteOne({ _id: old._id });
+
     const exported = await request(app)
       .get("/api/v1/admin/orders/export")
       .set(auth(adminToken));

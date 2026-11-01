@@ -86,8 +86,11 @@ const validateVariantOptions = (product, options) => {
     options instanceof Map ? Object.fromEntries(options) : options || {};
 
   // Check all required options are present
+  // Values are stored under the option code; accept the display name too for
+  // older callers.
   product.variantOptions.forEach((configOption) => {
-    const optionValue = optionsObj[configOption.name];
+    const optionValue =
+      optionsObj[configOption.code] ?? optionsObj[configOption.name];
 
     if (!optionValue) {
       errors.push(
@@ -112,8 +115,11 @@ const validateVariantOptions = (product, options) => {
 
   // Check no extra options (warn only, not error)
   const configuredNames = product.variantOptions.map((opt) => opt.name);
+  const configuredKeys = new Set(
+    product.variantOptions.flatMap((opt) => [opt.code, opt.name]).filter(Boolean)
+  );
   const extraOptions = Object.keys(optionsObj).filter(
-    (key) => !configuredNames.includes(key)
+    (key) => !configuredKeys.has(key)
   );
 
   if (extraOptions.length > 0) {

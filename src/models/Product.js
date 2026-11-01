@@ -177,7 +177,6 @@ const PRODUCT_TYPES = {
   SIMPLE: "SIMPLE",
   CONFIGURABLE: "CONFIGURABLE",
   BUNDLE: "BUNDLE",
-  CHOICE_GROUP: "CHOICE_GROUP",
 };
 
 // Retired url_key history. Appended on rename so the old storefront URL keeps
@@ -242,7 +241,7 @@ const productSchema = new mongoose.Schema(
       default: "draft",
     },
 
-    // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle), CHOICE_GROUP (gift choice)
+    // Product Type: SIMPLE (no variants), CONFIGURABLE (has variants), BUNDLE (fixed bundle)
     product_type: {
       type: String,
       enum: Object.values(PRODUCT_TYPES),
@@ -268,8 +267,6 @@ const productSchema = new mongoose.Schema(
         default: { enabled: false },
       },
     },
-
-    // choice_config REMOVED - Legacy structure replaced by bundle_config.gift_slot
 
     // Product-level pricing (discountPrice is computed at runtime, not stored)
     price: { type: Number, min: 0 },

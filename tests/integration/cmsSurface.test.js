@@ -192,6 +192,50 @@ describe("CMS surface", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("saves landing blocks by id and never auto-creates landing pages", async () => {
+    const slug = uniqueToken("landing");
+
+    const unknownPut = await request(app)
+      .put(`/api/v1/admin/cms/${slug}`)
+      .set(auth(adminToken))
+      .send({ content: [] });
+    expect(unknownPut.status).toBe(404);
+
+    const unknownGet = await request(app)
+      .get(`/api/v1/admin/cms/${slug}`)
+      .set(auth(adminToken));
+    expect(unknownGet.status).toBe(404);
+
+    await request(app)
+      .post("/api/v1/admin/cms/landings")
+      .set(auth(adminToken))
+      .send({ slug, title: "Landing" });
+
+    const first = { id: "block-a", block_type: "heroBanner", enabled: true, order: 0, content: [{ link: "/a" }] };
+    const second = { id: "block-b", block_type: "heroBanner", enabled: true, order: 1, content: [{ link: "/b" }] };
+
+    for (const block of [first, second]) {
+      const res = await request(app)
+        .patch(`/api/v1/admin/cms/${slug}/block/heroBanner`)
+        .set(auth(adminToken))
+        .send(block);
+      expect(res.status).toBe(200);
+    }
+
+    const missingId = await request(app)
+      .patch(`/api/v1/admin/cms/${slug}/block/heroBanner`)
+      .set(auth(adminToken))
+      .send({ block_type: "heroBanner", content: [] });
+    expect(missingId.status).toBe(400);
+
+    const page = await request(app)
+      .get(`/api/v1/admin/cms/${slug}`)
+      .set(auth(adminToken));
+    expect(page.status).toBe(200);
+    expect(page.body.data.content.map((b) => b.id)).toEqual(["block-a", "block-b"]);
+    expect(page.body.data.content[0].content[0].link).toBe("/a");
+  });
+
   it("manages draft and published static pages", async () => {
     const slug = uniqueToken("page");
 

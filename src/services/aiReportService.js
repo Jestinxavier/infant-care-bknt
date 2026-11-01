@@ -9,6 +9,7 @@ const AnalyticsEvent = require("../models/AnalyticsEvent");
 const AiDailyReport = require("../models/AiDailyReport");
 const Cart = require("../models/Cart");
 const Order = require("../models/Order");
+const { NET_REVENUE } = require("../utils/revenueExpr");
 const Product = require("../models/Product");
 const logger = require("../utils/logger");
 
@@ -177,7 +178,7 @@ async function aggregateDay(from, to, dateStr) {
           ...match,
         },
       },
-      { $group: { _id: null, revenue: { $sum: "$totalAmount" } } },
+      { $group: { _id: null, revenue: { $sum: NET_REVENUE } } },
     ]),
     Order.aggregate([
       { $match: { ...ORDERS_BASE, ...match } },

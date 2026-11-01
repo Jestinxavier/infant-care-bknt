@@ -1,4 +1,5 @@
 const Order = require("../../models/Order");
+const { NET_REVENUE } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -132,7 +133,7 @@ exports.getRevenueOverTime = async (req, res) => {
                     month: { $month: "$createdAt" },
                     day: { $dayOfMonth: "$createdAt" },
                   },
-              total: { $sum: "$totalAmount" },
+              total: { $sum: NET_REVENUE },
               orders: { $sum: 1 },
             },
           },
@@ -151,7 +152,7 @@ exports.getRevenueOverTime = async (req, res) => {
           {
             $group: {
               _id: null,
-              total: { $sum: "$totalAmount" },
+              total: { $sum: NET_REVENUE },
               orders: { $sum: 1 },
               currentStartMin: { $min: "$createdAt" },
               currentStartMax: { $max: "$createdAt" },
@@ -222,7 +223,7 @@ exports.getRevenueOverTime = async (req, res) => {
                         month: { $month: "$createdAt" },
                         day: { $dayOfMonth: "$createdAt" },
                       },
-                  total: { $sum: "$totalAmount" },
+                  total: { $sum: NET_REVENUE },
                   orders: { $sum: 1 },
                 },
               },

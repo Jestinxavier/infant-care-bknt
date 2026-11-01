@@ -128,6 +128,8 @@ const getAllProducts = async (req, res) => {
           { description: searchRegex },
           { "variants.sku": searchRegex }, // Search in variant SKUs
           { sku: searchRegex }, // Search in parent SKU if exists
+          { url_key: searchRegex },
+          { "variants.url_key": searchRegex },
         ],
       };
     }
@@ -144,6 +146,10 @@ const getAllProducts = async (req, res) => {
     const safeSort = ALLOWED_SORT_FIELDS.includes(sortBy) ? sortBy : "createdAt";
     const sort = {};
     sort[safeSort] = parseInt(sortOrder, 10);
+    // Tiebreaker: products created together (e.g. a CSV import) share
+    // createdAt, and skip/limit over a non-unique sort can repeat or drop
+    // rows between pages — which corrupts paginated CSV exports.
+    sort._id = sort[safeSort];
 
     // Get total count
     const total = await Product.countDocuments(filter);
@@ -154,8 +160,11 @@ const getAllProducts = async (req, res) => {
     // discarded on every list request. The whole `variants` array (and
     // variantOptions/images for CSV export) is kept because the transform
     // aggregates stock and prices from them and the export needs full rows.
+    const exportMode = includeVariants === "true" || includeVariants === true;
     const listProjection =
-      "title name category categoryName categoryCode url_key sku status product_type price offerPrice offerStartAt offerEndAt pricing basePrice stock stockObj images variants variantOptions bundle_config filterAttributes collections badgeCollection designId createdAt updatedAt";
+      "title name category categoryName categoryCode url_key sku status product_type price offerPrice offerStartAt offerEndAt pricing basePrice stock stockObj images variants variantOptions bundle_config filterAttributes collections badgeCollection designId createdAt updatedAt" +
+      // CSV export writes these columns; the plain listing never needs them.
+      (exportMode ? " description details metaTitle metaDescription" : "");
 
     const products = await Product.find(filter)
       .select(listProjection)
@@ -225,9 +234,7 @@ const getAllProducts = async (req, res) => {
 
     // Transform products for admin dashboard using utility function
     const formattedProducts = products.map((product) =>
-      transformForDashboard(product, {
-        includeVariants: includeVariants === "true" || includeVariants === true,
-      })
+      transformForDashboard(product, { includeVariants: exportMode })
     );
 
     res.status(200).json({

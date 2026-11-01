@@ -52,13 +52,11 @@ class CmsService {
       };
     }
 
+    // Landing pages must be created explicitly via POST /landings; never
+    // fabricate one here, or a stale/typo'd editor URL would silently create
+    // (or resurrect) a page on save.
     if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-      return {
-        model: LandingPage,
-        title: slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
-        isLanding: true,
-        filter: { slug },
-      };
+      throw ApiError.notFound(`Landing page '${slug}' not found`);
     }
 
     throw ApiError.badRequest(
@@ -385,19 +383,13 @@ class CmsService {
           ? contentData.content
           : [];
 
-      let doc = await pageConfig.model.findOne(pageConfig.filter);
+      const doc = await pageConfig.model.findOne(pageConfig.filter);
       if (!doc) {
-        doc = await pageConfig.model.create({
-          slug: pageConfig.filter.slug,
-          title: pageConfig.title,
-          content: blocks,
-          enabled: true,
-        });
-      } else {
-        doc.content = blocks;
-        doc.markModified("content");
-        await doc.save();
+        throw ApiError.notFound(`Landing page '${page}' not found`);
       }
+      doc.content = blocks;
+      doc.markModified("content");
+      await doc.save();
 
       return {
         page,
@@ -635,17 +627,14 @@ class CmsService {
         throw ApiError.notFound(`Landing page '${page}' not found`);
       }
 
-      const blocks = Array.isArray(doc.content) ? [...doc.content] : [];
-      let index = -1;
+      if (!blockData || typeof blockData.id !== "string" || !blockData.id.trim()) {
+        throw ApiError.badRequest("Block id is required");
+      }
 
-      if (blockData && blockData.id) {
-        index = blocks.findIndex((b) => b && b.id === blockData.id);
-      }
-      if (index === -1) {
-        index = blocks.findIndex(
-          (b) => b && b.block_type === (blockData?.block_type || blockType)
-        );
-      }
+      const blocks = Array.isArray(doc.content) ? [...doc.content] : [];
+      // Match by id only. Falling back to block_type would let a newly added
+      // widget overwrite an existing widget of the same type.
+      const index = blocks.findIndex((b) => b && b.id === blockData.id);
 
       if (index !== -1) {
         blocks[index] = { ...blocks[index], ...blockData };

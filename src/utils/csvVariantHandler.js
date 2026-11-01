@@ -26,27 +26,33 @@ const exportVariantsToCSV = async (productId) => {
     throw new Error("Product has no variants to export");
   }
 
-  // Determine option columns from variantOptions
-  const optionNames = (product.variantOptions || []).map((opt) => opt.name);
+  const toObject = (value) =>
+    value instanceof Map ? Object.fromEntries(value) : value || {};
 
   // Build rows
   const rows = product.variants.map((variant) => {
     const row = {
       SKU: variant.sku,
-      Price: variant.price || variant.pricing?.price || 0,
-      "Discount Price":
-        variant.discountPrice || variant.pricing?.discountPrice || "",
-      Stock: variant.stock || variant.stockObj?.available || 0,
+      Price: variant.price ?? variant.pricing?.price ?? 0,
+      // Variants store their offer as `offerPrice` (discountPrice is computed
+      // at runtime, never stored). Header kept for existing spreadsheets.
+      "Discount Price": variant.offerPrice ?? "",
+      // stockObj.available is the authoritative stock; `stock || …` also
+      // skipped a real 0.
+      Stock: variant.stockObj?.available ?? variant.stock ?? 0,
     };
 
-    // Add option columns
-    const options = variant.options || variant.attributes || new Map();
+    // Add option columns. `attributes` is the current store (legacy
+    // `options` may be an empty Map), and values are keyed by option code
+    // ("color"), not display name ("Color").
+    const attributes = toObject(variant.attributes);
     const optionsObj =
-      options instanceof Map ? Object.fromEntries(options) : options;
+      Object.keys(attributes).length > 0 ? attributes : toObject(variant.options);
 
-    optionNames.forEach((name) => {
+    (product.variantOptions || []).forEach((opt) => {
+      const name = opt.name || "";
       row[name.charAt(0).toUpperCase() + name.slice(1)] =
-        optionsObj[name] || "";
+        optionsObj[opt.code] ?? optionsObj[name] ?? optionsObj[name.toLowerCase()] ?? "";
     });
 
     // Add image columns
@@ -97,18 +103,22 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
 
   results.total = rows.length;
 
-  // Get option names
-  const optionNames = (product.variantOptions || []).map((opt) => opt.name);
+  const variantOptions = product.variantOptions || [];
 
   for (const [index, row] of rows.entries()) {
     try {
-      // Build options from CSV columns
+      // Build options from CSV columns. Columns are headed by display name
+      // ("Color"), but values are stored under the option code ("color"),
+      // like every other write path, so filters and the options hash match.
       const options = new Map();
-      optionNames.forEach((name) => {
+      variantOptions.forEach((opt) => {
+        const name = opt.name || "";
+        const key = opt.code || name;
         const colName = name.charAt(0).toUpperCase() + name.slice(1);
-        const value = row[colName] || row[name] || row[name.toUpperCase()];
+        const value =
+          row[colName] || row[name] || row[name.toUpperCase()] || row[key];
         if (value) {
-          options.set(name, value.trim().toLowerCase());
+          options.set(key, value.trim().toLowerCase());
         }
       });
 
@@ -161,14 +171,34 @@ const importVariantsFromCSV = async (filePath, productId, options = {}) => {
           { fallbackSuffix: variantSku },
         );
 
+      // "Discount Price" maps to the stored offerPrice (a blank cell keeps
+      // the variant's current offer). It must be below the regular price.
+      const price = parseFloat(row.Price);
+      const rawOffer = String(row["Discount Price"] ?? "").trim();
+      const offerPrice = rawOffer ? parseFloat(rawOffer) : undefined;
+      if (
+        offerPrice !== undefined &&
+        (Number.isNaN(offerPrice) || offerPrice <= 0 || offerPrice >= price)
+      ) {
+        results.errors.push({
+          row: index + 2,
+          errors: ["Discount Price must be a number below Price"],
+        });
+        results.skipped++;
+        continue;
+      }
+
       const variantData = {
         options: options,
         attributes: options,
-        price: parseFloat(row.Price),
-        discountPrice: row["Discount Price"]
-          ? parseFloat(row["Discount Price"])
-          : undefined,
+        price,
+        ...(offerPrice !== undefined ? { offerPrice } : {}),
         stock: row.Stock ? parseInt(row.Stock) : 0,
+        // Keep the authoritative stock in sync with the flat field.
+        stockObj: {
+          available: row.Stock ? parseInt(row.Stock) : 0,
+          isInStock: (row.Stock ? parseInt(row.Stock) : 0) > 0,
+        },
         sku: variantSku,
         _optionsHash: optionsHash,
         url_key: urlKey,

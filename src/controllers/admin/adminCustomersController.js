@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const User = require("../../models/user");
 const Order = require("../../models/Order");
+const { NET_REVENUE } = require("../../utils/revenueExpr");
 
 const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
@@ -24,7 +25,7 @@ const buildOrderStats = async (userIds) => {
                   { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
                 ],
               },
-              "$totalAmount",
+              NET_REVENUE,
               0,
             ],
           },

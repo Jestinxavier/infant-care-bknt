@@ -14,17 +14,31 @@ function sanitizeFilename(name, fallback = "report") {
   return `${cleaned || fallback}.csv`;
 }
 
+/**
+ * Spreadsheet apps run a cell starting with = + - @ (or tab / CR) as a
+ * formula, so customer-controlled text like a name of `=HYPERLINK(...)` would
+ * execute when an admin opens the export. Prefix those with a quote so they
+ * show as plain text. Numbers are left alone, so negative amounts stay numeric.
+ */
+function neutralizeCsvFormula(value) {
+  if (typeof value !== "string") return value;
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
 function rowsToCsv(rows, columns) {
-  const fields = columns.map((c) => ({
-    label: c.header,
-    value:
+  const fields = columns.map((c) => {
+    const getValue =
       typeof c.value === "function"
         ? c.value
         : (row) => {
             const v = row[c.field];
             return v === null || v === undefined ? "" : v;
-          },
-  }));
+          };
+    return {
+      label: c.header,
+      value: (row) => neutralizeCsvFormula(getValue(row)),
+    };
+  });
   if (!rows.length) return columns.map((c) => c.header).join(",");
   return new Parser({ fields }).parse(rows);
 }
@@ -41,4 +55,10 @@ function sendReportCsv(res, rows, columns, filename) {
   res.status(200).send(csv);
 }
 
-module.exports = { wantsCsv, rowsToCsv, sendReportCsv, sanitizeFilename };
+module.exports = {
+  wantsCsv,
+  rowsToCsv,
+  sendReportCsv,
+  sanitizeFilename,
+  neutralizeCsvFormula,
+};

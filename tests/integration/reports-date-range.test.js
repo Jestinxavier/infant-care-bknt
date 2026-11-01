@@ -44,6 +44,7 @@ async function seed(order) {
     paymentStatus: order.paymentStatus ?? "pending",
     paymentMethod: order.paymentMethod ?? "PHONEPE",
     orderStatus: order.orderStatus ?? "delivered",
+    refundedAmountPaise: order.refundedAmountPaise,
     placedAt: created,
     createdAt: created,
   });
@@ -260,5 +261,27 @@ describe("Report controllers — date-range correctness", () => {
       expect(row.lifetimeOrders).toBe(2);
       expect(cust.summary.customerCount ?? cust.summary.customers).toBe(1);
     }
+  });
+
+  it("takes partial refunds out of revenue", async () => {
+    // A single day far from the other test's seeds so the custom range (and
+    // its cache key) only sees these orders.
+    const day = kolkataDaysAgo(400, 1);
+    const dayStr = kolkataDateDaysAgo(400);
+    // Paid ₹1000 with ₹250 refunded so far (partial refunds keep it "paid"),
+    // plus an untouched paid ₹500 order.
+    await seed({ totalAmount: 1000, paymentStatus: "paid", paymentMethod: "PHONEPE", refundedAmountPaise: 25000, createdAt: day });
+    await seed({ totalAmount: 500, paymentStatus: "paid", paymentMethod: "PHONEPE", createdAt: day });
+    const range = { period: "custom", from: dayStr, to: dayStr };
+
+    const revenue = await callCtrl(getRevenueOverTime, range);
+    expect(revenue.summary.revenue).toBe(1250);
+    expect(revenue.series.reduce((a, s) => a + (s.total || 0), 0)).toBe(1250);
+    // Still two paid orders: a partial refund doesn't remove the order.
+    expect(revenue.summary.orders).toBe(2);
+
+    const split = await callCtrl(getPaymentMethodSplit, range);
+    const phonepe = split.splits.find((s) => s.method === "PHONEPE");
+    expect(phonepe.paidTotal).toBe(1250);
   });
 });

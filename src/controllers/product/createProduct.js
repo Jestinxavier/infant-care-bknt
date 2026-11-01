@@ -6,6 +6,10 @@ const {
   generateSlug,
   generateVariantUrlKey,
 } = require("../../utils/slugGenerator");
+const {
+  isUrlKeyTaken,
+  isSkuTaken,
+} = require("../../utils/productIdentifiers");
 const escapeRegex = require("../../utils/escapeRegex");
 const {
   generateUniqueSku,
@@ -419,41 +423,33 @@ const createProduct = async (req, res) => {
       categoryCode = foundCategory.code;
     }
 
-    const checkAnySkuExists = async (s) => {
-      if (!s) return false;
-      const existing = await Product.findOne({
-        $or: [{ sku: s }, { "variants.sku": s }],
-      })
-        .select("_id")
-        .lean();
-      return !!existing;
-    };
+    // Retired keys (urlKeyHistory) count as taken, so a new product never
+    // takes over another product's old links.
+    const checkAnySkuExists = (s) => isSkuTaken(s);
+    const checkAnyUrlKeyExists = (urlKey) => isUrlKeyTaken(urlKey);
+    const conflict = (message) =>
+      res.status(409).json({ success: false, errorCode: "IDENTIFIER_CONFLICT", message });
 
-    const checkAnyUrlKeyExists = async (urlKey) => {
-      if (!urlKey) return false;
-      const existing = await Product.findOne({
-        $or: [{ url_key: urlKey }, { "variants.url_key": urlKey }],
-      })
-        .select("_id")
-        .lean();
-      return !!existing;
-    };
-
-    // Generate url_key if not provided or if provided key already exists (avoid E11000)
-    const checkUrlKeyExists = async (urlKey) => {
-      return checkAnyUrlKeyExists(urlKey);
-    };
+    // A url_key the admin typed is kept or rejected, never silently replaced;
+    // only a missing one is generated from the title.
     let productUrlKey =
       url_key && typeof url_key === "string" ? url_key.trim() : "";
-    if (!productUrlKey || (await checkUrlKeyExists(productUrlKey))) {
-      productUrlKey = await generateUniqueUrlKey(
-        productTitle,
-        checkUrlKeyExists,
-      );
+    if (productUrlKey) {
+      if (await checkAnyUrlKeyExists(productUrlKey)) {
+        return conflict(
+          `URL key "${productUrlKey}" is already used (or was used) by another product.`
+        );
+      }
+    } else {
+      productUrlKey = await generateUniqueUrlKey(productTitle, checkAnyUrlKeyExists);
     }
 
-    // Generate SKU if not provided
-    let productSku = sku;
+    // Generate SKU if not provided; a typed SKU must be unique across parent
+    // and variant SKUs (the unique index only covers parent SKUs).
+    let productSku = typeof sku === "string" ? sku.trim() : sku;
+    if (productSku && (await checkAnySkuExists(productSku))) {
+      return conflict(`SKU "${productSku}" is already used by another product.`);
+    }
     if (!productSku || (typeof productSku === "string" && !productSku.trim())) {
       try {
         productSku = await generateUniqueSku(null, checkAnySkuExists, null, {
@@ -535,8 +531,22 @@ const createProduct = async (req, res) => {
     // Process variants (new structure)
     let processedVariants = [];
     if (variantsArray && Array.isArray(variantsArray)) {
-      const usedVariantSkus = new Set();
-      const usedVariantUrlKeys = new Set();
+      // Seed with the parent's own identifiers so no variant can reuse them.
+      const usedVariantSkus = new Set(productSku ? [productSku] : []);
+      const usedVariantUrlKeys = new Set(productUrlKey ? [productUrlKey] : []);
+      const variantIdentifierErrors = [];
+
+      // A SKU/url_key the admin typed is kept as-is or rejected; only
+      // generated values are de-duplicated with a suffix.
+      const rejectIfTaken = async (value, used, checkTaken, label) => {
+        if (used.has(value) || (await checkTaken(value))) {
+          variantIdentifierErrors.push(
+            `Variant ${label} "${value}" is already used by this product or another product.`
+          );
+        }
+        used.add(value);
+        return value;
+      };
 
       const ensureUniqueVariantSku = async (inputSku, index) => {
         const fallbackBase = `${productSku || "VAR"}-${String(
@@ -711,24 +721,28 @@ const createProduct = async (req, res) => {
         const optionsHash = createOptionsHash(attributesMap);
 
         // ✅ Auto-generate variant SKU when missing (align with product.service)
-        let variantSku = v.sku;
         const attrsObj = Object.fromEntries(attributesMap);
-        if (
-          !variantSku ||
-          (typeof variantSku === "string" && !variantSku.trim())
-        ) {
-          variantSku = generateVariantSku(productSku, attrsObj);
-        }
-        variantSku = await ensureUniqueVariantSku(variantSku, index);
+        const providedSku = typeof v.sku === "string" ? v.sku.trim() : "";
+        const variantSku = providedSku
+          ? await rejectIfTaken(providedSku, usedVariantSkus, checkAnySkuExists, "SKU")
+          : await ensureUniqueVariantSku(generateVariantSku(productSku, attrsObj), index);
 
         // ✅ Generate unique URL key for variant (SEO-friendly: parent slug + readable attribute values)
-        let variantUrlKey = v.url_key;
-        if (!variantUrlKey) {
-          variantUrlKey = generateVariantUrlKey(productUrlKey, attrsObj, {
-            fallbackSuffix: variantSku,
-          });
-        }
-        variantUrlKey = await ensureUniqueVariantUrlKey(variantUrlKey, index);
+        const providedUrlKey =
+          typeof v.url_key === "string" ? v.url_key.trim() : "";
+        const variantUrlKey = providedUrlKey
+          ? await rejectIfTaken(
+              providedUrlKey,
+              usedVariantUrlKeys,
+              checkAnyUrlKeyExists,
+              "URL key",
+            )
+          : await ensureUniqueVariantUrlKey(
+              generateVariantUrlKey(productUrlKey, attrsObj, {
+                fallbackSuffix: variantSku,
+              }),
+              index,
+            );
         const variantName = buildVariantTitle(
           productTitle,
           variantOptions || [],
@@ -769,6 +783,10 @@ const createProduct = async (req, res) => {
           height: v.height,
           width: v.width,
         });
+      }
+
+      if (variantIdentifierErrors.length > 0) {
+        return conflict(variantIdentifierErrors.join(" "));
       }
     }
 

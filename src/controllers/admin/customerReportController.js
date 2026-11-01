@@ -1,5 +1,6 @@
 const User = require("../../models/user");
 const Order = require("../../models/Order");
+const { NET_REVENUE } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -165,7 +166,7 @@ exports.getCustomersReport = async (req, res) => {
           $group: {
             _id: "$userId",
             lifetimeSpent: {
-              $sum: { $cond: [PAID_VALID_COND, "$totalAmount", 0] },
+              $sum: { $cond: [PAID_VALID_COND, NET_REVENUE, 0] },
             },
             lifetimeOrders: { $sum: 1 },
             firstOrderDate: { $min: "$createdAt" },
@@ -181,7 +182,7 @@ exports.getCustomersReport = async (req, res) => {
           $group: {
             _id: "$userId",
             periodSpent: {
-              $sum: { $cond: [PAID_VALID_COND, "$totalAmount", 0] },
+              $sum: { $cond: [PAID_VALID_COND, NET_REVENUE, 0] },
             },
             periodOrders: { $sum: 1 },
           },

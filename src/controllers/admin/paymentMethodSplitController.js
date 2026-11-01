@@ -1,4 +1,5 @@
 const Order = require("../../models/Order");
+const { NET_REVENUE } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -90,7 +91,7 @@ exports.getPaymentMethodSplit = async (req, res) => {
               },
               paidTotal: {
                 $sum: {
-                  $cond: [{ $eq: ["$paymentStatus", "paid"] }, "$totalAmount", 0],
+                  $cond: [{ $eq: ["$paymentStatus", "paid"] }, NET_REVENUE, 0],
                 },
               },
               codCollectedCount: {

@@ -561,11 +561,20 @@ const phonepeWebhook = async (req, res) => {
       type === "checkout.order.failed"
     ) {
       wlog("PROCESSING_FAILED", { merchantOrderId });
-      // Update Order
-      await Order.updateOne(
-        { orderId: merchantOrderId },
+      // Claim the transition atomically so a retried FAILED webhook (or one that
+      // races another failure path) restores stock exactly once.
+      const failedOrder = await Order.findOneAndUpdate(
+        {
+          orderId: merchantOrderId,
+          paymentStatus: { $in: ["pending", "failed"] },
+          orderStatus: { $nin: ["cancelled", "returned"] },
+        },
         { $set: { paymentStatus: "failed", orderStatus: "cancelled" } },
       );
+      if (!failedOrder) {
+        wlog("FAILED_ALREADY_PROCESSED", { merchantOrderId });
+        return res.status(200).send("OK");
+      }
       invalidateOrderReportCaches("PhonePe webhook failed/cancelled");
 
       // Update Payment record
@@ -624,64 +633,35 @@ const phonepeWebhook = async (req, res) => {
         bodyLength: req.rawBody?.length || 0,
       },
     });
-    try {
-      const body = JSON.parse(req.rawBody);
-      const merchantOrderId =
-        body?.payload?.merchantOrderId ??
-        body?.payload?.originalMerchantOrderId;
-      if (merchantOrderId) {
-        const failedOrder = await Order.findOne({ orderId: merchantOrderId });
-        if (failedOrder) {
-          // Update Order
-          await Order.updateOne(
-            { orderId: merchantOrderId },
-            { $set: { paymentStatus: "failed", orderStatus: "cancelled" } },
-          );
-          invalidateOrderReportCaches("PhonePe webhook error/cancelled");
-
-          // Update Payment record
-          await Payment.findOneAndUpdate(
-            { orderId: failedOrder._id },
-            {
-              $set: {
-                status: "failed",
-                phonepeResponse: body, // Store error response
-              },
-            },
-          );
-
-          await Cart.findOneAndUpdate(
-            { orderId: failedOrder._id },
-            {
-              $set: { status: "active", completedAt: null },
-              $unset: { orderId: "" },
-            },
-          );
-
-          logger.info(
-            `❌ PhonePe webhook error handled for order ${merchantOrderId}`,
-          );
-        }
-      }
-    } catch (parseErr) {
-      void logError(parseErr, {
-        source: "payment/phonepeSDK.phonepeWebhook",
-        req,
-        statusCode: 500,
-        metadata: {
-          gateway: "phonepe",
-          stage: "parse_failed_webhook_cleanup",
-        },
-      });
-    }
-
-    return res.status(400).send("INVALID CALLBACK");
+    // Don't touch the order here. This handler can run before the callback was
+    // authenticated (validateCallback rethrows unexpected errors) or after a
+    // successful payment was already recorded, so cancelling based on the raw
+    // body would let a forged request cancel any order, or cancel a paid one.
+    // A 500 makes PhonePe retry the webhook; orders that never get a valid
+    // callback can be reconciled with the admin payment check
+    // (GET /api/payments/check/:orderId).
+    return res.status(500).send("WEBHOOK PROCESSING FAILED");
   }
 };
 
+// A refund lock older than this is treated as abandoned (e.g. the process died
+// mid-request) so the order isn't blocked from refunds forever.
+const REFUND_LOCK_TTL_MS = 5 * 60 * 1000;
+
+const releaseRefundLock = (orderObjectId) =>
+  Order.updateOne(
+    { _id: orderObjectId },
+    { $set: { refundLockedAt: null } },
+  ).catch((err) =>
+    logger.error("❌ [initiateRefund] Failed to release refund lock", {
+      orderObjectId,
+      message: err.message,
+    }),
+  );
+
 /**
- * Initiate a refund for a paid PhonePe order.
- * @param {object} req - Express request: body = { orderId, refundAmount (in paise, optional) }
+ * Initiate a (full or partial) refund for a paid PhonePe or Razorpay order.
+ * @param {object} req - Express request: body = { orderId, refundAmount (in paise, optional; defaults to the amount not yet refunded) }
  * @param {object} res - Express response
  */
 const initiateRefund = async (req, res) => {
@@ -693,6 +673,9 @@ const initiateRefund = async (req, res) => {
     reason,
     timestamp: new Date().toISOString(),
   });
+
+  // Set while this request holds the refund lock and must release it on error.
+  let lockedOrderId = null;
 
   try {
     // ── 1. Input validation ──────────────────────────────────────────────────
@@ -724,103 +707,13 @@ const initiateRefund = async (req, res) => {
       paymentStatus: order.paymentStatus,
       orderStatus: order.orderStatus,
       totalAmount: order.totalAmount,
+      refundedAmountPaise: order.refundedAmountPaise,
       phonepeTransactionId: order.phonepeTransactionId,
     });
 
-    // ── 2.5. Razorpay delegation ─────────────────────────────────────────────
-    if (order.paymentMethod === "RAZORPAY") {
-      const razorpaySDK = require("./razorpaySDK");
-      const orderAmountPaise = Math.round(order.totalAmount * 100);
-      const amountToRefund = refundAmount
-        ? Math.round(Number(refundAmount))
-        : orderAmountPaise;
-
-      logger.info("[initiateRefund] Delegating refund to Razorpay SDK", { orderId, amountToRefund });
-      const razorpayRefundResult = await razorpaySDK.initiateRefund(
-        order.orderId || rawOrderId,
-        amountToRefund,
-        reason,
-      );
-
-      let newOrderStatus = order.orderStatus;
-      let pushToHistory = null;
-      let stockShouldBeRestored = false;
-
-      if (order.orderStatus !== "cancelled" && order.orderStatus !== "returned") {
-        newOrderStatus = "cancelled";
-        stockShouldBeRestored = true;
-        pushToHistory = {
-          status: "cancelled",
-          timestamp: new Date(),
-          note: reason
-            ? `Order cancelled automatically due to refund: ${reason}`
-            : "Order cancelled automatically due to refund initiation",
-        };
-      }
-
-      const updateQuery = {
-        $set: {
-          paymentStatus: "refunded",
-          refundStatus: razorpayRefundResult.state,
-          refundId: razorpayRefundResult.refundId,
-          refundedAt: new Date(),
-          refundReason: reason || null,
-          refundAmountPaise: amountToRefund,
-          orderStatus: newOrderStatus,
-        },
-        $push: {
-          refundAttempts: {
-            merchantRefundId: razorpayRefundResult.refundId,
-            state: razorpayRefundResult.state,
-            amountPaise: amountToRefund,
-            initiatedAt: new Date(),
-          },
-        },
-      };
-
-      if (pushToHistory) {
-        updateQuery.$push.statusHistory = pushToHistory;
-      }
-
-      const updatedOrder = await Order.findOneAndUpdate(
-        { _id: order._id },
-        updateQuery,
-        { new: true },
-      );
-
-      if (updatedOrder && stockShouldBeRestored) {
-        try {
-          await restoreOrderStock(updatedOrder);
-          logger.info("[initiateRefund] Razorpay refund: Stock restored successfully", { orderId });
-        } catch (stockErr) {
-          logger.error("❌ Failed to restore stock after Razorpay cancellation:", stockErr);
-        }
-      }
-
-      // Send refund email to customer (guest or registered)
-      if (updatedOrder) {
-        emailService
-          .sendRefundInitiatedEmail(null, updatedOrder, amountToRefund)
-          .catch((emailErr) =>
-            logger.error("❌ [initiateRefund] Failed to send Razorpay refund email:", emailErr.message)
-          );
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: "Refund initiated successfully",
-        refund: {
-          refundId: razorpayRefundResult.refundId,
-          state: razorpayRefundResult.state,
-          amount: razorpayRefundResult.amount,
-          merchantRefundId: razorpayRefundResult.refundId,
-          orderId,
-        },
-      });
-    }
-
-    // ── 3. Eligibility checks ────────────────────────────────────────────────
-    if (order.paymentMethod !== "PHONEPE") {
+    // ── 3. Eligibility checks (both gateways) ────────────────────────────────
+    const isRazorpay = order.paymentMethod === "RAZORPAY";
+    if (!isRazorpay && order.paymentMethod !== "PHONEPE") {
       logger.warn(
         `⚠️ [initiateRefund] Refund rejected – unsupported payment method: ${order.paymentMethod}`,
         { orderId },
@@ -847,129 +740,244 @@ const initiateRefund = async (req, res) => {
     //   (refund-dialog.tsx: amountPaise = Math.round(parsedAmount * 100))
     // So we must NOT multiply by 100 here — use the value as-is.
     const orderAmountPaise = Math.round(order.totalAmount * 100); // totalAmount stored in rupees
+    const alreadyRefundedPaise = Math.max(
+      0,
+      Number(order.refundedAmountPaise) || 0,
+    );
+    const remainingPaise = orderAmountPaise - alreadyRefundedPaise;
 
-    // Use incoming paise directly; if not provided, default to full order amount
+    // Use incoming paise directly; if not provided, refund whatever is left
     const amountToRefund = refundAmount
       ? Math.round(Number(refundAmount)) // already in paise from dashboard
-      : orderAmountPaise;
+      : remainingPaise;
 
     logger.info("📋 [initiateRefund] Refund amount resolved", {
       orderId,
       orderTotalRupees: order.totalAmount,
       orderAmountPaise,
+      alreadyRefundedPaise,
+      remainingPaise,
       requestedRefundAmountPaise:
-        refundAmount ?? "(not provided — full refund)",
+        refundAmount ?? "(not provided — refund remaining amount)",
       amountToRefundPaise: amountToRefund,
-      amountToRefundRupees: (amountToRefund / 100).toFixed(2),
     });
 
-    if (amountToRefund < 1 || amountToRefund > orderAmountPaise) {
+    if (
+      !Number.isFinite(amountToRefund) ||
+      amountToRefund < 1 ||
+      amountToRefund > remainingPaise
+    ) {
       logger.warn(
-        `⚠️ [initiateRefund] Refund rejected – amount out of range: ${amountToRefund} paise (max: ${orderAmountPaise} paise)`,
-        { orderId, orderAmountPaise },
+        `⚠️ [initiateRefund] Refund rejected – amount out of range: ${amountToRefund} paise (remaining: ${remainingPaise} paise)`,
+        { orderId, orderAmountPaise, alreadyRefundedPaise },
       );
       return res.status(400).json({
         success: false,
-        message: `Invalid refund amount ₹${(amountToRefund / 100).toFixed(2)}. Must be between ₹0.01 and ₹${order.totalAmount}`,
+        message: `Invalid refund amount. Must be between ₹0.01 and ₹${(remainingPaise / 100).toFixed(2)} (the amount not yet refunded).`,
       });
     }
 
-    // ── 5. Build SDK request ─────────────────────────────────────────────────
-    const refundId = randomUUID(); // merchantRefundId for PhonePe
+    // ── 5. Claim the refund lock ─────────────────────────────────────────────
+    // Two concurrent requests (double-click, two admins) must not both reach
+    // the gateway. The claim also re-checks paid status and the refunded total
+    // we validated against, so a refund that landed in between is caught.
+    const lockTime = new Date();
+    const locked = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        paymentStatus: "paid",
+        refundedAmountPaise:
+          alreadyRefundedPaise === 0
+            ? { $in: [0, null] }
+            : alreadyRefundedPaise,
+        $or: [
+          { refundLockedAt: null },
+          {
+            refundLockedAt: {
+              $lt: new Date(lockTime.getTime() - REFUND_LOCK_TTL_MS),
+            },
+          },
+        ],
+      },
+      { $set: { refundLockedAt: lockTime } },
+    );
+    if (!locked) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "A refund for this order is already in progress or the order changed. Refresh and try again.",
+      });
+    }
+    lockedOrderId = order._id;
 
-    const request = RefundRequest.builder()
-      .amount(amountToRefund)
-      .merchantRefundId(refundId)
-      .originalMerchantOrderId(orderId)
-      .build();
+    // ── 6. Call the gateway ──────────────────────────────────────────────────
+    const gateway = isRazorpay ? "razorpay" : "phonepe";
+    let gatewayRefundId;
+    let refundState;
+    let gatewayAmount;
 
-    logger.info("📤 [initiateRefund] Sending refund request to PhonePe SDK", {
-      orderId,
-      merchantRefundId: refundId,
-      amountToRefundPaise: amountToRefund,
-      amountToRefundRupees: (amountToRefund / 100).toFixed(2),
-      originalMerchantOrderId: orderId,
-    });
-
-    logger.info("------request", request);
-
-    // ── 6. Call PhonePe SDK ──────────────────────────────────────────────────
-    let response;
-    try {
-      response = await client.refund(request);
-    } catch (sdkErr) {
-      if (sdkErr instanceof PhonePeException) {
-        void logError(sdkErr, {
+    if (isRazorpay) {
+      const razorpaySDK = require("./razorpaySDK");
+      logger.info("[initiateRefund] Delegating refund to Razorpay SDK", {
+        orderId,
+        amountToRefund,
+      });
+      try {
+        const result = await razorpaySDK.initiateRefund(
+          order.orderId,
+          amountToRefund,
+          reason,
+        );
+        gatewayRefundId = result.refundId;
+        refundState = result.state;
+        gatewayAmount = result.amount;
+      } catch (gwErr) {
+        await releaseRefundLock(order._id);
+        lockedOrderId = null;
+        void logError(gwErr, {
           source: "payment/phonepeSDK.initiateRefund",
           req,
-          statusCode: sdkErr.httpStatusCode || 502,
-          metadata: {
-            gateway: "phonepe",
-            stage: "refund_sdk_call",
-            orderId,
-            refundId,
-            amountToRefund,
-            code: sdkErr.code,
-            data: sdkErr.data,
-          },
+          statusCode: 502,
+          metadata: { gateway, stage: "refund_gateway_call", orderId },
         });
         return res.status(502).json({
           success: false,
-          message: sdkErr.message || "Refund initiation failed via PhonePe",
-          code: sdkErr.code,
+          message:
+            gwErr.response?.data?.error?.description ||
+            gwErr.message ||
+            "Refund initiation failed via Razorpay",
         });
       }
-      throw sdkErr;
+    } else {
+      const refundId = randomUUID(); // merchantRefundId for PhonePe
+      const request = RefundRequest.builder()
+        .amount(amountToRefund)
+        .merchantRefundId(refundId)
+        // Always the merchant order id — the request may have used the Mongo _id.
+        .originalMerchantOrderId(order.orderId)
+        .build();
+
+      logger.info("📤 [initiateRefund] Sending refund request to PhonePe SDK", {
+        orderId,
+        merchantRefundId: refundId,
+        amountToRefundPaise: amountToRefund,
+        originalMerchantOrderId: order.orderId,
+      });
+
+      let response;
+      try {
+        response = await client.refund(request);
+      } catch (sdkErr) {
+        await releaseRefundLock(order._id);
+        lockedOrderId = null;
+        if (sdkErr instanceof PhonePeException) {
+          void logError(sdkErr, {
+            source: "payment/phonepeSDK.initiateRefund",
+            req,
+            statusCode: sdkErr.httpStatusCode || 502,
+            metadata: {
+              gateway,
+              stage: "refund_sdk_call",
+              orderId,
+              refundId,
+              amountToRefund,
+              code: sdkErr.code,
+              data: sdkErr.data,
+            },
+          });
+          return res.status(502).json({
+            success: false,
+            message: sdkErr.message || "Refund initiation failed via PhonePe",
+            code: sdkErr.code,
+          });
+        }
+        throw sdkErr;
+      }
+
+      gatewayRefundId = refundId;
+      refundState = response.state ?? "PENDING";
+      gatewayAmount = response.amount;
     }
 
-    logger.info("✅ [initiateRefund] PhonePe SDK refund response received", {
+    // The gateway accepted the request. From here on, keep the lock if
+    // something fails (it expires after REFUND_LOCK_TTL_MS) rather than
+    // releasing it and inviting a second refund for money already on its way.
+    lockedOrderId = null;
+
+    logger.info("✅ [initiateRefund] Gateway refund response received", {
       orderId,
-      merchantRefundId: refundId,
-      state: response.state,
-      amount: response.amount,
+      gateway,
+      refundId: gatewayRefundId,
+      state: refundState,
+      amount: gatewayAmount,
     });
 
-    // ── 7. Persist refund state to DB ────────────────────────────────────────
-    let newOrderStatus = order.orderStatus;
-    let pushToHistory = null;
-    let stockShouldBeRestored = false;
+    // A refund the gateway rejected outright never moves money: record the
+    // attempt and leave the order paid.
+    if (refundState === "FAILED") {
+      await Order.updateOne(
+        { _id: order._id },
+        {
+          $set: { refundLockedAt: null },
+          $push: {
+            refundAttempts: {
+              merchantRefundId: gatewayRefundId,
+              state: "FAILED",
+              amountPaise: amountToRefund,
+              initiatedAt: lockTime,
+              resolvedAt: new Date(),
+            },
+          },
+        },
+      );
+      return res.status(502).json({
+        success: false,
+        message: "The payment gateway rejected the refund. No money was refunded.",
+      });
+    }
 
-    // If order is not already cancelled or returned, cancel it automatically
-    if (order.orderStatus !== "cancelled" && order.orderStatus !== "returned") {
-      newOrderStatus = "cancelled";
-      stockShouldBeRestored = true;
-      pushToHistory = {
+    // ── 7. Persist refund state to DB ────────────────────────────────────────
+    // A partial refund keeps the order paid and open. Only the refund that
+    // brings the running total to the full amount marks the order refunded and
+    // cancels it (restoring stock).
+    const refundedTotalPaise = alreadyRefundedPaise + amountToRefund;
+    const isFullRefund = refundedTotalPaise >= orderAmountPaise;
+    const shouldCancel =
+      isFullRefund &&
+      order.orderStatus !== "cancelled" &&
+      order.orderStatus !== "returned";
+
+    const updateQuery = {
+      $set: {
+        refundStatus: refundState, // gateway's returned state
+        refundId: gatewayRefundId, // latest refund — used to poll status via getRefundStatus
+        refundedAt: new Date(),
+        refundReason: reason || null,
+        refundAmountPaise: amountToRefund,
+        refundedAmountPaise: refundedTotalPaise,
+        refundLockedAt: null,
+        ...(isFullRefund ? { paymentStatus: "refunded" } : {}),
+        ...(shouldCancel ? { orderStatus: "cancelled" } : {}),
+      },
+      $push: {
+        // Always record the attempt for retry tracking
+        refundAttempts: {
+          merchantRefundId: gatewayRefundId,
+          state: refundState,
+          amountPaise: amountToRefund,
+          initiatedAt: lockTime,
+        },
+      },
+    };
+
+    if (shouldCancel) {
+      updateQuery.$push.statusHistory = {
         status: "cancelled",
         timestamp: new Date(),
         note: reason
           ? `Order cancelled automatically due to refund: ${reason}`
           : "Order cancelled automatically due to refund initiation",
       };
-    }
-
-    const updateQuery = {
-      $set: {
-        paymentStatus: "refunded",
-        refundStatus: response.state ?? "PENDING", // Use PhonePe's returned state
-        refundId: refundId, // merchantRefundId — used to poll status via getRefundStatus
-        refundedAt: new Date(),
-        refundReason: reason || null,
-        refundAmountPaise: amountToRefund,
-        orderStatus: newOrderStatus,
-      },
-      $push: {
-        // Always record the attempt for retry tracking
-        refundAttempts: {
-          merchantRefundId: refundId,
-          state: response.state ?? "PENDING",
-          amountPaise: amountToRefund,
-          initiatedAt: new Date(),
-        },
-      },
-    };
-
-    if (pushToHistory) {
-      updateQuery.$push.statusHistory = pushToHistory;
     }
 
     const updatedOrder = await Order.findOneAndUpdate(
@@ -981,7 +989,7 @@ const initiateRefund = async (req, res) => {
     if (!updatedOrder) {
       logger.error(
         "❌ [initiateRefund] DB update returned null — order may have been deleted",
-        { orderId, refundId },
+        { orderId, refundId: gatewayRefundId },
       );
     } else {
       logger.info("💾 [initiateRefund] Order DB updated after refund", {
@@ -990,12 +998,13 @@ const initiateRefund = async (req, res) => {
         refundStatus: updatedOrder.refundStatus,
         refundId: updatedOrder.refundId,
         refundAmountPaise: updatedOrder.refundAmountPaise,
+        refundedAmountPaise: updatedOrder.refundedAmountPaise,
         orderStatus: updatedOrder.orderStatus,
       });
-      invalidateOrderReportCaches("PhonePe refund initiated");
+      invalidateOrderReportCaches(`${gateway} refund initiated`);
 
       // Restore stock if the order was just cancelled
-      if (stockShouldBeRestored) {
+      if (shouldCancel) {
         try {
           await restoreOrderStock(updatedOrder);
           logger.info(
@@ -1026,16 +1035,22 @@ const initiateRefund = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Refund initiated successfully",
+      message: isFullRefund
+        ? "Refund initiated successfully"
+        : "Partial refund initiated successfully",
       refund: {
-        refundId: refundId,
-        state: response.state,
-        amount: response.amount,
-        merchantRefundId: refundId,
+        refundId: gatewayRefundId,
+        state: refundState,
+        amount: gatewayAmount,
+        merchantRefundId: gatewayRefundId,
         orderId,
+        isFullRefund,
+        refundedAmountPaise: refundedTotalPaise,
+        remainingPaise: orderAmountPaise - refundedTotalPaise,
       },
     });
   } catch (err) {
+    if (lockedOrderId) await releaseRefundLock(lockedOrderId);
     void logError(err, {
       source: "payment/phonepeSDK.initiateRefund",
       req,
@@ -1050,6 +1065,61 @@ const initiateRefund = async (req, res) => {
       success: false,
       message: err.message || "Internal server error",
     });
+  }
+};
+
+/**
+ * Record a terminal gateway state (COMPLETED / FAILED) for one refund attempt.
+ * Applied at most once per attempt: the match requires the attempt to be
+ * unresolved, so repeated status polls are no-ops. A FAILED refund never moved
+ * money, so its amount comes back off the refunded total and the order is
+ * reopened (paid) for another refund.
+ */
+const applyTerminalRefundState = async (refundId, state) => {
+  const order = await Order.findOne({
+    "refundAttempts.merchantRefundId": refundId,
+  });
+  if (!order) return;
+
+  const attempt = order.refundAttempts.find(
+    (a) => a.merchantRefundId === refundId,
+  );
+  const $set = {
+    "refundAttempts.$.state": state,
+    "refundAttempts.$.resolvedAt": new Date(),
+  };
+  // Order-level refundStatus tracks the latest refund only.
+  if (order.refundId === refundId) $set.refundStatus = state;
+  if (state === "COMPLETED") $set.refundedAt = new Date();
+  if (state === "FAILED") {
+    $set.paymentStatus = "paid";
+    $set.refundedAmountPaise = Math.max(
+      0,
+      (Number(order.refundedAmountPaise) || 0) - (attempt?.amountPaise || 0),
+    );
+    logger.warn(
+      `⚠️ [getRefundStatus] Refund FAILED for orderId=${order.orderId}. Resetting paymentStatus to 'paid' for retry.`,
+      { refundId },
+    );
+  }
+
+  const result = await Order.updateOne(
+    {
+      _id: order._id,
+      refundAttempts: {
+        $elemMatch: { merchantRefundId: refundId, resolvedAt: null },
+      },
+    },
+    { $set },
+  );
+
+  if (result.modifiedCount > 0) {
+    logger.info(`💾 [getRefundStatus] DB updated with terminal refund state`, {
+      orderId: order.orderId,
+      refundId,
+      state,
+    });
+    invalidateOrderReportCaches(`refund resolved (${state})`);
   }
 };
 
@@ -1076,7 +1146,11 @@ const getRefundStatus = async (req, res) => {
     }
 
     // ── 1.5. Razorpay delegation check ───────────────────────────────────────
-    const order = await Order.findOne({ refundId });
+    // Look up by attempt, not just the latest refundId, so status checks for
+    // an earlier partial refund still resolve.
+    const order = await Order.findOne({
+      "refundAttempts.merchantRefundId": refundId,
+    });
     if (order && order.paymentMethod === "RAZORPAY") {
       const razorpaySDK = require("./razorpaySDK");
       logger.info("[getRefundStatus] Delegating status check to Razorpay SDK", { refundId });
@@ -1084,30 +1158,7 @@ const getRefundStatus = async (req, res) => {
 
       const state = razorpayRefundResult.state;
       if (state === "COMPLETED" || state === "FAILED") {
-        const dbUpdate = {
-          $set: { refundStatus: state },
-        };
-
-        if (state === "FAILED") {
-          dbUpdate.$set.paymentStatus = "paid";
-        }
-
-        if (state === "COMPLETED") {
-          dbUpdate.$set.refundedAt = new Date();
-        }
-
-        await Order.updateOne(
-          { refundId, "refundAttempts.merchantRefundId": refundId },
-          {
-            ...dbUpdate,
-            $set: {
-              ...dbUpdate.$set,
-              "refundAttempts.$.state": state,
-              "refundAttempts.$.resolvedAt": new Date(),
-            },
-          }
-        );
-        invalidateOrderReportCaches(`refund resolved (${state})`);
+        await applyTerminalRefundState(refundId, state);
       } else {
         await Order.updateOne({ refundId }, { $set: { refundStatus: state } });
       }
@@ -1164,48 +1215,7 @@ const getRefundStatus = async (req, res) => {
     const state = response.state;
 
     if (state === "COMPLETED" || state === "FAILED") {
-      const order = await Order.findOne({ refundId });
-      if (order) {
-        const dbUpdate = {
-          $set: { refundStatus: state },
-        };
-
-        if (state === "FAILED") {
-          // Allow re-initiation: reset paymentStatus back to paid so a fresh refund can be triggered
-          dbUpdate.$set.paymentStatus = "paid";
-          logger.warn(
-            `⚠️ [getRefundStatus] Refund FAILED for orderId=${order.orderId}. Resetting paymentStatus to 'paid' for retry.`,
-            { refundId },
-          );
-        }
-
-        if (state === "COMPLETED") {
-          dbUpdate.$set.refundedAt = new Date();
-        }
-
-        // Update the resolvedAt on the matching refundAttempts entry
-        await Order.updateOne(
-          { refundId, "refundAttempts.merchantRefundId": refundId },
-          {
-            ...dbUpdate,
-            $set: {
-              ...dbUpdate.$set,
-              "refundAttempts.$.state": state,
-              "refundAttempts.$.resolvedAt": new Date(),
-            },
-          },
-        );
-
-        logger.info(
-          `💾 [getRefundStatus] DB updated with terminal refund state`,
-          {
-            orderId: order.orderId,
-            refundId,
-            state,
-          },
-        );
-        invalidateOrderReportCaches(`refund resolved (${state})`);
-      }
+      await applyTerminalRefundState(refundId, state);
     } else {
       // Non-terminal: just update the refundStatus field so the dashboard can show PENDING/CONFIRMED
       await Order.updateOne({ refundId }, { $set: { refundStatus: state } });
