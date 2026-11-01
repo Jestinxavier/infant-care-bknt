@@ -75,15 +75,26 @@ const validateCart = async (req, res, next) => {
     //   1. User logs out — cookie persists but request is now unauthenticated.
     //   2. User B logs in on a device whose cookie still points to user A's
     //      cart — without this check, user B would read/mutate user A's cart.
-    if (cart.userId && cart.userId.toString() !== req.user?.id?.toString() && !cartIdFromHeader) {
+    if (
+      cart.userId &&
+      cart.userId.toString() !== req.user?.id?.toString() &&
+      !cartIdFromHeader
+    ) {
       req.cart = null;
       req.cartId = null;
-      res.clearCookie(CART_ID, {
-        path: "/",
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-      });
+      // An expired access token is treated as guest auth by
+      // optionalVerifyToken. Keep the cart cookie in that case: clearing it
+      // would permanently disconnect the user's cart before /auth/refresh
+      // restores the session. Clear it only when a different authenticated
+      // user is actually using this browser.
+      if (req.user) {
+        res.clearCookie(CART_ID, {
+          path: "/",
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+        });
+      }
       return next();
     }
 
