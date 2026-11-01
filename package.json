@@ -35,6 +35,10 @@
     "normalize:variant-names": "node scripts/normalize-variant-names.js",
     "normalize:variant-names:apply": "node scripts/normalize-variant-names.js --apply",
     "audit:variant-labels": "node scripts/audit-variant-labels.js",
+    "fix:letter-size-values": "node scripts/fix-letter-size-values.js",
+    "fix:letter-size-values:apply": "node scripts/fix-letter-size-values.js --apply",
+    "recount:attribute-usage": "node scripts/recount-attribute-usage.js",
+    "recount:attribute-usage:apply": "node scripts/recount-attribute-usage.js --apply",
     "purge:error-logs": "node scripts/purgeNoiseErrorLogs.js"
   },
   "keywords": [

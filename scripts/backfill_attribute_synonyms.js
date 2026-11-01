@@ -67,6 +67,8 @@ const slugify = (value) =>
 // used by the store Attribute Registry. Month ranges keep the plural
 // "-months" identity so they collapse onto the existing registry rows.
 const sizeTrainingValue = (canonical) => {
+  const letterSizes = { s: "small", m: "medium", l: "large" };
+  if (letterSizes[canonical]) return letterSizes[canonical];
   return canonicalSizeValue(canonical) || canonical;
 };
 

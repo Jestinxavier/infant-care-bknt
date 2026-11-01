@@ -58,16 +58,25 @@ const getOrderById = async (req, res) => {
     }
 
     // Batch fetch all reviews for this order — avoids N+1 (one query per item)
-    const allReviews = await Review.find({
-      userId,
-      orderId: order._id,
-    }).lean();
+    // Reviews are per product (one per user), not per variant — so look them up
+    // by product across the user's reviews. Variants of the same product in an
+    // order then share the one review.
+    const orderProductIds = [
+      ...new Set(
+        (order.items ?? [])
+          .map((item) => (item.productId?._id ?? item.productId)?.toString())
+          .filter(Boolean)
+      ),
+    ];
+    const allReviews = orderProductIds.length
+      ? await Review.find({
+          userId,
+          productId: { $in: orderProductIds },
+        }).lean()
+      : [];
 
     const reviewMap = new Map(
-      allReviews.map((r) => [
-        `${r.productId?.toString()}_${r.variantId ?? ""}`,
-        r,
-      ])
+      allReviews.map((r) => [r.productId?.toString(), r])
     );
 
     // Batch fetch all gift products referenced by this order — avoids N+1
@@ -120,7 +129,7 @@ const getOrderById = async (req, res) => {
       items: (order?.items ?? []).map((item) => {
           const productIdStr = (item.productId?._id ?? item.productId)?.toString() ?? "";
           const variantIdStr = (item.variantId?._id ?? item.variantId) ?? "";
-          const existingReview = reviewMap.get(`${productIdStr}_${variantIdStr}`) ?? null;
+          const existingReview = reviewMap.get(productIdStr) ?? null;
 
           // Resolve selectedGift for bundle items (legacy: item has selectedGiftSku but no selectedGift)
           let selectedGift = item?.selectedGift || null;

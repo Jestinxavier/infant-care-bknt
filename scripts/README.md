@@ -30,6 +30,11 @@ pnpm exec node scripts/propose-attribute-values.js
 # 2. Seed/normalize the attribute catalogue
 pnpm exec node scripts/seed-attribute-values.js --apply
 pnpm exec node scripts/backfill_attribute_synonyms.js --add-missing --apply
+pnpm exec node scripts/fix-letter-size-values.js
+pnpm exec node scripts/fix-letter-size-values.js --apply
+pnpm exec node scripts/review-attribute-values.js
+pnpm exec node scripts/recount-attribute-usage.js
+pnpm exec node scripts/recount-attribute-usage.js --apply
 
 # 3. Normalize values (all dry-run by default — review, then apply)
 pnpm exec node scripts/migrate-material-values.js
@@ -40,6 +45,9 @@ pnpm exec node scripts/migrate-color-print-values.js --apply
 
 pnpm exec node scripts/migrate-filter-value-cleanups.js
 pnpm exec node scripts/migrate-filter-value-cleanups.js --apply
+
+pnpm exec node scripts/normalize-attribute-labels.js
+pnpm exec node scripts/normalize-attribute-labels.js --apply
 
 pnpm exec node scripts/backfill-product-colors.js
 pnpm exec node scripts/backfill-product-colors.js --apply
@@ -53,6 +61,10 @@ pnpm exec node scripts/reconcile-product-attribute-values.js --apply
 
 pnpm exec node scripts/seed-category-filter-attributes.js
 pnpm exec node scripts/seed-category-filter-attributes.js --apply
+
+pnpm exec node scripts/normalize-variant-names.js
+pnpm exec node scripts/normalize-variant-names.js --apply
+pnpm exec node scripts/audit-variant-labels.js
 
 # 5. Search / stock
 pnpm exec node scripts/normalize-stock-flags.js --apply
@@ -100,6 +112,10 @@ Dry by default (safe to run without flags):
 - `backfill-needs-review`
 - `reconcile-product-attribute-values`
 - `seed-category-filter-attributes`
+- `normalize-attribute-labels`
+- `normalize-variant-names`
+- `fix-letter-size-values`
+- `recount-attribute-usage`
 - `strip-cms-link-domains`
 - `migrateVariants` (apply with `--execute`/`--apply`)
 - `purgeNoiseErrorLogs` (apply with `--live`/`--apply`)
@@ -127,7 +143,7 @@ Live by default (pass `--dry-run` to preview):
 - `syncVariantCodes`
 
 Read-only (no mode flag needed): `review-attribute-values`,
-`propose-attribute-values`, `probe-cms-faq`.
+`propose-attribute-values`, `audit-variant-labels`, `probe-cms-faq`.
 
 Legacy one-off scripts that previously had no mode flag now accept
 `--dry-run` as a coarse guard: `addDeliveryCodCost`, `addRazorpayToPaymentMethods`,

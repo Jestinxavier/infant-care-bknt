@@ -37,7 +37,9 @@ const getAllReviews = async (req, res) => {
           as: "userId",
         },
       },
-      { $unwind: "$userId" },
+      // Guest reviews have userId: null, so the lookup yields an empty array.
+      // Keep those documents instead of letting $unwind discard them.
+      { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: "products",
@@ -46,7 +48,8 @@ const getAllReviews = async (req, res) => {
           as: "productId",
         },
       },
-      { $unwind: "$productId" },
+      // Keep historical reviews visible if the referenced product was deleted.
+      { $unwind: { path: "$productId", preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: "orders",
@@ -69,6 +72,8 @@ const getAllReviews = async (req, res) => {
             { reply: { $regex: escapeRegex(search), $options: "i" } },
             { "userId.username": { $regex: escapeRegex(search), $options: "i" } },
             { "userId.email": { $regex: escapeRegex(search), $options: "i" } },
+            { guestName: { $regex: escapeRegex(search), $options: "i" } },
+            { guestEmail: { $regex: escapeRegex(search), $options: "i" } },
             { "productId.name": { $regex: escapeRegex(search), $options: "i" } },
           ],
         },
@@ -85,6 +90,9 @@ const getAllReviews = async (req, res) => {
         reply: 1,
         isReplied: 1,
         isApproved: 1,
+        isGuest: 1,
+        guestName: 1,
+        guestEmail: 1,
         status: 1,
         repliedAt: 1,
         createdAt: 1,

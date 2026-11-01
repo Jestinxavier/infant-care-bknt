@@ -188,11 +188,9 @@ const getGuestReviewOrder = async (req, res) => {
     const existingReviews = await Review.find({ orderId: order._id })
       .select("productId variantId rating title review status isApproved")
       .lean();
+    // Reviews are per product, so variants of one product share a review.
     const reviewByProductVariant = new Map(
-      existingReviews.map((review) => [
-        `${String(review.productId)}:${String(review.variantId || "")}`,
-        review,
-      ]),
+      existingReviews.map((review) => [String(review.productId), review]),
     );
 
     return res.status(200).json({
@@ -216,8 +214,8 @@ const getGuestReviewOrder = async (req, res) => {
               : null,
             image: item.image || item.variantImage || null,
             quantity: item.quantity,
-            isReviewed: reviewByProductVariant.has(`${productId}:${String(variantId || "")}`),
-            review: reviewByProductVariant.get(`${productId}:${String(variantId || "")}`) || null,
+            isReviewed: reviewByProductVariant.has(productId),
+            review: reviewByProductVariant.get(productId) || null,
           };
         }),
       },

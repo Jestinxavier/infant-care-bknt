@@ -19,6 +19,10 @@ const guestLookupLimiter = rateLimit({
   message: { success: false, message: "Too many lookup attempts. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
+  // Signed-token lookups are what a page reload uses. They are already
+  // signature-verified and must not eat into the brute-force budget for
+  // orderId + contact guesses.
+  skip: (req) => Boolean(req.query.token),
 });
 
 /**
