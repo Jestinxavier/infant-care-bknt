@@ -50,13 +50,10 @@ const isExempt = (req) => {
   if (EXEMPT_EXACT.has(path)) return true;
   if (matchesPrefix(path, EXEMPT_PREFIXES)) return true;
 
-  // Dashboard login/refresh must work while the storefront is down.
-  if (
-    path.startsWith("/api/v1/auth") &&
-    req.headers["x-client-type"] === "dashboard"
-  ) {
-    return true;
-  }
+  // Login/refresh must work while the storefront is down: the dashboard needs
+  // it, and allowed testers sign in on the storefront. Signing in alone grants
+  // no bypass; resolveStaffBypass still decides access.
+  if (matchesPrefix(path, ["/api/v1/auth"])) return true;
 
   if (
     (method === "GET" || method === "HEAD") &&

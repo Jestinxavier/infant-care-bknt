@@ -8,6 +8,7 @@ const SITE_SETTING_KEYS = {
   MAINTENANCE_TITLE: "maintenance.title",
   MAINTENANCE_MESSAGE: "maintenance.message",
   MAINTENANCE_REOPEN_AT: "maintenance.reopen_at",
+  MAINTENANCE_ALLOWED_EMAILS: "maintenance.allowed_emails",
 };
 
 const SITE_SETTING_DEFINITIONS = {
@@ -124,6 +125,19 @@ const SITE_SETTING_DEFINITIONS = {
     category: "maintenance",
     aliases: ["maintenance.reopen_at"],
     defaultValue: "",
+  },
+  [SITE_SETTING_KEYS.MAINTENANCE_ALLOWED_EMAILS]: {
+    key: SITE_SETTING_KEYS.MAINTENANCE_ALLOWED_EMAILS,
+    scope: "maintenance",
+    type: "json",
+    // Admin-only: never expose the tester list on public endpoints.
+    isPublic: false,
+    label: "Maintenance Allowed Testers",
+    description:
+      "Emails of signed-in users who can browse the storefront during maintenance.",
+    category: "maintenance",
+    aliases: ["maintenance.allowed_emails"],
+    defaultValue: [],
   },
 };
 

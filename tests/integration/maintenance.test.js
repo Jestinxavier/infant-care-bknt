@@ -5,41 +5,28 @@ jest.mock("uuid", () => ({ v4: () => "00000000-0000-4000-8000-000000000000" }));
 const request = require("supertest");
 const app = require("../../src/app");
 const User = require("../../src/models/user");
+const SiteSetting = require("../../src/models/SiteSetting");
 const maintenanceService = require("../../src/services/maintenanceService");
+const { accessTokenFor } = require("../helpers/authFixtures");
 
 describe("Maintenance Mode", () => {
   let adminToken;
   let userToken;
-
-  // Login returns tokens as httpOnly cookies (no body token), so read the
-  // access token from the Set-Cookie header and use it as a Bearer token.
-  const login = async (email, password) => {
-    const res = await request(app)
-      .post("/api/v1/auth/login")
-      .send({ email, password });
-    const cookies = res.headers["set-cookie"] || [];
-    const accessCookie = cookies.find((c) => c.startsWith("access_token="));
-    if (!accessCookie) {
-      throw new Error(
-        `Login failed (${res.statusCode}): ${JSON.stringify(res.body)}`
-      );
-    }
-    return accessCookie.split(";")[0].split("=")[1];
-  };
+  let userEmail;
 
   beforeEach(async () => {
     const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const adminEmail = `maint_admin_${suffix}@example.com`;
-    const userEmail = `maint_user_${suffix}@example.com`;
+    userEmail = `maint_user_${suffix}@example.com`;
 
-    await User.create({
+    const admin = await User.create({
       username: `maint_admin_${suffix}`,
       email: adminEmail,
       password: "Password123!",
       role: "admin",
       isEmailVerified: true,
     });
-    await User.create({
+    const user = await User.create({
       username: `maint_user_${suffix}`,
       email: userEmail,
       password: "Password123!",
@@ -47,8 +34,9 @@ describe("Maintenance Mode", () => {
       isEmailVerified: true,
     });
 
-    adminToken = await login(adminEmail, "Password123!");
-    userToken = await login(userEmail, "Password123!");
+    // Mint tokens directly so the suite stays under the login rate limit.
+    adminToken = accessTokenFor(admin);
+    userToken = accessTokenFor(user);
   });
 
   afterEach(() => {
@@ -120,6 +108,58 @@ describe("Maintenance Mode", () => {
     expect(blocked.statusCode).toEqual(503);
   });
 
+  it("lets allowed testers bypass enforcement", async () => {
+    const res = await enable({ allowedEmails: [userEmail.toUpperCase()] });
+    expect(res.statusCode).toEqual(200);
+
+    const bypass = await request(app)
+      .get("/api/v1/wishlist")
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(bypass.statusCode).not.toEqual(503);
+
+    const stateRes = await request(app)
+      .get("/api/v1/settings/maintenance")
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(stateRes.body.maintenance.staffBypass).toBe(true);
+
+    // Guests stay blocked.
+    const guest = await request(app).get("/api/v1/wishlist");
+    expect(guest.statusCode).toEqual(503);
+  });
+
+  it("blocks testers again once removed from the list", async () => {
+    await enable({ allowedEmails: [userEmail] });
+    await enable({ allowedEmails: [] });
+
+    const blocked = await request(app)
+      .get("/api/v1/wishlist")
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(blocked.statusCode).toEqual(503);
+  });
+
+  it("does not expose the allowed tester list publicly", async () => {
+    await enable({ allowedEmails: [userEmail] });
+
+    const state = await request(app).get("/api/v1/settings/maintenance");
+    expect(state.body.maintenance).not.toHaveProperty("allowedEmails");
+
+    const publicSettings = await request(app).get(
+      "/api/v1/settings/public?scope=maintenance"
+    );
+    expect(publicSettings.statusCode).toEqual(200);
+    expect(publicSettings.body.settings).not.toHaveProperty(
+      "maintenance.allowed_emails"
+    );
+  });
+
+  it("keeps storefront login available while enabled", async () => {
+    await enable();
+    const res = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: userEmail, password: "Password123!" });
+    expect(res.statusCode).not.toEqual(503);
+  });
+
   it("restores access when disabled", async () => {
     await enable();
     const disable = await request(app)
@@ -148,8 +188,42 @@ describe("Maintenance Mode", () => {
     expect([401, 403]).toContain(res.statusCode);
   });
 
+  it("rejects enabling with a reopen time in the past", async () => {
+    const res = await enable({
+      reopenAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    expect(res.statusCode).toEqual(422);
+
+    const state = await request(app).get("/api/v1/settings/maintenance");
+    expect(state.body.maintenance.enabled).toBe(false);
+  });
+
+  it("rejects enabling when the stored reopen time has passed", async () => {
+    await request(app)
+      .put("/api/v1/admin/settings/maintenance")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ enabled: false, reopenAt: new Date(Date.now() + 3600_000).toISOString() });
+    await SiteSetting.updateOne(
+      { key: "maintenance.reopen_at" },
+      { $set: { value: new Date(Date.now() - 60_000).toISOString() } }
+    );
+    await maintenanceService.invalidateMaintenanceCache();
+
+    const res = await request(app)
+      .put("/api/v1/admin/settings/maintenance")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ enabled: true });
+    expect(res.statusCode).toEqual(422);
+  });
+
   it("auto-disables once the expected reopen time has passed", async () => {
-    await enable({ reopenAt: new Date(Date.now() - 60_000).toISOString() });
+    await enable({ reopenAt: new Date(Date.now() + 3600_000).toISOString() });
+    // Simulate the reopen time passing while maintenance is live.
+    await SiteSetting.updateOne(
+      { key: "maintenance.reopen_at" },
+      { $set: { value: new Date(Date.now() - 60_000).toISOString() } }
+    );
+    await maintenanceService.invalidateMaintenanceCache();
 
     const state = await request(app).get("/api/v1/settings/maintenance");
     expect(state.body.maintenance.enabled).toBe(false);

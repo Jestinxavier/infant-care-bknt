@@ -29,6 +29,8 @@ const DEFAULT_MESSAGE =
 
 const TITLE_MAX_LENGTH = 160;
 const MESSAGE_MAX_LENGTH = 1000;
+const ALLOWED_EMAILS_MAX = 50;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RETRY_AFTER_FALLBACK_SECONDS = 3600;
 
 let memoryCache = null;
@@ -40,6 +42,18 @@ const isReopenPassed = (reopenAt) => {
   const ts = new Date(reopenAt).getTime();
   return !Number.isNaN(ts) && ts <= Date.now();
 };
+
+const normalizeEmails = (value) =>
+  Array.isArray(value)
+    ? [
+        ...new Set(
+          value
+            .filter((email) => typeof email === "string")
+            .map((email) => email.trim().toLowerCase())
+            .filter(Boolean)
+        ),
+      ]
+    : [];
 
 const buildState = (docs = []) => {
   const map = docs.reduce((acc, doc) => {
@@ -71,6 +85,8 @@ const buildState = (docs = []) => {
         ? map[SITE_SETTING_KEYS.MAINTENANCE_MESSAGE].trim()
         : DEFAULT_MESSAGE,
     reopenAt,
+    // Internal only; stripped by toPublicPayload.
+    allowedEmails: normalizeEmails(map[SITE_SETTING_KEYS.MAINTENANCE_ALLOWED_EMAILS]),
     updatedAt: latestUpdatedAt > 0 ? new Date(latestUpdatedAt).toISOString() : null,
   };
 };
@@ -80,6 +96,7 @@ const fallbackState = () => ({
   title: DEFAULT_TITLE,
   message: DEFAULT_MESSAGE,
   reopenAt: null,
+  allowedEmails: [],
   updatedAt: null,
 });
 
@@ -158,8 +175,9 @@ const computeRetryAfter = (reopenAt) => {
 };
 
 /**
- * Verify that the request carries a valid access token belonging to an admin.
- * Only used for the staff bypass; the role is always read from the database.
+ * Verify that the request carries a valid access token belonging to an admin
+ * or to a user on the maintenance allowed-testers list. Role and email are
+ * always read from the database, never trusted from the token.
  */
 const resolveStaffBypass = async (req) => {
   try {
@@ -169,8 +187,15 @@ const resolveStaffBypass = async (req) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded?.id) return false;
 
-    const user = await User.findById(decoded.id).select("role").lean();
-    return !!user && ADMIN_ROLES.includes(user.role);
+    const user = await User.findById(decoded.id).select("role email").lean();
+    if (!user) return false;
+    if (ADMIN_ROLES.includes(user.role)) return true;
+
+    const { allowedEmails = [] } = await getMaintenanceState();
+    return (
+      typeof user.email === "string" &&
+      allowedEmails.includes(user.email.toLowerCase())
+    );
   } catch {
     return false;
   }
@@ -234,6 +259,34 @@ const validateMaintenanceInput = (payload = {}) => {
     }
   }
 
+  if (payload.allowedEmails !== undefined) {
+    if (
+      !Array.isArray(payload.allowedEmails) ||
+      payload.allowedEmails.some((email) => typeof email !== "string")
+    ) {
+      errors.push({
+        field: "allowedEmails",
+        message: "allowedEmails must be an array of email addresses",
+      });
+    } else {
+      const emails = normalizeEmails(payload.allowedEmails);
+      const invalid = emails.filter((email) => !EMAIL_PATTERN.test(email));
+      if (invalid.length) {
+        errors.push({
+          field: "allowedEmails",
+          message: `Invalid email address: ${invalid.join(", ")}`,
+        });
+      } else if (emails.length > ALLOWED_EMAILS_MAX) {
+        errors.push({
+          field: "allowedEmails",
+          message: `allowedEmails can contain at most ${ALLOWED_EMAILS_MAX} entries`,
+        });
+      } else {
+        value.allowedEmails = emails;
+      }
+    }
+  }
+
   if (Object.keys(value).length === 0 && errors.length === 0) {
     errors.push({ field: "body", message: "No maintenance fields provided" });
   }
@@ -251,7 +304,7 @@ const upsertSetting = (key, value) => {
         type: definition?.type || "string",
         scope: MAINTENANCE_SCOPE,
         description: definition?.description || "",
-        isPublic: true,
+        isPublic: definition?.isPublic ?? true,
       },
     },
     { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
@@ -262,6 +315,24 @@ const updateMaintenanceSettings = async (payload = {}) => {
   const { errors, value } = validateMaintenanceInput(payload);
   if (errors.length) {
     throw ApiError.validation("Invalid maintenance settings", errors);
+  }
+
+  // Enabling with a reopen time already in the past would be auto-disabled on
+  // the very next read, so reject it instead of silently turning it off.
+  if (value.enabled === true) {
+    const effectiveReopenAt =
+      value.reopenAt !== undefined
+        ? value.reopenAt
+        : (await getMaintenanceState()).reopenAt;
+    if (isReopenPassed(effectiveReopenAt)) {
+      throw ApiError.validation("Invalid maintenance settings", [
+        {
+          field: "reopenAt",
+          message:
+            "Expected reopen time is in the past. Clear it or pick a future time.",
+        },
+      ]);
+    }
   }
 
   if (value.enabled !== undefined) {
@@ -281,6 +352,12 @@ const updateMaintenanceSettings = async (payload = {}) => {
   }
   if (value.reopenAt !== undefined) {
     await upsertSetting(SITE_SETTING_KEYS.MAINTENANCE_REOPEN_AT, value.reopenAt);
+  }
+  if (value.allowedEmails !== undefined) {
+    await upsertSetting(
+      SITE_SETTING_KEYS.MAINTENANCE_ALLOWED_EMAILS,
+      value.allowedEmails
+    );
   }
 
   await invalidateMaintenanceCache();
