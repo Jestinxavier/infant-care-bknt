@@ -1,6 +1,7 @@
 const Order = require("../../models/Order");
 const logger = require("../../utils/logger");
 const escapeRegex = require("../../utils/escapeRegex");
+const { formatVariantName } = require("../../utils/formatVariantName");
 
 /**
  * Convert a Mongoose `Map` (or plain object) into a plain object so it
@@ -103,9 +104,11 @@ const guestOrderLookup = async (req, res) => {
           0,
         ),
         items: (order.items || []).map((item) => ({
-          name: item.name,
+          name: formatVariantName(item.name),
           sku: item.sku,
-          variantName: item.variantName,
+          variantName: item.variantName
+            ? formatVariantName(item.variantName)
+            : null,
           variantAttributes: toPlainObject(item.variantAttributes),
           quantity: item.quantity,
           price: item.price,

@@ -13,6 +13,7 @@ const {
 } = require("./orderCacheInvalidation");
 const logger = require("../../utils/logger");
 const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
+const { formatVariantName } = require("../../utils/formatVariantName");
 const { cacheGetOrSet } = require("../../utils/redisCache");
 
 const escapeRegex = require("../../utils/escapeRegex");
@@ -1303,7 +1304,7 @@ function buildOrdersCsv(orders, type) {
           ? it.variantAttributes
           : Object.entries(it.variantAttributes || {});
         const variant =
-          it.variantName ||
+          (it.variantName && formatVariantName(it.variantName)) ||
           attrs
             .map(([k, v]) => `${String(k).trim()}: ${String(v).trim()}`)
             .filter(Boolean)
@@ -1317,7 +1318,7 @@ function buildOrdersCsv(orders, type) {
             o.paymentMethod,
             customer,
             phone,
-            it.name,
+            formatVariantName(it.name || ""),
             it.variantSku || it.sku || "",
             variant,
             it.quantity,
@@ -1352,7 +1353,7 @@ function buildOrdersCsv(orders, type) {
     const items = (o.items || [])
       .map(
         (it) =>
-          `${it.name}${it.variantName ? ` (${it.variantName})` : ""} x${it.quantity}`,
+          `${formatVariantName(it.name || "")}${it.variantName ? ` (${formatVariantName(it.variantName)})` : ""} x${it.quantity}`,
       )
       .join(" | ");
     const itemCount = (o.items || []).reduce(

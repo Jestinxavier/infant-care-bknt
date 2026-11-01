@@ -5,6 +5,7 @@ const {
   TTL,
 } = require("../../utils/redisCache");
 const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+const { formatVariantName } = require("../../utils/formatVariantName");
 
 const CSV_COLUMNS = [
   { field: "name", header: "Product" },
@@ -200,7 +201,10 @@ exports.getSalesByProduct = async (req, res) => {
 
       let rows = grouped.map((r) => {
         const meta = productMeta.get(String(r._id?.productId || "")) || {};
-        const variantLabel = r.variantName && r.variantName !== r.name ? r.variantName : "";
+        const variantLabel =
+          r.variantName && r.variantName !== r.name
+            ? formatVariantName(r.variantName)
+            : "";
         return {
           productId: r._id?.productId ? String(r._id.productId) : null,
           variantId: r._id?.variantId ? String(r._id.variantId) : null,

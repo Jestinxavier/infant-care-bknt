@@ -30,6 +30,11 @@
     "backfill:synonyms": "node scripts/backfill_attribute_synonyms.js",
     "review:values": "node scripts/review-attribute-values.js",
     "review:values:backfill": "node scripts/backfill-needs-review.js",
+    "normalize:attributes": "node scripts/normalize-attribute-labels.js",
+    "normalize:attributes:apply": "node scripts/normalize-attribute-labels.js --apply",
+    "normalize:variant-names": "node scripts/normalize-variant-names.js",
+    "normalize:variant-names:apply": "node scripts/normalize-variant-names.js --apply",
+    "audit:variant-labels": "node scripts/audit-variant-labels.js",
     "purge:error-logs": "node scripts/purgeNoiseErrorLogs.js"
   },
   "keywords": [

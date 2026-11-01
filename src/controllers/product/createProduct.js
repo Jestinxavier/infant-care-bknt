@@ -16,6 +16,7 @@ const {
   finalizeImages,
 } = require("../../utils/mediaFinalizer");
 const { createOptionsHash } = require("../../utils/variantValidator");
+const { formatVariantName } = require("../../utils/formatVariantName");
 const {
   processVariantOptions,
   normalizeVariantAttributesToValues,
@@ -110,8 +111,8 @@ const buildVariantTitle = (
     })
     .filter(Boolean);
 
-  if (!labels.length) return parentTitle;
-  return `${parentTitle} - ${labels.join(" / ")}`;
+  if (!labels.length) return formatVariantName(parentTitle);
+  return formatVariantName(`${parentTitle} - ${labels.join(" / ")}`);
 };
 
 const createProduct = async (req, res) => {

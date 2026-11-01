@@ -2,6 +2,7 @@ const Order = require("../../models/Order");
 const Review = require("../../models/Review");
 const Product = require("../../models/Product");
 const logger = require("../../utils/logger");
+const { formatVariantName } = require("../../utils/formatVariantName");
 
 /**
  * Get single order by ID for the authenticated user
@@ -144,7 +145,10 @@ const getOrderById = async (req, res) => {
           return {
             variantId: item?.variantId?._id ?? item?.variantId,
             productId: item?.productId?._id ?? item?.productId,
-            productName: item?.variantName ?? item?.name,
+            productName:
+              item?.variantName || item?.name
+                ? formatVariantName(item.variantName || item.name)
+                : item?.name,
             quantity: item?.quantity,
             productImage: item?.variantImage ?? item?.image,
             price: item?.price,

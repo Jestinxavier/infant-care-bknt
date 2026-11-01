@@ -3,6 +3,8 @@
  * Adds aggregated metrics and variant summaries
  */
 
+const { formatVariantName } = require("./formatVariantName");
+
 /**
  * Calculate total stock from variants or parent
  */
@@ -186,9 +188,9 @@ function getVariantAttributes(variant) {
 function buildVariantTitle(parentTitle, attributes) {
   const attrValues = Object.values(attributes || {});
   if (attrValues.length > 0) {
-    return `${parentTitle} - ${attrValues.join(" / ")}`;
+    return formatVariantName(`${parentTitle} - ${attrValues.join(" / ")}`);
   }
-  return parentTitle;
+  return formatVariantName(parentTitle);
 }
 
 const { toCloudinaryUrl } = require("./cloudinaryUrlUtils");

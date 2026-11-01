@@ -6,6 +6,7 @@ const { updateRatings } = require("../../services/ratingService");
 const mongoose = require("mongoose");
 const logger = require("../../utils/logger");
 const { verifyGuestReviewToken } = require("../../utils/guestReviewToken");
+const { formatVariantName } = require("../../utils/formatVariantName");
 
 /**
  * Get purchased products eligible for review
@@ -119,14 +120,18 @@ const getPurchasedProductsForReview = async (req, res) => {
           orderDate: order.placedAt,
           variantId: item.variantId || null,
           productId,
-          productName: product?.name || product?.title || item.name || "Product",
+          productName: formatVariantName(
+            product?.name || product?.title || item.name || "Product",
+          ),
           productImage:
             product?.images?.[0] || item.image || item.variantImage || null,
           variantDetails: {
             size,
             color,
             age,
-            name: item.variantName || null,
+            name: item.variantName
+              ? formatVariantName(item.variantName)
+              : null,
             sku: item.variantSku || variant?.sku || null,
             price: item.price,
           },
@@ -203,8 +208,12 @@ const getGuestReviewOrder = async (req, res) => {
           return {
             productId,
             variantId,
-            name: item.name || item.productName || "Product",
-            variantName: item.variantName || null,
+            name: formatVariantName(
+              item.name || item.productName || "Product",
+            ),
+            variantName: item.variantName
+              ? formatVariantName(item.variantName)
+              : null,
             image: item.image || item.variantImage || null,
             quantity: item.quantity,
             isReviewed: reviewByProductVariant.has(`${productId}:${String(variantId || "")}`),

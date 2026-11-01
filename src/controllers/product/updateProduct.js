@@ -77,8 +77,8 @@ const buildVariantTitle = (parentTitle, productVariantOptions, attributesMap) =>
     })
     .filter(Boolean);
 
-  if (!labels.length) return parentTitle;
-  return `${parentTitle} - ${labels.join(" / ")}`;
+  if (!labels.length) return formatVariantName(parentTitle);
+  return formatVariantName(`${parentTitle} - ${labels.join(" / ")}`);
 };
 
 const updateProduct = async (req, res) => {

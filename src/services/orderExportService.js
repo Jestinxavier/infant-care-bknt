@@ -1,5 +1,6 @@
 const { Parser } = require("json2csv");
 const Order = require("../models/Order");
+const { formatVariantName } = require("../utils/formatVariantName");
 
 /**
  * Format date in Indian Standard Time (IST, UTC+5:30)
@@ -78,8 +79,8 @@ const formatItemsSummary = (items) => {
   if (!Array.isArray(items) || items.length === 0) return "";
   return items
     .map((item) => {
-      const name = item.name || item.title || "Product";
-      const variant = item.variantName || "";
+      const name = formatVariantName(item.name || item.title || "Product");
+      const variant = formatVariantName(item.variantName || "");
       const variantInfo = variant && variant !== name ? ` (${variant})` : "";
       const giftInfo = item.isGift ? " [Gift]" : "";
       return `${name}${variantInfo}${giftInfo} x ${item.quantity || 1}`;
@@ -216,8 +217,8 @@ const mapOrderToItemRows = (order) => {
       "Order ID": baseOrderInfo["Order ID"],
       "Order Date (IST)": baseOrderInfo["Order Date (IST)"],
       "Item Sequence": index + 1,
-      "Product Name": item.name || item.title || "",
-      "Variant Name": item.variantName || "",
+      "Product Name": formatVariantName(item.name || item.title || ""),
+      "Variant Name": formatVariantName(item.variantName || ""),
       "Item SKU": item.variantSku || item.sku || "",
       "Variant Attributes": variantAttributes,
       "Quantity": quantity,

@@ -18,6 +18,7 @@ const {
 const { generateUniqueUrlKey, generateSlug } = require("../../utils/slugGenerator");
 const { normalizeDesignId } = require("../../utils/designId");
 const { processVariantOptions } = require("../../utils/variantNameFormatter");
+const { formatVariantName } = require("../../utils/formatVariantName");
 const {
   parseCollectionsInput,
   validateCollectionsAndBadge,
@@ -269,8 +270,8 @@ function buildVariantTitle(parentTitle, productVariantOptions, attributesMap) {
     })
     .filter(Boolean);
 
-  if (!labels.length) return parentTitle;
-  return `${parentTitle} - ${labels.join(" / ")}`;
+  if (!labels.length) return formatVariantName(parentTitle);
+  return formatVariantName(`${parentTitle} - ${labels.join(" / ")}`);
 }
 
 function normalizeVariantAttributeValueForHash(value) {
