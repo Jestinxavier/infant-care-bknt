@@ -189,7 +189,7 @@ ${CSV_HEADERS.join(",")}
      - offer_period: ""
      - stock: "" (MUST be empty for configurable parent)
      - category: Must be one of the exact category names or slugs above (REQUIRED)
-     - image_urls: Image URL or placeholder (e.g. "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af" or pipe-separated)
+     - image_urls: Cloudinary or CDN image URL (e.g. "https://res.cloudinary.com/example/image/upload/v1/product.jpg" or pipe-separated for multiple). Leave "" if no real image URL is available.
      - image_public_ids: ""
      - description: Engaging, baby-friendly description
      - collections: Pipe-separated collection slugs (e.g. "new-arrivals|best-sellers") or ""
@@ -370,7 +370,10 @@ function deterministicGenerateProducts(prompt, rawData, kb, structuredData = {})
   } else if (typeof structuredData.images === "string" && structuredData.images.trim()) {
     imageUrls = structuredData.images.trim().replace(/[\n,]+/g, "|");
   } else {
-    imageUrls = "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af";
+    // No image provided — leave blank so admin can upload a real image later.
+    // Do NOT fall back to external placeholder URLs (Unsplash etc.) as they
+    // can end up persisted in the DB and violate third-party ToS.
+    imageUrls = "";
   }
 
   // Badge & Collections
