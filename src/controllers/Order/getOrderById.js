@@ -126,6 +126,9 @@ const getOrderById = async (req, res) => {
             discountAmount: order.coupon.discountAmount,
           }
         : null,
+      // GST worked out when the order was placed (null on older orders). The
+      // storefront shows only what the GST display settings allow.
+      gst: order?.gst || null,
       items: (order?.items ?? []).map((item) => {
           const productIdStr = (item.productId?._id ?? item.productId)?.toString() ?? "";
           const variantIdStr = (item.variantId?._id ?? item.variantId) ?? "";
@@ -161,6 +164,10 @@ const getOrderById = async (req, res) => {
             quantity: item?.quantity,
             productImage: item?.variantImage ?? item?.image,
             price: item?.price,
+            hsnCode: item?.hsnCode,
+            gstRate: item?.gstRate,
+            taxableValue: item?.taxableValue,
+            taxAmount: item?.taxAmount,
             variantAttributes: item?.variantAttributes,
             productUrl,
             selectedGift,

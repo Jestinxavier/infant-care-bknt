@@ -50,6 +50,37 @@ const orderItemSchema = new mongoose.Schema(
       title: String,
     },
     isGift: { type: Boolean, default: false },
+
+    // GST snapshot (set only when GST was enabled when the order was placed)
+    hsnCode: { type: String },
+    gstRate: { type: Number },
+    taxableValue: { type: Number },
+    taxAmount: { type: Number },
+  },
+  { _id: false },
+);
+
+// GST worked out when the order was placed, so later changes to rates or
+// settings never alter an existing invoice. Absent on orders placed before GST
+// was enabled; those keep showing invoices without tax figures.
+const orderGstSchema = new mongoose.Schema(
+  {
+    pricesIncludeTax: { type: Boolean, default: true },
+    sellerGstin: { type: String, default: "" },
+    sellerState: { type: String, default: "" },
+    placeOfSupply: { type: String, default: "" },
+    supplyType: { type: String, enum: ["intra", "inter"] },
+    taxableValue: { type: Number, default: 0 },
+    totalTax: { type: Number, default: 0 },
+    cgst: { type: Number, default: 0 },
+    sgst: { type: Number, default: 0 },
+    igst: { type: Number, default: 0 },
+    // Shipping + COD fee, taxed at the highest item rate
+    chargesRate: { type: Number, default: 0 },
+    chargesTaxableValue: { type: Number, default: 0 },
+    chargesTax: { type: Number, default: 0 },
+    invoiceNumber: { type: String, default: null },
+    invoiceDate: { type: Date, default: null },
   },
   { _id: false },
 );
@@ -122,6 +153,7 @@ const orderSchema = new mongoose.Schema(
         discountAmount: Number,
       },
     ],
+    gst: { type: orderGstSchema, default: undefined },
     // addressId removed as per request (full address stored in shippingAddress)
     shippingAddress: {
       name: String,
@@ -292,5 +324,10 @@ orderSchema.index({ orderStatus: 1, placedAt: -1 });
 orderSchema.index({ createdAt: -1, orderStatus: 1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ phonepeTransactionId: 1 }, { sparse: true });
+// Invoice numbers must never repeat.
+orderSchema.index(
+  { "gst.invoiceNumber": 1 },
+  { unique: true, partialFilterExpression: { "gst.invoiceNumber": { $type: "string" } } },
+);
 
 module.exports = mongoose.model("Order", orderSchema);

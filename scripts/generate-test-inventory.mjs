@@ -310,7 +310,6 @@ function domainFor(file, base, fullPath) {
     "metaConversionRoutes.js": "Meta Conversions",
     "siteSettingsRoutes.js": "Site Settings",
     "chatRoutes.js": "Chat",
-    "adminAiReportRoutes.js": "Reports",
     "deliveryPartnerRoutes.js": "Delivery Partners",
     "mediaRoutes.js": "Media",
     "faqCategoryRoutes.js": "FAQs",
@@ -577,7 +576,6 @@ const dashboardRoutes = [
   ["/reports/orders-by-status", "OrdersByStatusPage", "permission:view:analytics|view:financial_data", "Reports", "Date range, filters, chart/table, export"],
   ["/reports/returns-cancellations", "ReturnsCancellationsPage", "permission:view:analytics|view:financial_data", "Reports", "Date range, filters, table, export"],
   ["/reports/payment-method-split", "PaymentMethodSplitPage", "permission:view:analytics|view:financial_data", "Reports", "Date range, filters, chart/table, export"],
-  ["/reports/ai-daily-report", "AiDailyReportPage", "authenticated", "Reports", "Generate/load report, errors, empty state"],
   ["/chat", "ChatPage", "authenticated", "Chat", "Sessions, messages, AI response, errors"],
   ["*", "NotFoundPage", "authenticated", "Platform", "404 page and return navigation"],
 ].map(([route, component, access, domain, actions], index) => {
@@ -783,15 +781,6 @@ function collectBackgroundJobs() {
       trigger: "cron+startup",
       source: "backend/src/jobs/cleanupExpiredAssets.js:132",
       cases: "H,ERR,RETRY,IDEM,CLN",
-      status: "COVERED",
-      testOwner: "backend/tests/integration/backgroundJobsSurface.test.js",
-    },
-    {
-      id: "JOB-004",
-      name: "Daily AI report cron",
-      trigger: "cron",
-      source: "backend/src/services/aiReportService.js:458",
-      cases: "H,ERR,RETRY,IDEM,EXP",
       status: "COVERED",
       testOwner: "backend/tests/integration/backgroundJobsSurface.test.js",
     },
@@ -1249,9 +1238,6 @@ function backendRowCoverage(item) {
   }
   if (routePath === "/api/v1/admin/products/search" || routePath === "/api/v1/admin/products/sku-lookup" || routePath === "/api/v1/admin/products/count-filter-value" || routePath === "/api/v1/admin/products/design-families" || routePath === "/api/v1/admin/products/reindex-search") {
     return covered(testOwners.product);
-  }
-  if (routePath.startsWith("/api/v1/admin/ai-reports")) {
-    return covered(testOwners.backgroundJobs);
   }
   if (/^\/api\/v1\/admin\/reports(\/|$)/.test(routePath)) {
     return covered(testOwners.reports);

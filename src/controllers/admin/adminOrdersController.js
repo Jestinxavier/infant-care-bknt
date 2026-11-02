@@ -6,6 +6,7 @@ const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock } = require("../../utils/orderStockRestore");
 const { neutralizeCsvFormula } = require("../../utils/reportCsv");
+const { ensureInvoiceNumber } = require("../../services/gstService");
 const {
   canTransitionStatus,
 } = require("../../features/order/rules/order.rules");
@@ -955,6 +956,60 @@ const updateOrderStatus = async (req, res) => {
 /**
  * Admin: Send invoice email
  */
+const MAX_INVOICE_NUMBER_BATCH = 100;
+
+/**
+ * Admin: issue GST invoice numbers before the dashboard builds invoice PDFs.
+ * Body: { orderIds: string[] } (or { orderId }). A number is issued only for
+ * a GST order that is a confirmed sale (paid, or COD not cancelled); one
+ * already issued is returned as-is. Others get null and print as a plain
+ * "Invoice".
+ */
+const issueInvoiceNumbers = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.orderIds)
+      ? req.body.orderIds
+      : [req.body.orderId];
+    if (ids.length === 0 || ids.length > MAX_INVOICE_NUMBER_BATCH) {
+      return res.status(400).json({
+        success: false,
+        message: `Send between 1 and ${MAX_INVOICE_NUMBER_BATCH} order IDs`,
+      });
+    }
+
+    const invoiceNumbers = {};
+    // Sequential so numbers follow the order the admin selected.
+    for (const id of ids) {
+      const query = buildOrderLookupQuery(id);
+      if (!query) return invalidOrderIdResponse(res);
+      const order = await Order.findOne(query)
+        .select("_id orderId gst paymentStatus paymentMethod orderStatus")
+        .lean();
+      if (!order) {
+        invoiceNumbers[id] = null;
+        continue;
+      }
+      if (order.gst?.invoiceNumber) {
+        invoiceNumbers[id] = order.gst.invoiceNumber;
+        continue;
+      }
+      const isConfirmedSale =
+        order.paymentStatus === "paid" ||
+        (order.paymentMethod === PAYMENT_METHODS.COD &&
+          order.orderStatus !== "cancelled");
+      invoiceNumbers[id] =
+        order.gst && isConfirmedSale
+          ? await ensureInvoiceNumber(order._id)
+          : null;
+    }
+
+    res.status(200).json({ success: true, invoiceNumbers });
+  } catch (err) {
+    logger.error("Admin error issuing invoice numbers", { error: err.message });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
 const sendOrderInvoice = async (req, res) => {
   try {
     const query = buildOrderLookupQuery(req.body.orderId);
@@ -1453,6 +1508,7 @@ const exportOrders = async (req, res) => {
 };
 
 module.exports = {
+  issueInvoiceNumbers,
   getAllOrders,
   getOrderStatusCounts,
   getOrderById,

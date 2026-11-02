@@ -1,17 +1,17 @@
 {
   "counts": {
-    "mounts": 37,
-    "endpoints": 299,
-    "protectedAdminRoutes": 170,
+    "mounts": 36,
+    "endpoints": 297,
+    "protectedAdminRoutes": 167,
     "directRoutes": 9,
-    "backgroundJobs": 4,
-    "rawEndpoints": 301,
+    "backgroundJobs": 3,
+    "rawEndpoints": 299,
     "duplicates": 2,
-    "dashboardRoutes": 41,
+    "dashboardRoutes": 40,
     "storefrontRoutes": 23,
     "mediaRoutes": 11,
     "actions": 65,
-    "existingTests": 70
+    "existingTests": 73
   },
   "backend": [
     {
@@ -1904,54 +1904,6 @@
     },
     {
       "method": "GET",
-      "path": "/api/v1/admin/ai-reports",
-      "domain": "Reports",
-      "area": "dashboard",
-      "access": "admin",
-      "auth": {
-        "token": true,
-        "admin": true,
-        "permissions": []
-      },
-      "handler": "listReports",
-      "source": "src/routes/adminAiReportRoutes.js:15",
-      "cases": "H,VAL,AUTH,ERR,BND,STATE",
-      "duplicates": []
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1/admin/ai-reports/:date",
-      "domain": "Reports",
-      "area": "dashboard",
-      "access": "admin",
-      "auth": {
-        "token": true,
-        "admin": true,
-        "permissions": []
-      },
-      "handler": "getReport",
-      "source": "src/routes/adminAiReportRoutes.js:16",
-      "cases": "H,VAL,AUTH,ERR,BND,STATE",
-      "duplicates": []
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/admin/ai-reports/generate",
-      "domain": "Reports",
-      "area": "dashboard",
-      "access": "admin",
-      "auth": {
-        "token": true,
-        "admin": true,
-        "permissions": []
-      },
-      "handler": "generateReport",
-      "source": "src/routes/adminAiReportRoutes.js:17",
-      "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
-      "duplicates": []
-    },
-    {
-      "method": "GET",
       "path": "/api/v1/admin/reports/customers",
       "domain": "Reports",
       "area": "dashboard",
@@ -2974,7 +2926,7 @@
         "permissions": []
       },
       "handler": "track",
-      "source": "src/routes/analyticsRoutes.js:7",
+      "source": "src/routes/analyticsRoutes.js:20",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4078,7 +4030,7 @@
         "permissions": []
       },
       "handler": "getOrders",
-      "source": "src/routes/orderRoutes.js:207",
+      "source": "src/routes/orderRoutes.js:211",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4094,7 +4046,7 @@
         "permissions": []
       },
       "handler": "getOrderById",
-      "source": "src/routes/orderRoutes.js:224",
+      "source": "src/routes/orderRoutes.js:228",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4110,7 +4062,7 @@
         "permissions": []
       },
       "handler": "createOrder",
-      "source": "src/routes/orderRoutes.js:227",
+      "source": "src/routes/orderRoutes.js:231",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4126,7 +4078,7 @@
         "permissions": []
       },
       "handler": "guestClaim",
-      "source": "src/routes/orderRoutes.js:221",
+      "source": "src/routes/orderRoutes.js:225",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4142,7 +4094,7 @@
         "permissions": []
       },
       "handler": "guestConvert",
-      "source": "src/routes/orderRoutes.js:218",
+      "source": "src/routes/orderRoutes.js:222",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4158,7 +4110,7 @@
         "permissions": []
       },
       "handler": "guestOrderLookup",
-      "source": "src/routes/orderRoutes.js:211",
+      "source": "src/routes/orderRoutes.js:215",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4174,7 +4126,7 @@
         "permissions": []
       },
       "handler": "getPaymentStatus",
-      "source": "src/routes/orderRoutes.js:215",
+      "source": "src/routes/orderRoutes.js:219",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4574,8 +4526,24 @@
         "permissions": []
       },
       "handler": "addReview",
-      "source": "src/routes/reviewRoutes.js:174",
+      "source": "src/routes/reviewRoutes.js:178",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
+      "duplicates": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/review/guest-order",
+      "domain": "Reviews",
+      "area": "storefront",
+      "access": "public",
+      "auth": {
+        "token": false,
+        "admin": false,
+        "permissions": []
+      },
+      "handler": "getGuestReviewOrder",
+      "source": "src/routes/reviewRoutes.js:119",
+      "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
     {
@@ -4590,7 +4558,7 @@
         "permissions": []
       },
       "handler": "addGuestReview",
-      "source": "src/routes/reviewRoutes.js:175",
+      "source": "src/routes/reviewRoutes.js:179",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4606,7 +4574,7 @@
         "permissions": []
       },
       "handler": "getPurchasedProductsForReview",
-      "source": "src/routes/reviewRoutes.js:115",
+      "source": "src/routes/reviewRoutes.js:116",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4622,7 +4590,7 @@
         "permissions": []
       },
       "handler": "deleteMyReview",
-      "source": "src/routes/reviewRoutes.js:302",
+      "source": "src/routes/reviewRoutes.js:306",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4638,7 +4606,7 @@
         "permissions": []
       },
       "handler": "updateMyReview",
-      "source": "src/routes/reviewRoutes.js:264",
+      "source": "src/routes/reviewRoutes.js:268",
       "cases": "H,VAL,AUTH,ERR,BND,IDEM,CLN",
       "duplicates": []
     },
@@ -4654,7 +4622,7 @@
         "permissions": []
       },
       "handler": "getMyReviews",
-      "source": "src/routes/reviewRoutes.js:207",
+      "source": "src/routes/reviewRoutes.js:211",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4670,7 +4638,7 @@
         "permissions": []
       },
       "handler": "getProductReviews",
-      "source": "src/routes/reviewRoutes.js:375",
+      "source": "src/routes/reviewRoutes.js:379",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4686,7 +4654,7 @@
         "permissions": []
       },
       "handler": "getTopReviews",
-      "source": "src/routes/reviewRoutes.js:429",
+      "source": "src/routes/reviewRoutes.js:433",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4702,7 +4670,7 @@
         "permissions": []
       },
       "handler": "getVariantReviews",
-      "source": "src/routes/reviewRoutes.js:343",
+      "source": "src/routes/reviewRoutes.js:347",
       "cases": "H,VAL,AUTH,ERR,BND,STATE",
       "duplicates": []
     },
@@ -4826,7 +4794,7 @@
       "path": "/",
       "access": "public",
       "handler": "inline",
-      "source": "backend/src/app.js:266",
+      "source": "backend/src/app.js:262",
       "cases": "H",
       "area": "platform",
       "domain": "Platform",
@@ -4856,7 +4824,7 @@
       "path": "/api/payments/check/:orderId",
       "access": "admin",
       "handler": "manualCheckPaymentStatus",
-      "source": "backend/src/app.js:293",
+      "source": "backend/src/app.js:289",
       "cases": "H,VAL,AUTH,ERR",
       "area": "payments",
       "domain": "Payments",
@@ -4916,7 +4884,7 @@
       "path": "/email-logo.png",
       "access": "public",
       "handler": "inline",
-      "source": "backend/src/app.js:275",
+      "source": "backend/src/app.js:271",
       "cases": "H,ERR",
       "area": "platform",
       "domain": "Platform",
@@ -4931,7 +4899,7 @@
       "path": "/order-confirmation",
       "access": "public",
       "handler": "checkOrderStatus",
-      "source": "backend/src/app.js:288",
+      "source": "backend/src/app.js:284",
       "cases": "H,VAL,ERR,STATE",
       "area": "payments",
       "domain": "Payments",
@@ -4946,7 +4914,7 @@
       "path": "/razorpay-confirmation",
       "access": "public",
       "handler": "checkRazorpayOrderStatus",
-      "source": "backend/src/app.js:289",
+      "source": "backend/src/app.js:285",
       "cases": "H,VAL,ERR,STATE",
       "area": "payments",
       "domain": "Payments",
@@ -4983,202 +4951,188 @@
       "cases": "H,ERR,RETRY,IDEM,CLN",
       "status": "COVERED",
       "testOwner": "backend/tests/integration/backgroundJobsSurface.test.js"
-    },
-    {
-      "id": "JOB-004",
-      "name": "Daily AI report cron",
-      "trigger": "cron",
-      "source": "backend/src/services/aiReportService.js:458",
-      "cases": "H,ERR,RETRY,IDEM,EXP",
-      "status": "COVERED",
-      "testOwner": "backend/tests/integration/backgroundJobsSurface.test.js"
     }
   ],
   "mounts": [
     {
       "base": "/api/v1/addresses",
       "file": "src/routes/addressRoutes.js",
-      "source": "src/app.js:198"
+      "source": "src/app.js:197"
     },
     {
       "base": "/api/v1/admin",
       "file": "src/routes/adminRoutes.js",
-      "source": "src/app.js:219"
-    },
-    {
-      "base": "/api/v1/admin/ai-reports",
-      "file": "src/routes/adminAiReportRoutes.js",
-      "source": "src/app.js:251"
+      "source": "src/app.js:218"
     },
     {
       "base": "/api/v1/admin/assets",
       "file": "src/routes/asset.js",
-      "source": "src/app.js:240"
+      "source": "src/app.js:239"
     },
     {
       "base": "/api/v1/admin/attributes",
       "file": "src/routes/attributeRoutes.js",
-      "source": "src/app.js:244"
+      "source": "src/app.js:243"
     },
     {
       "base": "/api/v1/admin/cms",
       "file": "src/features/cms/cms.admin.routes.js",
-      "source": "src/app.js:222"
+      "source": "src/app.js:221"
     },
     {
       "base": "/api/v1/admin/collections",
       "file": "src/routes/collectionRoutes.js",
-      "source": "src/app.js:245"
+      "source": "src/app.js:244"
     },
     {
       "base": "/api/v1/admin/csv-images",
       "file": "src/routes/csvImageRoutes.js",
-      "source": "src/app.js:237"
+      "source": "src/app.js:236"
     },
     {
       "base": "/api/v1/admin/delivery-partners",
       "file": "src/routes/deliveryPartnerRoutes.js",
-      "source": "src/app.js:220"
+      "source": "src/app.js:219"
     },
     {
       "base": "/api/v1/admin/faq-categories",
       "file": "src/routes/faqCategoryRoutes.js",
-      "source": "src/app.js:230"
+      "source": "src/app.js:229"
     },
     {
       "base": "/api/v1/admin/media",
       "file": "src/routes/mediaRoutes.js",
-      "source": "src/app.js:227"
+      "source": "src/app.js:226"
     },
     {
       "base": "/api/v1/admin/pages",
       "file": "src/features/cms/pages/pages.admin.routes.js",
-      "source": "src/app.js:224"
+      "source": "src/app.js:223"
     },
     {
       "base": "/api/v1/admin/settings",
       "file": "src/routes/siteSettingsRoutes.js",
-      "source": "src/app.js:233"
+      "source": "src/app.js:232"
     },
     {
       "base": "/api/v1/analytics",
       "file": "src/routes/analyticsRoutes.js",
-      "source": "src/app.js:248"
+      "source": "src/app.js:247"
     },
     {
       "base": "/api/v1/attributes",
       "file": "src/routes/attributeRoutes.js",
-      "source": "src/app.js:243"
+      "source": "src/app.js:242"
     },
     {
       "base": "/api/v1/auth",
       "file": "src/routes/auth.js",
-      "source": "src/app.js:190"
+      "source": "src/app.js:189"
     },
     {
       "base": "/api/v1/cart",
       "file": "src/routes/hybridCartRoutes.js",
-      "source": "src/app.js:196"
+      "source": "src/app.js:195"
     },
     {
       "base": "/api/v1/category",
       "file": "src/routes/categoryRoutes.js",
-      "source": "src/app.js:192"
+      "source": "src/app.js:191"
     },
     {
       "base": "/api/v1/chat",
       "file": "src/routes/chatRoutes.js",
-      "source": "src/app.js:209"
+      "source": "src/app.js:208"
     },
     {
       "base": "/api/v1/cms",
       "file": "src/features/cms/cms.routes.js",
-      "source": "src/app.js:214"
+      "source": "src/app.js:213"
     },
     {
       "base": "/api/v1/cms",
       "file": "src/features/cms/pages/pages.public.routes.js",
-      "source": "src/app.js:213"
+      "source": "src/app.js:212"
     },
     {
       "base": "/api/v1/cms/products",
       "file": "src/features/product/product.cms.routes.js",
-      "source": "src/app.js:211"
+      "source": "src/app.js:210"
     },
     {
       "base": "/api/v1/collection",
       "file": "src/routes/collectionStorefrontRoutes.js",
-      "source": "src/app.js:193"
+      "source": "src/app.js:192"
     },
     {
       "base": "/api/v1/faqs",
       "file": "src/routes/faqRoutes.js",
-      "source": "src/app.js:205"
+      "source": "src/app.js:204"
     },
     {
       "base": "/api/v1/filter",
       "file": "src/routes/filterRoutes.js",
-      "source": "src/app.js:195"
+      "source": "src/app.js:194"
     },
     {
       "base": "/api/v1/footer",
       "file": "src/routes/footerRoutes.js",
-      "source": "src/app.js:204"
+      "source": "src/app.js:203"
     },
     {
       "base": "/api/v1/health",
       "file": "src/routes/healthRoutes.js",
-      "source": "src/app.js:202"
+      "source": "src/app.js:201"
     },
     {
       "base": "/api/v1/homepage",
       "file": "src/routes/homepageRoutes.js",
-      "source": "src/app.js:203"
+      "source": "src/app.js:202"
     },
     {
       "base": "/api/v1/meta",
       "file": "src/routes/metaConversionRoutes.js",
-      "source": "src/app.js:207"
+      "source": "src/app.js:206"
     },
     {
       "base": "/api/v1/orders",
       "file": "src/routes/orderRoutes.js",
-      "source": "src/app.js:197"
+      "source": "src/app.js:196"
     },
     {
       "base": "/api/v1/payments",
       "file": "src/routes/paymentRoutes.js",
-      "source": "src/app.js:201"
+      "source": "src/app.js:200"
     },
     {
       "base": "/api/v1/product",
       "file": "src/routes/product.js",
-      "source": "src/app.js:191"
+      "source": "src/app.js:190"
     },
     {
       "base": "/api/v1/review",
       "file": "src/routes/reviewRoutes.js",
-      "source": "src/app.js:199"
+      "source": "src/app.js:198"
     },
     {
       "base": "/api/v1/settings",
       "file": "src/routes/siteSettingsRoutes.js",
-      "source": "src/app.js:208"
+      "source": "src/app.js:207"
     },
     {
       "base": "/api/v1/stock-notify",
       "file": "src/routes/stockNotificationRoutes.js",
-      "source": "src/app.js:206"
+      "source": "src/app.js:205"
     },
     {
       "base": "/api/v1/variants",
       "file": "src/routes/variantRoutes.js",
-      "source": "src/app.js:194"
+      "source": "src/app.js:193"
     },
     {
       "base": "/api/v1/wishlist",
       "file": "src/routes/wishlistRoutes.js",
-      "source": "src/app.js:200"
+      "source": "src/app.js:199"
     }
   ],
   "unmounted": [
@@ -5919,18 +5873,6 @@
     },
     {
       "id": "UI-D-039",
-      "route": "/reports/ai-daily-report",
-      "component": "AiDailyReportPage",
-      "access": "authenticated",
-      "domain": "Reports",
-      "actions": "Generate/load report, errors, empty state",
-      "cases": "RENDER,ACCESS,STATE,INTERACTION,RESPONSIVE,A11Y",
-      "source": "dashboard/src/routes/routesConfig.tsx",
-      "testOwner": "dashboard/e2e/routes.spec.ts",
-      "status": "PARTIAL (RENDER)"
-    },
-    {
-      "id": "UI-D-040",
       "route": "/chat",
       "component": "ChatPage",
       "access": "authenticated",
@@ -5942,7 +5884,7 @@
       "status": "PARTIAL (RENDER)"
     },
     {
-      "id": "UI-D-041",
+      "id": "UI-D-040",
       "route": "*",
       "component": "NotFoundPage",
       "access": "authenticated",
@@ -7110,6 +7052,11 @@
       "framework": "Jest"
     },
     {
+      "file": "backend/tests/integration/gstService.test.js",
+      "domain": "Unmapped",
+      "framework": "Jest"
+    },
+    {
       "file": "backend/tests/integration/health.test.js",
       "domain": "Health",
       "framework": "Jest"
@@ -7250,8 +7197,18 @@
       "framework": "Jest"
     },
     {
+      "file": "backend/tests/unit/formatVariantName.test.js",
+      "domain": "Unmapped",
+      "framework": "Jest"
+    },
+    {
       "file": "backend/tests/unit/googleAuth.test.js",
       "domain": "Auth",
+      "framework": "Jest"
+    },
+    {
+      "file": "backend/tests/unit/gstRules.test.js",
+      "domain": "Unmapped",
       "framework": "Jest"
     },
     {

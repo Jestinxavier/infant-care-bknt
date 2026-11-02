@@ -44,6 +44,7 @@ const bundleService = require("../../features/product/bundle.service");
 const { validateProductPricing } = require("../../utils/validateProductPricing");
 const logger = require("../../utils/logger");
 const { normalizeDesignId } = require("../../utils/designId");
+const { parseGstFields } = require("../../utils/parseGstFields");
 const { triggerRevalidation } = require("../../services/revalidateService");
 const { syncProductsByIds } = require("../../services/searchIndexService");
 const {
@@ -141,6 +142,9 @@ const updateProduct = async (req, res) => {
       // Product type and bundle configuration
       product_type,
       bundle_config,
+      // GST (rate in percent; empty = store default) and HSN code
+      gstRate,
+      hsnCode,
       // Direct pricing/stock fields (for simple/bundle products)
       price,
       stock,
@@ -499,6 +503,7 @@ const updateProduct = async (req, res) => {
       product.url_key = nextUrlKey;
     }
     if (subtitle !== undefined) product.subtitle = subtitle;
+    Object.assign(product, parseGstFields({ gstRate, hsnCode }));
     // Optional design-family identifier. Empty string/null clears it
     // (product stops sharing reviews). Canonicalized so formatting variants
     // of the same design collapse to one value.

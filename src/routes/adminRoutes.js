@@ -16,6 +16,7 @@ const {
   getOrderById,
   updateOrderStatus,
   sendOrderInvoice,
+  issueInvoiceNumbers,
   markOrderAsPaid,
   markCodOrderAsPaid,
   exportOrders,
@@ -1274,6 +1275,23 @@ router.post(
   verifyToken,
   requireAdmin,
   sendOrderInvoice,
+);
+
+/**
+ * @swagger
+ * /api/v1/admin/orders/invoice-numbers:
+ *   post:
+ *     summary: "[Admin] Issue GST invoice numbers before printing invoices"
+ *     description: Issues a number for each GST order that is a confirmed sale (paid, or COD not cancelled) and returns already-issued ones. Other orders get null.
+ *     tags: [Admin Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/orders/invoice-numbers",
+  verifyToken,
+  requireAdmin,
+  issueInvoiceNumbers,
 );
 
 // ==================== REFUNDS (developer / super-admin only) ====================

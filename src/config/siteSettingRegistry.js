@@ -9,6 +9,32 @@ const SITE_SETTING_KEYS = {
   MAINTENANCE_MESSAGE: "maintenance.message",
   MAINTENANCE_REOPEN_AT: "maintenance.reopen_at",
   MAINTENANCE_ALLOWED_EMAILS: "maintenance.allowed_emails",
+  TAX_GST: "tax.gst",
+  CART_SHIPPING_FLAT: "cart.shipping.flat",
+  CART_SHIPPING_FREE_THRESHOLD: "cart.shipping.freeThreshold",
+  CONTACT_EMAIL: "contact.email",
+  CONTACT_WHATSAPP: "contact.whatsapp",
+  CONTACT_FACEBOOK: "contact.facebook",
+  CONTACT_INSTAGRAM: "contact.instagram",
+};
+
+// Places where GST details can appear, and the details each can show.
+const GST_DISPLAY_PLACES = ["invoice", "email", "label", "website", "dashboard"];
+const GST_DISPLAY_FIELDS = [
+  "gstin", // seller GST number
+  "simple", // one "Includes ₹X GST" line
+  "breakdown", // CGST/SGST/IGST lines
+  "hsn", // HSN code per item
+  "taxable", // price before GST
+  "pos", // place of supply
+  "invno", // invoice number
+];
+const DEFAULT_GST_DISPLAY = {
+  invoice: { gstin: true, simple: false, breakdown: true, hsn: true, taxable: true, pos: true, invno: true },
+  email: { gstin: true, simple: true, breakdown: false, hsn: false, taxable: false, pos: false, invno: true },
+  label: { gstin: true, simple: false, breakdown: false, hsn: false, taxable: false, pos: false, invno: false },
+  website: { gstin: false, simple: true, breakdown: false, hsn: false, taxable: false, pos: false, invno: true },
+  dashboard: { gstin: true, simple: false, breakdown: true, hsn: true, taxable: true, pos: true, invno: true },
 };
 
 const SITE_SETTING_DEFINITIONS = {
@@ -139,6 +165,94 @@ const SITE_SETTING_DEFINITIONS = {
     aliases: ["maintenance.allowed_emails"],
     defaultValue: [],
   },
+  [SITE_SETTING_KEYS.TAX_GST]: {
+    key: SITE_SETTING_KEYS.TAX_GST,
+    scope: "tax",
+    type: "json",
+    // Public: the storefront order page needs the display choices. Holds no secrets.
+    isPublic: true,
+    label: "GST",
+    description:
+      "Show GST (CGST/SGST/IGST) on invoices, emails, labels and order pages. Prices are treated as already including GST.",
+    category: "tax",
+    aliases: ["tax.gst"],
+    defaultValue: {
+      enabled: false,
+      // Rate used for products without their own GST rate.
+      defaultRate: 0,
+      invoicePrefix: "INV",
+      display: DEFAULT_GST_DISPLAY,
+    },
+  },
+  // Read by checkout (hybridCartController, orderController) by key; the
+  // defaults match the fallbacks used there when the setting is missing.
+  [SITE_SETTING_KEYS.CART_SHIPPING_FLAT]: {
+    key: SITE_SETTING_KEYS.CART_SHIPPING_FLAT,
+    scope: "cart",
+    type: "number",
+    isPublic: true,
+    label: "Shipping charge (₹)",
+    description: "Charged on orders below the free-shipping amount.",
+    category: "cart",
+    aliases: [],
+    defaultValue: 60,
+  },
+  [SITE_SETTING_KEYS.CART_SHIPPING_FREE_THRESHOLD]: {
+    key: SITE_SETTING_KEYS.CART_SHIPPING_FREE_THRESHOLD,
+    scope: "cart",
+    type: "number",
+    isPublic: true,
+    label: "Free shipping from (₹)",
+    description: "Orders of this amount or more (after discounts) ship free.",
+    category: "cart",
+    aliases: [],
+    defaultValue: 1000,
+  },
+  // Read by the storefront Contact page and the dashboard invoices/labels.
+  [SITE_SETTING_KEYS.CONTACT_EMAIL]: {
+    key: SITE_SETTING_KEYS.CONTACT_EMAIL,
+    scope: "contact",
+    type: "string",
+    isPublic: true,
+    label: "Support email",
+    description: "Shown on the Contact page and on invoices.",
+    category: "contact",
+    aliases: [],
+    defaultValue: "",
+  },
+  [SITE_SETTING_KEYS.CONTACT_WHATSAPP]: {
+    key: SITE_SETTING_KEYS.CONTACT_WHATSAPP,
+    scope: "contact",
+    type: "string",
+    isPublic: true,
+    label: "WhatsApp number",
+    description: "Shown on the Contact page, invoices and shipping labels.",
+    category: "contact",
+    aliases: [],
+    defaultValue: "",
+  },
+  [SITE_SETTING_KEYS.CONTACT_FACEBOOK]: {
+    key: SITE_SETTING_KEYS.CONTACT_FACEBOOK,
+    scope: "contact",
+    type: "string",
+    isPublic: true,
+    label: "Facebook page",
+    description: "Link shown on the Contact page.",
+    category: "contact",
+    aliases: [],
+    defaultValue: "",
+  },
+  [SITE_SETTING_KEYS.CONTACT_INSTAGRAM]: {
+    key: SITE_SETTING_KEYS.CONTACT_INSTAGRAM,
+    scope: "contact",
+    type: "string",
+    isPublic: true,
+    label: "Instagram page",
+    description: "Link shown on the Contact page.",
+    category: "contact",
+    aliases: [],
+    defaultValue: "",
+  },
 };
 
 const ALIAS_TO_KEY = Object.values(SITE_SETTING_DEFINITIONS).reduce(
@@ -177,6 +291,9 @@ function getSiteSettingsByScope(scope) {
 
 module.exports = {
   SITE_SETTING_KEYS,
+  GST_DISPLAY_PLACES,
+  GST_DISPLAY_FIELDS,
+  DEFAULT_GST_DISPLAY,
   SITE_SETTING_DEFINITIONS,
   normalizeSiteSettingKey,
   getSiteSettingDefinition,

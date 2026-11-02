@@ -183,7 +183,6 @@ const attributeRoutes = require("./routes/attributeRoutes");
 const collectionRoutes = require("./routes/collectionRoutes");
 const collectionStorefrontRoutes = require("./routes/collectionStorefrontRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
-const adminAiReportRoutes = require("./routes/adminAiReportRoutes");
 const ADMIN_PREFIX = process.env.ADMIN_API_PREFIX || "/admin";
 
 // Storefront routes (unchanged)
@@ -246,9 +245,6 @@ app.use(`/api/v1${ADMIN_PREFIX}/collections`, collectionRoutes);
 
 // Behavioral analytics tracking (public, anonymous, fire-and-forget)
 app.use("/api/v1/analytics", analyticsRoutes);
-
-// AI daily business reports (admin)
-app.use(`/api/v1${ADMIN_PREFIX}/ai-reports`, adminAiReportRoutes);
 
 // Swagger API Documentation — dev only
 if (process.env.NODE_ENV !== "production") {

@@ -366,6 +366,10 @@ const productSchema = new mongoose.Schema(
     warranty: { type: String, trim: true },
     currency: { type: String, default: "INR" },
     taxClass: { type: String, default: "standard" },
+    // GST rate in percent (e.g. 5, 18). null = use the store default rate.
+    gstRate: { type: Number, min: 0, max: 100, default: null },
+    // HSN code printed on GST invoices.
+    hsnCode: { type: String, trim: true, default: "" },
 
     // "hidden" keeps a product out of listings/search while leaving it
     // reachable by direct URL (unlike "private").

@@ -4,6 +4,8 @@ const path = require("path");
 const SiteSetting = require("../models/SiteSetting");
 const { SITE_SETTING_KEYS } = require("../config/siteSettingRegistry");
 const { createGuestReviewToken } = require("../utils/guestReviewToken");
+const logger = require("../utils/logger");
+const { getGstSettings, ensureInvoiceNumber } = require("./gstService");
 
 /* =====================================================
    ✅ Template Engine (Variables + Conditionals + Loops)
@@ -378,6 +380,49 @@ const sendOrderCancelledEmail = async (user, order) => {
 };
 
 /**
+ * Issue (or read) a GST order's invoice number. Never throws: a numbering
+ * failure is logged and must not stop the email.
+ */
+const issueInvoiceNumber = async (order) => {
+  if (!order?.gst) return null;
+  if (order.gst.invoiceNumber) return order.gst.invoiceNumber;
+  if (!order._id) return null;
+  try {
+    const number = await ensureInvoiceNumber(order._id);
+    if (number) order.gst.invoiceNumber = number;
+    return number;
+  } catch (err) {
+    logger.error("[GST] Failed to assign invoice number", {
+      orderId: order.orderId,
+      error: err.message,
+    });
+    return null;
+  }
+};
+
+/**
+ * GST summary rows for an invoice, following one place's display choices.
+ * `show` is a { gstin, simple, breakdown, taxable, pos } map.
+ */
+const buildGstLines = (gst, show, formatMoney) => {
+  if (!gst || !show) return [];
+  const lines = [];
+  if (show.taxable) lines.push({ label: "Price before GST", value: formatMoney(gst.taxableValue) });
+  if (show.breakdown) {
+    if (gst.supplyType === "inter") {
+      lines.push({ label: "IGST", value: formatMoney(gst.igst) });
+    } else {
+      lines.push({ label: "CGST", value: formatMoney(gst.cgst) });
+      lines.push({ label: "SGST", value: formatMoney(gst.sgst) });
+    }
+  }
+  if (show.simple) lines.push({ label: "Includes GST of", value: formatMoney(gst.totalTax) });
+  if (show.pos && gst.placeOfSupply) lines.push({ label: "Place of supply", value: gst.placeOfSupply });
+  if (show.gstin && gst.sellerGstin) lines.push({ label: "Seller GSTIN", value: gst.sellerGstin });
+  return lines;
+};
+
+/**
  * ✅ Send Invoice Email
  */
 const sendInvoiceEmail = async (user, order) => {
@@ -424,11 +469,20 @@ const sendInvoiceEmail = async (user, order) => {
     phone: ship.phone || "—",
   };
 
+  // GST: only for orders placed with GST on, shown per the "Email" column of
+  // the GST display settings. Sending the invoice is what issues its number.
+  const gstSettings = order.gst ? await getGstSettings() : null;
+  const gstShow = gstSettings?.enabled ? gstSettings.display.email : null;
+  const invoiceNumber = await issueInvoiceNumber(order);
+  const gstLines = gstShow ? buildGstLines(order.gst, gstShow, formatMoney) : [];
+
   const items = order.items.map((item) => {
     const offerPrice = Number(item.price) || 0;
     const mrp = Number(item.regularPrice) > 0 ? Number(item.regularPrice) : offerPrice;
     const hasSaving = mrp > offerPrice;
     return {
+      // The template engine has no nested conditionals, so pass the ready text.
+      hsnLine: gstShow?.hsn && item.hsnCode ? ` · HSN ${item.hsnCode}` : "",
       productName: item.name || item.productId?.name || item.productName || "Product",
       quantity: item.quantity,
       price: offerPrice,
@@ -486,6 +540,8 @@ const sendInvoiceEmail = async (user, order) => {
       totalFormatted: formatMoney(order.totalAmount || order.total || 0),
 
       discountLines,
+      gstLines,
+      invoiceNumber: gstShow?.invno ? invoiceNumber : null,
 
       shippingAddress: addressBlock,
       fromAddress,
@@ -599,6 +655,9 @@ const sendGuestOrderConfirmationEmail = async (guestInfo, order) => {
  * Safe to call fire-and-forget with .catch().
  */
 const sendOrderConfirmationEmail = async (order) => {
+  // Confirmation is the sale, so issue the GST invoice number now, even when
+  // the customer has no email address to send the invoice to.
+  await issueInvoiceNumber(order);
   const recipient = await getOrderRecipient(order);
   if (recipient?.email) {
     return sendInvoiceEmail(recipient, order);

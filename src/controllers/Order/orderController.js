@@ -17,6 +17,7 @@ const { logError } = require("../../utils/errorLogger");
 const {
   invalidateOrderReportCaches,
 } = require("../admin/orderCacheInvalidation");
+const { buildOrderGst } = require("../../services/gstService");
 
 const generateOrderId = () =>
   crypto.randomBytes(4).toString("hex").toUpperCase();
@@ -427,6 +428,10 @@ const createOrder = async (req, res) => {
         isGift: isFreeGiftCouponItem,
         selectedGiftSku: selectedGiftSku, // Persist gift choice on main item
 
+        // GST inputs (used only when GST is enabled; null rate = store default)
+        gstRate: product.gstRate ?? null,
+        hsnCode: product.hsnCode || "",
+
         // Product Snapshot
         name: product.name || product.title,
         sku: product.sku,
@@ -511,6 +516,8 @@ const createOrder = async (req, res) => {
             image: giftProduct.images?.[0] || "",
             urlKey: giftProduct.url_key,
             isGift: true, // Marker for UI if needed
+            gstRate: giftProduct.gstRate ?? null,
+            hsnCode: giftProduct.hsnCode || "",
           });
 
           // Deduct Gift Stock
@@ -798,6 +805,16 @@ const createOrder = async (req, res) => {
         .json({ message: "Address ID or new address is required" });
     }
 
+    // GST contained in the prices (null when GST is off). Totals are unchanged:
+    // prices already include GST, so this only records the breakdown.
+    const gstResult = await buildOrderGst({
+      items: orderItems,
+      couponDiscount,
+      shippingCost: shippingAmount,
+      codCost,
+      customerState: shippingAddressData.state,
+    });
+
     // Step 3: Create Order
     orderId = generateOrderId();
 
@@ -812,7 +829,8 @@ const createOrder = async (req, res) => {
       orderId,
       idempotencyKey, // Store idempotency key with order
       cartId: cart.cartId, // Store cartId for webhook reference
-      items: orderItems,
+      items: gstResult ? gstResult.items : orderItems,
+      gst: gstResult ? gstResult.gst : undefined,
       totalQuantity,
       subtotal,
       shippingCost: shippingAmount,

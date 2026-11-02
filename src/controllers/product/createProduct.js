@@ -41,6 +41,7 @@ const bundleService = require("../../features/product/bundle.service");
 const { validateProductPricing } = require("../../utils/validateProductPricing");
 const logger = require("../../utils/logger");
 const { normalizeDesignId } = require("../../utils/designId");
+const { parseGstFields } = require("../../utils/parseGstFields");
 const { syncProductsByIds } = require("../../services/searchIndexService");
 const {
   invalidateProductCatalogCaches,
@@ -233,6 +234,9 @@ const createProduct = async (req, res) => {
       // Product type and bundle configuration
       product_type,
       bundle_config,
+      // GST (rate in percent; empty = store default) and HSN code
+      gstRate,
+      hsnCode,
       // Direct pricing/stock fields
       price,
       stock,
@@ -881,6 +885,7 @@ const createProduct = async (req, res) => {
 
     // Create product with new structure
     const productData = {
+      ...parseGstFields({ gstRate, hsnCode }),
       title: productTitle,
       name: productTitle, // Auto-synced from title in pre-save middleware
       subtitle: subtitle || null,

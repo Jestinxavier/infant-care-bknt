@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const app = require("../../src/app");
 const Order = require("../../src/models/Order");
 const DeliveryPartner = require("../../src/models/DeliveryPartner");
+const SiteSetting = require("../../src/models/SiteSetting");
 const emailService = require("../../src/services/emailService");
 const {
   createVerifiedUser,
@@ -287,6 +288,42 @@ describe("Order surface", () => {
     expect(converted.status).toBe(201);
     expect(converted.body.user.email).toBe(convertEmail);
     expect(converted.headers["set-cookie"].join(";")).toContain("access_token=");
+  });
+
+  it("issues GST invoice numbers only for confirmed GST sales", async () => {
+    await SiteSetting.findOneAndUpdate(
+      { key: "tax.gst" },
+      { key: "tax.gst", type: "json", scope: "tax", value: { enabled: true } },
+      { upsert: true },
+    );
+    const user = await createVerifiedUser();
+    const gst = { supplyType: "intra", totalTax: 50, cgst: 25, sgst: 25 };
+    const paid = await createOrder({ user, orderStatus: "confirmed", paymentStatus: "paid" });
+    const unpaidOnline = await createOrder({ user, orderStatus: "pending", paymentStatus: "pending" });
+    const noGst = await createOrder({ user, orderStatus: "confirmed", paymentStatus: "paid" });
+    await Order.updateMany(
+      { _id: { $in: [paid._id, unpaidOnline._id] } },
+      { $set: { gst } },
+    );
+
+    const ids = [paid.orderId, unpaidOnline.orderId, noGst.orderId];
+    const res = await request(app)
+      .post("/api/v1/admin/orders/invoice-numbers")
+      .set(auth(adminToken))
+      .send({ orderIds: ids });
+    expect(res.status).toBe(200);
+    expect(res.body.invoiceNumbers[paid.orderId]).toMatch(/^INV\/\d{2}-\d{2}\/\d{5}$/);
+    expect(res.body.invoiceNumbers[unpaidOnline.orderId]).toBeNull();
+    expect(res.body.invoiceNumbers[noGst.orderId]).toBeNull();
+
+    // Asking again returns the same number, never a new one.
+    const again = await request(app)
+      .post("/api/v1/admin/orders/invoice-numbers")
+      .set(auth(adminToken))
+      .send({ orderIds: [paid.orderId] });
+    expect(again.body.invoiceNumbers[paid.orderId]).toBe(
+      res.body.invoiceNumbers[paid.orderId],
+    );
   });
 
   it("serves admin order lists, status counts, details, and exports", async () => {
