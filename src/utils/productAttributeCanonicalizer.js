@@ -109,7 +109,13 @@ function canonicalizeProductAttributeValues(product, catalogMap) {
   const fa = product.filterAttributes;
   if (fa) {
     const isMap = fa instanceof Map;
-    const keys = isMap ? Array.from(fa.keys()) : Object.keys(fa);
+    // On a hydrated Product, filterAttributes is a Mongoose subdocument:
+    // Object.keys() on it yields internals ($__, _doc, …), not color/size/…,
+    // so read the real keys from its plain-object form. Getters/setters on
+    // the subdocument itself still work for the reads and writes below.
+    const keys = isMap
+      ? Array.from(fa.keys())
+      : Object.keys(typeof fa.toObject === "function" ? fa.toObject() : fa);
     for (const key of keys) {
       const currentArr = isMap ? fa.get(key) : fa[key];
       const arr = Array.isArray(currentArr) ? currentArr : [currentArr];

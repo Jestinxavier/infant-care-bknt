@@ -188,6 +188,8 @@ const updateProduct = async (req, res) => {
     // retired into urlKeyHistory, and SKUs bundles depend on are protected.
     const previousUrlKeys = collectLiveUrlKeys(product);
     const previousSkus = collectSkus(product);
+    const previousProductType = product.product_type;
+    const previousRootSku = product.sku;
     const conflict = (message) =>
       res.status(409).json({ success: false, errorCode: "IDENTIFIER_CONFLICT", message });
 
@@ -856,6 +858,14 @@ const updateProduct = async (req, res) => {
             available: stock,
             isInStock: isInStock,
           },
+          // Variant tiers override the product's; without them the
+          // product's tiers apply.
+          quantityRules: (Array.isArray(v.quantityRules) ? v.quantityRules : [])
+            .map((rule) => ({
+              minQty: parseInt(rule?.minQty, 10),
+              price: parseFloat(rule?.price),
+            }))
+            .filter((rule) => rule.minQty >= 2 && rule.price > 0),
           images: dedupedVariantImages,
           videos: variantVideos,
           attributes: attributesMap,
@@ -999,6 +1009,23 @@ const updateProduct = async (req, res) => {
       if (bundles.length > 0) {
         return conflict(
           `These SKUs are used by bundles and cannot be changed or removed: ${describeBundleUsage(bundles)}. Update the bundles first.`
+        );
+      }
+    }
+
+    // A bundle finds a Simple product by its own SKU. Once the product stops
+    // being Simple that SKU no longer resolves, even though it still exists.
+    if (
+      previousProductType === "SIMPLE" &&
+      product.product_type !== "SIMPLE" &&
+      previousRootSku
+    ) {
+      const bundles = await findBundlesUsingSkus([previousRootSku], {
+        excludeProductId: productId,
+      });
+      if (bundles.length > 0) {
+        return conflict(
+          `This product is part of bundles, so its type can't change: ${describeBundleUsage(bundles)}. Remove it from those bundles first.`
         );
       }
     }

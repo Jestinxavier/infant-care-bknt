@@ -18,6 +18,11 @@ const {
 const {
   rewriteProductReferences,
 } = require("../utils/attributeValueRewrite");
+const Product = require("../models/Product");
+const { loadAttributeCatalogMap } = require("../utils/attributeCatalogGuard");
+const {
+  canonicalizeProductAttributeValues,
+} = require("../utils/productAttributeCanonicalizer");
 
 const ATTRIBUTE_ROLES = new Set(["variant", "metadata", "both"]);
 
@@ -676,6 +681,144 @@ const mergeAllowedValues = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/v1/attributes/:id/values/normalize
+ * Body: { dryRun?: boolean, clearAliases?: boolean }
+ *
+ * "Apply to products": finds products that still store a non-canonical
+ * spelling of this attribute (an alias from "Also matches", wrong casing, a
+ * legacy slug, …) and re-saves them so the Product pre-save backstop
+ * (productAttributeCanonicalizer) rewrites them to the canonical value. Uses
+ * the same matching rules as that backstop, so preview and save agree.
+ *
+ * dryRun: only report. clearAliases: after a successful run, empty every
+ * value's aliases (only safe once old links/imports no longer use them).
+ * Also reports values that match nothing in the catalogue ("unresolved").
+ */
+const normalizeAllowedValues = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dryRun = false, clearAliases = false } = req.body || {};
+
+    const attribute = await AttributeDefinition.findById(id);
+    if (!attribute) {
+      return res.status(404).json({
+        success: false,
+        message: "Attribute not found",
+      });
+    }
+
+    const code = String(attribute.code || "").toLowerCase().trim();
+    const catalogMap = await loadAttributeCatalogMap();
+    const products = await Product.find({
+      $or: [
+        { "variantOptions.code": code },
+        { "variantOptions.name": code },
+        { [`variants.attributes.${code}`]: { $exists: true } },
+        { [`variants.options.${code}`]: { $exists: true } },
+        { [`filterAttributes.${code}.0`]: { $exists: true } },
+      ],
+    });
+
+    const labelOf = new Map(
+      attribute.allowedValues.map((v) => [v.value, v.label || v.value]),
+    );
+    const byValue = new Map(); // canonical value -> { products:Set, from:Set }
+    const unresolvedCounts = new Map(); // raw value -> product count
+    let productsChanged = 0;
+    let failed = 0;
+
+    for (const product of products) {
+      // Mutates the in-memory document only; nothing is persisted on dryRun
+      const { rewrites, unresolved } = canonicalizeProductAttributeValues(
+        product,
+        catalogMap,
+      );
+      const mine = rewrites.filter((r) => r.key === code);
+
+      const seenUnresolved = new Set();
+      for (const u of unresolved) {
+        if (u.key !== code || seenUnresolved.has(u.value)) continue;
+        seenUnresolved.add(u.value);
+        unresolvedCounts.set(u.value, (unresolvedCounts.get(u.value) || 0) + 1);
+      }
+      if (!mine.length) continue;
+
+      for (const r of mine) {
+        const entry = byValue.get(r.to) || { products: new Set(), from: new Set() };
+        entry.products.add(String(product._id));
+        entry.from.add(String(r.from));
+        byValue.set(r.to, entry);
+      }
+
+      if (dryRun) {
+        productsChanged += 1;
+        continue;
+      }
+      try {
+        product.markModified("variantOptions");
+        product.markModified("variants");
+        product.markModified("filterAttributes");
+        await product.save(); // pre-save canonicalizes and re-derives filters
+        productsChanged += 1;
+      } catch (error) {
+        failed += 1;
+        logger.error(
+          `[normalize ${code}] failed to save product ${product._id}: ${error.message}`,
+        );
+      }
+    }
+
+    let aliasesCleared = 0;
+    if (!dryRun && clearAliases && failed === 0) {
+      for (const v of attribute.allowedValues) {
+        aliasesCleared += (v.synonyms || []).length;
+        v.synonyms = [];
+      }
+      if (aliasesCleared) {
+        attribute.markModified("allowedValues");
+        await attribute.save();
+        refreshAttributeAliasLookups().catch(() => {});
+      }
+    }
+
+    const results = Array.from(byValue.entries()).map(([value, entry]) => ({
+      value,
+      label: labelOf.get(value) || value,
+      products: entry.products.size,
+      from: Array.from(entry.from),
+    }));
+    const unresolvedList = Array.from(unresolvedCounts.entries())
+      .map(([value, count]) => ({ value, products: count }))
+      .sort((x, y) => y.products - x.products);
+
+    if (!dryRun) {
+      logger.info(
+        `Normalized attribute ${code}: ${productsChanged} product(s) rewritten, ` +
+          `${failed} failed, ${aliasesCleared} alias(es) cleared`,
+      );
+    }
+
+    res.json({
+      success: true,
+      dryRun: !!dryRun,
+      productsScanned: products.length,
+      productsChanged,
+      failed,
+      aliasesCleared,
+      results,
+      unresolved: unresolvedList,
+      attribute,
+    });
+  } catch (error) {
+    logger.error("Error normalizing allowed values:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to apply values to products",
+    });
+  }
+};
+
 module.exports = {
   getAllAttributes,
   getAttributeById,
@@ -686,4 +829,5 @@ module.exports = {
   updateAllowedValue,
   removeAllowedValue,
   mergeAllowedValues,
+  normalizeAllowedValues,
 };

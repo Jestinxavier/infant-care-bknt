@@ -317,4 +317,45 @@ describe("Bundle product surface", () => {
       isInStock: true,
     });
   });
+
+  it("blocks converting a bundled simple product to configurable", async () => {
+    const admin = await createVerifiedUser({ role: "admin" });
+    const child = await makeSimpleProduct({ category });
+    await makeBundle({ category, items: [{ sku: child.sku, qty: 1 }] });
+    const convertBody = {
+      product_type: "CONFIGURABLE",
+      variants: [
+        {
+          id: "v1",
+          price: 120,
+          stock: 4,
+          attributes: { size: "m" },
+          quantityRules: [{ minQty: 3, price: 100 }],
+        },
+      ],
+    };
+
+    const blocked = await request(app)
+      .patch(`/api/v1/admin/products/${child._id}`)
+      .set(auth(accessTokenFor(admin)))
+      .send(convertBody);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.message).toMatch(/part of bundles/);
+    expect((await Product.findById(child._id).lean()).product_type).toBe(
+      "SIMPLE",
+    );
+
+    // Not in a bundle: converts, and the variant keeps its tier prices.
+    const free = await makeSimpleProduct({ category });
+    const converted = await request(app)
+      .patch(`/api/v1/admin/products/${free._id}`)
+      .set(auth(accessTokenFor(admin)))
+      .send(convertBody);
+    expect(converted.status).toBe(200);
+    const saved = await Product.findById(free._id).lean();
+    expect(saved.product_type).toBe("CONFIGURABLE");
+    expect(saved.variants[0].quantityRules).toEqual([
+      expect.objectContaining({ minQty: 3, price: 100 }),
+    ]);
+  });
 });

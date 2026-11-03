@@ -15,6 +15,7 @@ const {
   updateAllowedValue,
   removeAllowedValue,
   mergeAllowedValues,
+  normalizeAllowedValues,
 } = require("../controllers/attributeController");
 
 // Import auth middleware (matching existing patterns in the project)
@@ -60,5 +61,9 @@ router.delete("/:id/values/:valueCode", verifyToken, requireAdmin, removeAllowed
 // POST /api/v1/attributes/:id/values/merge - Merge duplicate values into one
 // canonical value (folds aliases, removes sources, rewrites product refs)
 router.post("/:id/values/merge", verifyToken, requireAdmin, mergeAllowedValues);
+
+// POST /api/v1/attributes/:id/values/normalize - Rewrite products still using
+// an alias spelling to the canonical value (supports dryRun preview)
+router.post("/:id/values/normalize", verifyToken, requireAdmin, normalizeAllowedValues);
 
 module.exports = router;
