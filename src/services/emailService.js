@@ -654,13 +654,40 @@ const sendGuestOrderConfirmationEmail = async (guestInfo, order) => {
  * Works from just the order document (no req.user needed).
  * Safe to call fire-and-forget with .catch().
  */
-const sendOrderConfirmationEmail = async (order) => {
+const sendOrderConfirmationEmail = async (order, { onlyOnce = false } = {}) => {
   // Confirmation is the sale, so issue the GST invoice number now, even when
   // the customer has no email address to send the invoice to.
   await issueInvoiceNumber(order);
   const recipient = await getOrderRecipient(order);
-  if (recipient?.email) {
+  if (!recipient?.email) return;
+
+  if (!onlyOnce || !order?._id) {
     return sendInvoiceEmail(recipient, order);
+  }
+
+  // Atomic claim: only the first caller flips confirmationEmailSentAt from
+  // null, so concurrent payment callbacks can't both send. (null also matches
+  // orders created before this field existed.)
+  const Order = require("../models/Order");
+  const claim = await Order.updateOne(
+    { _id: order._id, confirmationEmailSentAt: null },
+    { $set: { confirmationEmailSentAt: new Date() } },
+  );
+  if (!claim.modifiedCount) {
+    logger.info(
+      `[email] Order confirmation for ${order.orderId || order._id} already sent, skipping duplicate`,
+    );
+    return;
+  }
+  try {
+    return await sendInvoiceEmail(recipient, order);
+  } catch (error) {
+    // Release the claim so a later callback (or a retry) can still send it
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { confirmationEmailSentAt: null } },
+    ).catch(() => {});
+    throw error;
   }
 };
 

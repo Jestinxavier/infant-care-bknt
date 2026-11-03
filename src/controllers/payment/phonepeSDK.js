@@ -221,7 +221,7 @@ const checkOrderStatus = async (req, res) => {
             { orderId: updatedOrder._id },
             { $set: { status: "ordered", completedAt: new Date() } },
           );
-          emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
+          emailService.sendOrderConfirmationEmail(updatedOrder, { onlyOnce: true }).catch((err) =>
             logger.error("❌ Failed to send order confirmation email (redirect):", { message: err.message, stack: err.stack })
           );
 
@@ -547,7 +547,7 @@ const phonepeWebhook = async (req, res) => {
         createdAt: updatedOrder.createdAt,
       });
 
-      emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
+      emailService.sendOrderConfirmationEmail(updatedOrder, { onlyOnce: true }).catch((err) =>
         logger.error("❌ Failed to send order confirmation email (webhook):", { message: err.message, stack: err.stack })
       );
 

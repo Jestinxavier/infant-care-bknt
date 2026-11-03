@@ -125,7 +125,7 @@ const markOrderAsPaid = async (orderId, transactionId, rawResponse, req = null) 
       createdAt: updatedOrder.createdAt,
     });
 
-    emailService.sendOrderConfirmationEmail(updatedOrder).catch((err) =>
+    emailService.sendOrderConfirmationEmail(updatedOrder, { onlyOnce: true }).catch((err) =>
       logger.error("❌ [RAZORPAY] Failed to send order confirmation email:", { message: err.message, stack: err.stack })
     );
 

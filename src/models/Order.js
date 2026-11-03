@@ -176,6 +176,10 @@ const orderSchema = new mongoose.Schema(
       enum: ["pending", "paid", "failed", "refunded"],
       default: "pending",
     },
+    // Set when the first order-confirmation email is claimed for sending, so
+    // repeated payment notifications (PhonePe redirect + webhook + retries)
+    // can't email the customer the same confirmation more than once.
+    confirmationEmailSentAt: { type: Date, default: null },
     orderStatus: {
       type: String,
       enum: [

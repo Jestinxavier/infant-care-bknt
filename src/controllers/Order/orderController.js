@@ -1091,7 +1091,7 @@ const createOrder = async (req, res) => {
 
     // Send order confirmation invoice to all customers (guest and registered)
     const { sendOrderConfirmationEmail } = require("../../services/emailService");
-    sendOrderConfirmationEmail(order).catch((err) =>
+    sendOrderConfirmationEmail(order, { onlyOnce: true }).catch((err) =>
       logger.error("❌ Failed to send order confirmation email:", { message: err.message, stack: err.stack })
     );
 
