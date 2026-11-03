@@ -380,6 +380,7 @@ const STATUS_COUNTS_CACHE_TTL = 60;
 function buildStatusCountsCacheKey(requestData, userRole) {
   const fields = [
     "status",
+    "excludeStatuses",
     "paymentStatus",
     "paymentMethod",
     "customerType",
