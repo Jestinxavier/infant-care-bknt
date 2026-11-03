@@ -591,7 +591,8 @@ function deterministicGenerateProducts(prompt, rawData, kb, structuredData = {})
       const vOfferPrice = v.offerPrice ? Number(v.offerPrice) : (offerPrice !== "" ? offerPrice : "");
       const vStock = v.stock !== undefined ? Number(v.stock) : stock;
       const vTitle = `${title} - ${vColor} / ${vSize.replace(/^'/, "")}`;
-      const vImage = v.image || imageUrls.split("|")[0] || defaultImage;
+      // No image: leave blank for the admin to upload (no placeholder fallback)
+      const vImage = v.image || imageUrls.split("|")[0] || "";
 
       const childRow = [
         "SIMPLE",
@@ -645,7 +646,7 @@ function deterministicGenerateProducts(prompt, rawData, kb, structuredData = {})
           offerPeriod ? `"${offerPeriod}"` : "",
           stock,
           "",
-          imageUrls.split("|")[0] || defaultImage,
+          imageUrls.split("|")[0] || "",
           "",
           "",
           "",

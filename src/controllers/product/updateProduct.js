@@ -27,6 +27,7 @@ const {
   processVariantOptions,
   normalizeVariantAttributesToValues,
 } = require("../../utils/variantNameFormatter");
+const { formatVariantName } = require("../../utils/formatVariantName");
 const {
   validateCollectionsAndBadge,
   parseCollectionsInput,
