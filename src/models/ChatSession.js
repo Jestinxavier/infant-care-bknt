@@ -42,6 +42,8 @@ const chatSessionSchema = new mongoose.Schema(
     // Unread = the customer wrote after staff last read the chat.
     lastCustomerMessageAt: { type: Date, default: null },
     staffReadAt: { type: Date, default: null },
+    // Set when the chat was closed for being idle (see jobs/chatAutoClose).
+    autoClosedAt: { type: Date, default: null },
     messages: [messageSchema],
     resolvedAt: { type: Date, default: null },
     // Snapshot of customer info for dashboard display

@@ -1135,6 +1135,50 @@ const markSessionsRead = async (req, res) => {
   }
 };
 
+// POST /api/v1/chat/admin/sessions/delete  { sessionIds: [...] }
+// Permanently removes chats and their bell notifications. Super-admin /
+// developer only (enforced in the route).
+const MAX_BULK_DELETE = 500;
+const deleteSessions = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.sessionIds)
+      ? req.body.sessionIds
+          .filter((id) => typeof id === "string" && id)
+          .slice(0, MAX_BULK_DELETE)
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, message: "No chats selected" });
+    }
+
+    const result = await ChatSession.deleteMany({ sessionId: { $in: ids } });
+    await Notification.deleteMany({ type: "chat_escalation", sessionId: { $in: ids } });
+
+    // A customer who still has the chat open sees it end instead of typing
+    // into a conversation that no longer exists.
+    let io = null;
+    try {
+      io = require("../../services/socketService").getIO();
+    } catch {
+      // Socket server not running (tests / scripts): nothing to notify.
+    }
+    for (const id of io ? ids : []) {
+      io.to(`chat:${id}`).emit("chat:resolved", {
+        message: "This chat has ended. You can start a new one anytime.",
+      });
+    }
+    emitEvent("chat:attention_changed", {});
+
+    logger.info("Chats deleted", {
+      count: result.deletedCount,
+      by: req.user?.email,
+    });
+    return res.status(200).json({ success: true, deleted: result.deletedCount });
+  } catch (err) {
+    logger.error("deleteSessions error", { message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to delete chats" });
+  }
+};
+
 const resolveSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -1384,6 +1428,7 @@ const requestHuman = async (req, res) => {
 };
 
 module.exports = {
+  deleteSessions,
   markSessionsRead,
   sendMessage,
   getOrCreateSession,

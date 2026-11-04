@@ -181,6 +181,13 @@ const startServer = async () => {
       logger.warn("Failed to start chat waiting reminder cron", { error: cronError.message });
     }
 
+    try {
+      const { startChatAutoCloseCron } = require("./jobs/chatAutoClose");
+      startChatAutoCloseCron();
+    } catch (cronError) {
+      logger.warn("Failed to start chat auto-close cron", { error: cronError.message });
+    }
+
     const http = require("http");
     const server = http.createServer(app);
 

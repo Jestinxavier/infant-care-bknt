@@ -9,6 +9,7 @@ const {
   getEscalatedSessions,
   getSessionCounts,
   markSessionsRead,
+  deleteSessions,
   getSessionById,
   staffReply,
   joinSession,
@@ -34,6 +35,25 @@ router.post("/session/:sessionId/end", optionalVerifyToken, endSession);
 router.get("/admin/sessions", verifyToken, requireAdmin, getEscalatedSessions);
 router.get("/admin/sessions/counts", verifyToken, requireAdmin, getSessionCounts);
 router.post("/admin/sessions/read", verifyToken, requireAdmin, markSessionsRead);
+
+// Deleting erases the conversation for good: super-admin / developer only.
+const requireChatDeleteRole = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== "super-admin" && role !== "developer") {
+    return res.status(403).json({
+      success: false,
+      message: "Only a super-admin can delete chats.",
+    });
+  }
+  next();
+};
+router.post(
+  "/admin/sessions/delete",
+  verifyToken,
+  requireAdmin,
+  requireChatDeleteRole,
+  deleteSessions,
+);
 router.get("/admin/sessions/:sessionId", verifyToken, requireAdmin, getSessionById);
 router.get("/admin/sessions/:sessionId/suggest-replies", verifyToken, requireAdmin, suggestReplies);
 router.patch("/admin/sessions/:sessionId/details", verifyToken, requireAdmin, updateSessionDetails);

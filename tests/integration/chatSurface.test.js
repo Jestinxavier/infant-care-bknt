@@ -6,6 +6,7 @@ const Category = require("../../src/models/Category");
 const Product = require("../../src/models/Product");
 const Notification = require("../../src/models/Notification");
 const { remindWaitingChats } = require("../../src/jobs/chatWaitingReminder");
+const { closeIdleChats } = require("../../src/jobs/chatAutoClose");
 const {
   createVerifiedUser,
   accessTokenFor,
@@ -381,5 +382,68 @@ describe("Chat surface", () => {
       .set(auth)
       .send({ sessionIds: [] });
     expect(empty.status).toBe(400);
+  });
+
+  it("lets only super-admins delete chats, removing their notifications", async () => {
+    const admin = await createVerifiedUser({ role: "admin" });
+    const superAdmin = await createVerifiedUser({ role: "super-admin" });
+    const chat = await makeSession({ messages: [{ role: "user", content: "Hi" }] });
+    await request(app).post(`/api/v1/chat/session/${chat.sessionId}/request-human`);
+    expect(
+      await Notification.countDocuments({ type: "chat_escalation", sessionId: chat.sessionId }),
+    ).toBe(1);
+
+    const denied = await request(app)
+      .post("/api/v1/chat/admin/sessions/delete")
+      .set({ Authorization: `Bearer ${accessTokenFor(admin)}` })
+      .send({ sessionIds: [chat.sessionId] });
+    expect(denied.status).toBe(403);
+    expect(await ChatSession.countDocuments({ sessionId: chat.sessionId })).toBe(1);
+
+    const superAuth = { Authorization: `Bearer ${accessTokenFor(superAdmin)}` };
+    const empty = await request(app)
+      .post("/api/v1/chat/admin/sessions/delete")
+      .set(superAuth)
+      .send({ sessionIds: [] });
+    expect(empty.status).toBe(400);
+
+    const deleted = await request(app)
+      .post("/api/v1/chat/admin/sessions/delete")
+      .set(superAuth)
+      .send({ sessionIds: [chat.sessionId] });
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.deleted).toBe(1);
+    expect(await ChatSession.countDocuments({ sessionId: chat.sessionId })).toBe(0);
+    expect(
+      await Notification.countDocuments({ type: "chat_escalation", sessionId: chat.sessionId }),
+    ).toBe(0);
+  });
+
+  it("closes idle chats into Done and leaves recent ones alone", async () => {
+    const hoursAgo = (h) => new Date(Date.now() - h * 60 * 60 * 1000);
+    const staleAi = await makeSession({ status: "active" });
+    const freshAi = await makeSession({ status: "active" });
+    const staleLive = await makeSession({ status: "escalated" });
+    const recentLive = await makeSession({ status: "escalated" });
+    const setUpdatedAt = (s, at) =>
+      ChatSession.collection.updateOne({ _id: s._id }, { $set: { updatedAt: at } });
+    await setUpdatedAt(staleAi, hoursAgo(25));
+    await setUpdatedAt(freshAi, hoursAgo(2));
+    await setUpdatedAt(staleLive, hoursAgo(8 * 24));
+    await setUpdatedAt(recentLive, hoursAgo(3 * 24));
+
+    await closeIdleChats();
+
+    const statusOf = async (s) =>
+      (await ChatSession.findById(s._id).lean()).status;
+    expect(await statusOf(staleAi)).toBe("resolved");
+    expect(await statusOf(freshAi)).toBe("active");
+    expect(await statusOf(staleLive)).toBe("resolved");
+    expect(await statusOf(recentLive)).toBe("escalated");
+
+    // Closing isn't activity: the chat keeps its place in the list.
+    const closed = await ChatSession.findById(staleAi._id).lean();
+    expect(closed.autoClosedAt).toBeInstanceOf(Date);
+    expect(closed.updatedAt.getTime()).toBeLessThan(hoursAgo(24).getTime());
   });
 });
