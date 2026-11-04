@@ -175,6 +175,14 @@ const startServer = async () => {
     }
 
     try {
+      // Runs every 30 min but does nothing until enabled in Site Settings
+      const { startAbandonedCartCron } = require("./services/abandonedCartService");
+      startAbandonedCartCron();
+    } catch (cronError) {
+      logger.warn("Failed to start abandoned cart cron", { error: cronError.message });
+    }
+
+    try {
       const { startChatWaitingReminderCron } = require("./jobs/chatWaitingReminder");
       startChatWaitingReminderCron();
     } catch (cronError) {

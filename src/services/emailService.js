@@ -144,6 +144,8 @@ const sendTemplateEmail = async ({
   template,
   data,
   attachments,
+  headers,
+  list,
 }) => {
   const transporter = createTransporter();
 
@@ -162,6 +164,9 @@ const sendTemplateEmail = async ({
   if (attachments && attachments.length > 0) {
     mailOptions.attachments = attachments;
   }
+  // Optional emails: List-Unsubscribe headers (Gmail's own Unsubscribe button)
+  if (headers) mailOptions.headers = headers;
+  if (list) mailOptions.list = list;
 
   return transporter.sendMail(mailOptions);
 };
@@ -661,6 +666,74 @@ const sendChatReplyEmail = async ({ to, customerName, staffName, reply }) => {
   });
 };
 
+const formatInr = (n) =>
+  Math.round(Number(n) || 0).toLocaleString("en-IN");
+
+/**
+ * Abandoned-cart reminder (an OPTIONAL email: the caller has already checked
+ * the recipient hasn't unsubscribed from "cart_reminders").
+ * @param {{ email: string, username?: string }} recipient
+ * @param {object} cart Cart document (lean)
+ * @param {{ step: number, restoreUrl: string, unsubscribeUrl: string,
+ *   lineTotals: Map<string, number>, cartTotal: number,
+ *   oneClickUnsubscribeUrl: string,
+ *   coupon?: { code: string, percent: number, maxDiscount: number, validHours: number } }} options
+ */
+const sendAbandonedCartEmail = async (recipient, cart, options) => {
+  if (!recipient?.email) return;
+  const {
+    step,
+    restoreUrl,
+    unsubscribeUrl,
+    oneClickUnsubscribeUrl,
+    coupon,
+    lineTotals,
+    cartTotal,
+  } = options;
+
+  // Cart items hold no price; the caller passes current prices per item
+  const items = (cart.items || []).slice(0, 6).map((item) => ({
+    title: escapeHtml(item.titleSnapshot || "Product"),
+    image: escapeHtml(item.imageSnapshot || ""),
+    quantity: item.quantity || 1,
+    lineTotal: formatInr(lineTotals?.get(String(item._id)) || 0),
+  }));
+  if (!items.length) return;
+
+  const hasCoupon = !!coupon?.code;
+  const subject = hasCoupon
+    ? `${coupon.percent}% off your cart, for the next ${coupon.validHours} hours`
+    : step === 1
+      ? "You left something in your cart"
+      : "Your cart is still waiting for you";
+  const intro = hasCoupon
+    ? "Your cart is still saved. Here's a private code to make it a little easier, valid for one order."
+    : "You left a few things in your cart. We've saved them for you, so you can pick up right where you left off.";
+
+  return sendTemplateEmail({
+    to: recipient.email,
+    subject,
+    template: "abandoned-cart",
+    data: {
+      heading: subject,
+      username: escapeHtml(recipient.username || "there"),
+      intro,
+      items,
+      cartTotal: formatInr(cartTotal),
+      hasCoupon,
+      couponCode: hasCoupon ? escapeHtml(coupon.code) : "",
+      couponText: hasCoupon
+        ? `${coupon.percent}% off (up to ₹${formatInr(coupon.maxDiscount)}), one use, expires in ${coupon.validHours} hours`
+        : "",
+      restoreUrl,
+      unsubscribeUrl,
+    },
+    // RFC 8058 one-click unsubscribe, shown by Gmail/Yahoo next to the sender
+    list: { unsubscribe: { url: oneClickUnsubscribeUrl, comment: "Unsubscribe" } },
+    headers: { "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+  });
+};
+
 /* =====================================================
    ✅ EXPORTS
 ===================================================== */
@@ -734,6 +807,7 @@ module.exports = {
   sendReviewRequestEmail,
   sendGuestOrderConfirmationEmail,
   sendOrderConfirmationEmail,
+  sendAbandonedCartEmail,
   sendChatReplyEmail,
   getOrderRecipient,
 };

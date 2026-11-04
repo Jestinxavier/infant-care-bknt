@@ -146,6 +146,22 @@ const cartSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Abandoned-cart reminders. `contact` is captured at checkout for guests
+    // (logged-in shoppers are reached through their account email).
+    contact: {
+      email: { type: String, trim: true, lowercase: true, default: null },
+      name: { type: String, trim: true, default: null },
+      capturedAt: { type: Date, default: null },
+    },
+    reminders: [
+      {
+        step: { type: Number, required: true },
+        sentAt: { type: Date, required: true },
+        email: { type: String },
+        couponCode: { type: String, default: null },
+        _id: false,
+      },
+    ],
   },
   {
     timestamps: true,
@@ -207,6 +223,8 @@ cartSchema.pre("save", function (next) {
 cartSchema.index({ userId: 1, cartId: 1 });
 cartSchema.index({ userId: 1, status: 1 }); // For checkout flow
 cartSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// Abandoned-cart job: open carts by last activity
+cartSchema.index({ status: 1, updatedAt: 1 });
 
 // Static method to find or create cart
 cartSchema.statics.findOrCreate = async function (cartId, userId = null) {

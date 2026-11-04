@@ -32,6 +32,7 @@ jest.mock("../src/services/emailService", () => ({
   sendGuestOrderConfirmationEmail: jest.fn().mockResolvedValue({ success: true }),
   sendOrderConfirmationEmail: jest.fn().mockResolvedValue({ success: true }),
   sendChatReplyEmail: jest.fn().mockResolvedValue({ success: true }),
+  sendAbandonedCartEmail: jest.fn().mockResolvedValue({ success: true }),
   getOrderRecipient: jest.fn((order) => {
     if (order.userId?.email) {
       return {

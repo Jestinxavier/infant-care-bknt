@@ -20,6 +20,13 @@ const { logError } = require("../../utils/errorLogger");
 
 const SiteSetting = require("../../models/SiteSetting");
 const logger = require("../../utils/logger");
+const {
+  hasTrigger,
+  isCategoryTrigger,
+  categoryTriggerFilter,
+  countTriggerQty,
+  describeTrigger,
+} = require("../../utils/freeGiftTrigger");
 
 const CART_SETTINGS_CACHE_KEY = "cart:settings";
 
@@ -275,15 +282,8 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
     // ── free_gift: re-check trigger condition ──────────────────────────
     if (couponDoc.type === "free_gift") {
       const fg = couponDoc.freeGift;
-      if (fg?.triggerProductIds?.length) {
-        const triggerIds = new Set(fg.triggerProductIds.map((id) => id.toString()));
-        let triggerQty = 0;
-        for (const item of cart.items) {
-          const pid = (item.productId?._id || item.productId)?.toString();
-          if (pid && triggerIds.has(pid) && !item.isFreeGiftCoupon) {
-            triggerQty += item.quantity;
-          }
-        }
+      if (hasTrigger(fg)) {
+        const triggerQty = await countTriggerQty(fg, cart.items);
         if (triggerQty < (fg.triggerMinQty || 1)) {
           // Trigger no longer met — drop coupon and injected gift item
           cart.items = cart.items.filter((i) => i.freeGiftCouponCode !== cartCoupon.code);
@@ -2148,28 +2148,17 @@ const applyCoupon = async (req, res) => {
     // ─── Free gift coupon branch ──────────────────────────────────────────
     if (coupon.type === "free_gift") {
       const fg = coupon.freeGift;
-      if (!fg?.triggerProductIds?.length) {
+      if (!hasTrigger(fg)) {
         return res.status(400).json({
           success: false,
           message: "This coupon is not configured correctly. Please contact support.",
         });
       }
 
-      // Check trigger products are in cart with sufficient qty
-      const triggerIds = new Set(fg.triggerProductIds.map((id) => id.toString()));
-      let triggerQtyInCart = 0;
-      for (const item of cart.items) {
-        const pid = (item.productId?._id || item.productId)?.toString();
-        if (pid && triggerIds.has(pid) && !item.isFreeGiftCoupon) {
-          triggerQtyInCart += item.quantity;
-        }
-      }
+      // Check trigger products / category items are in cart with sufficient qty
+      const triggerQtyInCart = await countTriggerQty(fg, cart.items);
       if (triggerQtyInCart < fg.triggerMinQty) {
-        const triggerProducts = await Product.find(
-          { _id: { $in: fg.triggerProductIds } },
-          "title",
-        ).lean();
-        const names = triggerProducts.map((p) => p.title).join(", ");
+        const names = await describeTrigger(fg);
         return res.status(400).json({
           success: false,
           message: `Add at least ${fg.triggerMinQty} of ${names} to qualify for this gift`,
@@ -2522,6 +2511,7 @@ const getAvailableCoupons = async (req, res) => {
       .populate("applicableProductIds", "title images")
       .populate("applicableCategories", "name code")
       .populate("freeGift.triggerProductIds", "title images")
+      .populate("freeGift.triggerCategoryIds", "name slug")
       .populate("freeGift.giftProductId", "title images")
       .populate("freeGift.giftCategoryId", "name")
       .sort({ endDate: 1 })
@@ -2531,6 +2521,27 @@ const getAvailableCoupons = async (req, res) => {
     const visibleCoupons = hasExistingOrders
       ? coupons.filter((coupon) => !coupon.isNewUserOnly)
       : coupons;
+
+    // Category-triggered gifts: expand to product ids so the storefront can match
+    // cart/PDP items by id, the same way it does for product triggers
+    const categoryTriggerProductIds = new Map();
+    await Promise.all(
+      visibleCoupons
+        .filter((c) => c.type === "free_gift" && isCategoryTrigger(c.freeGift))
+        .map(async (c) => {
+          const catIds = (c.freeGift.triggerCategoryIds || []).map((cat) => cat._id);
+          const products = catIds.length
+            ? await Product.find(
+                { status: "published", ...categoryTriggerFilter(catIds) },
+                "_id",
+              ).lean()
+            : [];
+          categoryTriggerProductIds.set(
+            c._id.toString(),
+            products.map((p) => p._id.toString()),
+          );
+        }),
+    );
 
     const formattedCoupons = visibleCoupons.map((coupon) => {
       let description;
@@ -2547,13 +2558,32 @@ const getAvailableCoupons = async (req, res) => {
           : (fg.giftProductId?.title || "item");
         const triggerQty = fg.triggerMinQty || 1;
         const giftQty = fg.giftQty || 1;
-        description = `Buy ${triggerQty}, get ${giftQty} ${giftTitle} free!`;
+        const isCatTrigger = isCategoryTrigger(fg);
+        const triggerCategories = isCatTrigger
+          ? (fg.triggerCategoryIds || []).map((c) => ({
+              _id: c._id,
+              name: c.name,
+              slug: c.slug || null,
+            }))
+          : [];
+        const triggerProducts = isCatTrigger
+          ? []
+          : (fg.triggerProductIds || []).map((p) => ({
+              _id: p._id,
+              title: p.title,
+              image: p.images?.[0] || null,
+            }));
+        description = isCatTrigger
+          ? `Buy any ${triggerQty} from ${triggerCategories.map((c) => c.name).join(", ")}, get ${giftQty} ${giftTitle} free!`
+          : `Buy ${triggerQty}, get ${giftQty} ${giftTitle} free!`;
         freeGiftInfo = {
-          triggerProducts: (fg.triggerProductIds || []).map((p) => ({
-            _id: p._id,
-            title: p.title,
-            image: p.images?.[0] || null,
-          })),
+          triggerType: isCatTrigger ? "category" : "products",
+          triggerProducts,
+          triggerCategories,
+          // Every product id that counts toward the trigger (resolved for category triggers)
+          triggerProductIds: isCatTrigger
+            ? categoryTriggerProductIds.get(coupon._id.toString()) || []
+            : triggerProducts.map((p) => p._id.toString()),
           triggerMinQty: triggerQty,
           giftType: fg.giftType || "product",
           giftLabel: isCustomGift ? (fg.giftLabel || null) : null,
@@ -2823,4 +2853,6 @@ module.exports = {
   getAvailableCoupons,
   recoverCart,
   invalidateCartSettings,
+  // Live pricing for abandoned-cart reminders (services/abandonedCartService)
+  calculateTotals,
 };

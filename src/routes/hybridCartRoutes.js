@@ -22,6 +22,10 @@ const {
   recoverCart,
 } = require("../controllers/cart/hybridCartController");
 const startCheckout = require("../controllers/cart/startCheckout");
+const {
+  saveCartContact,
+  restoreCart,
+} = require("../controllers/abandonedCartController");
 const verifyToken = require("../middlewares/authMiddleware");
 const { optionalVerifyToken } = require("../middlewares/authMiddleware");
 
@@ -364,6 +368,11 @@ router.delete(
  *         description: Checkout already in progress or cart ordered
  */
 router.post("/start-checkout", optionalVerifyToken, startCheckout);
+
+// Abandoned-cart reminders: guest email typed at checkout, and the reminder
+// email's signed "Return to your cart" link
+router.post("/contact", optionalVerifyToken, validateCart, saveCartContact);
+router.get("/restore", restoreCart);
 
 /**
  * @swagger

@@ -152,6 +152,8 @@ const categoryRoutes = require("./routes/categoryRoutes");
 const variantRoutes = require("./routes/variantRoutes");
 const filterRoutes = require("./routes/filterRoutes");
 const hybridCartRoutes = require("./routes/hybridCartRoutes");
+const emailPreferenceRoutes = require("./routes/emailPreferenceRoutes");
+const adminAbandonedCartRoutes = require("./routes/adminAbandonedCartRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const addressRoutes = require("./routes/addressRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
@@ -193,6 +195,7 @@ app.use("/api/v1/collection", collectionStorefrontRoutes);
 app.use("/api/v1/variants", variantRoutes);
 app.use("/api/v1/filter", filterRoutes);
 app.use("/api/v1/cart", hybridCartRoutes);
+app.use("/api/v1/email", emailPreferenceRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/addresses", addressRoutes);
 app.use("/api/v1/review", reviewRoutes);
@@ -230,6 +233,7 @@ app.use(`/api/v1${ADMIN_PREFIX}/faq-categories`, faqCategoryRoutes);
 
 // Site Settings Management (Admin only)
 app.use(`/api/v1${ADMIN_PREFIX}/settings`, siteSettingsRoutes);
+app.use(`/api/v1${ADMIN_PREFIX}/abandoned-carts`, adminAbandonedCartRoutes);
 
 // CSV temp image routes under admin
 const csvImageRoutes = require("./routes/csvImageRoutes");

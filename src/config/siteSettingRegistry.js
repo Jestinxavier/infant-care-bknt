@@ -10,6 +10,7 @@ const SITE_SETTING_KEYS = {
   MAINTENANCE_REOPEN_AT: "maintenance.reopen_at",
   MAINTENANCE_ALLOWED_EMAILS: "maintenance.allowed_emails",
   TAX_GST: "tax.gst",
+  MARKETING_ABANDONED_CART: "marketing.abandoned_cart",
   CART_SHIPPING_FLAT: "cart.shipping.flat",
   CART_SHIPPING_FREE_THRESHOLD: "cart.shipping.freeThreshold",
   CONTACT_EMAIL: "contact.email",
@@ -182,6 +183,39 @@ const SITE_SETTING_DEFINITIONS = {
       defaultRate: 0,
       invoicePrefix: "INV",
       display: DEFAULT_GST_DISPLAY,
+    },
+  },
+  // Read by services/abandonedCartService. Off by default: nothing is emailed
+  // until an admin enables it.
+  [SITE_SETTING_KEYS.MARKETING_ABANDONED_CART]: {
+    key: SITE_SETTING_KEYS.MARKETING_ABANDONED_CART,
+    scope: "marketing",
+    type: "json",
+    isPublic: false,
+    label: "Abandoned cart reminders",
+    description:
+      "Email shoppers who leave items in their cart. Optional private one-time coupon in the second reminder.",
+    category: "marketing",
+    aliases: ["marketing.abandoned_cart"],
+    defaultValue: {
+      enabled: false,
+      // Hours after the last cart change before each reminder is sent
+      firstReminderHours: 3,
+      secondReminderHours: 24,
+      // Carts idle longer than this are left alone
+      maxCartAgeDays: 7,
+      // Skip carts below this value (INR) entirely
+      minCartValue: 0,
+      coupon: {
+        enabled: false,
+        percent: 5,
+        maxDiscount: 100,
+        // Only carts at or above this value get a coupon
+        minCartValue: 800,
+        validHours: 48,
+        // A customer gets at most one coupon in this many days
+        cooldownDays: 60,
+      },
     },
   },
   // Read by checkout (hybridCartController, orderController) by key; the

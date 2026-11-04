@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{heading}}</title>
+    <style>
+      img { max-width: 100%; height: auto; }
+      .email-container { max-width: 620px; width: 100%; }
+      @media only screen and (max-width: 620px) {
+        .email-container { width: 100% !important; max-width: 100% !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0; padding:0; background:#e5e7eb; font-family:Arial,sans-serif;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="min-width:100%; background:#e5e7eb;">
+      <tr><td align="center" style="padding:8px;">
+        <table class="email-container" width="620" cellpadding="0" cellspacing="0" style="background:#fff; margin:0 auto;">
+          <tr>
+            <td align="center" style="padding:16px; border-bottom:1px solid #e5e7eb; background:#fff7fb;">
+              <img src="{{emailLogoDataUrl}}" alt="Infants Care" width="90" style="display:block; max-width:90px; height:auto; border:0;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 20px; color:#1f2937; line-height:1.5; font-size:14px;">
+              <p style="margin:0 0 10px;">Hello <strong>{{username}}</strong>,</p>
+              <p style="margin:0 0 16px;">{{intro}}</p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #fbcfe8; background:#fff7fb; border-radius:8px; margin:0 0 16px;">
+                {{#items}}
+                <tr>
+                  <td width="64" style="padding:10px 0 10px 12px; border-bottom:1px solid #fce7f3; vertical-align:middle;">
+                    <img src="{{image}}" alt="" width="52" height="52" style="display:block; width:52px; height:52px; object-fit:cover; border-radius:6px; background:#fff; border:0;" />
+                  </td>
+                  <td style="padding:10px 12px; border-bottom:1px solid #fce7f3; vertical-align:middle;">
+                    {{title}}<br />
+                    <span style="color:#6b7280; font-size:12px;">Qty {{quantity}} · ₹{{lineTotal}}</span>
+                  </td>
+                </tr>
+                {{/items}}
+              </table>
+              <p style="margin:0 0 16px; text-align:right;">Cart total: <strong>₹{{cartTotal}}</strong></p>
+
+              {{#hasCoupon}}
+              <table width="100%" cellpadding="0" cellspacing="0" style="border:2px dashed #ec4899; border-radius:8px; margin:0 0 16px;">
+                <tr><td align="center" style="padding:14px 12px;">
+                  <div style="font-size:13px; color:#831843;">A little something to help you decide</div>
+                  <div style="font-size:22px; font-weight:bold; letter-spacing:2px; color:#be185d; margin:6px 0;">{{couponCode}}</div>
+                  <div style="font-size:12px; color:#6b7280;">{{couponText}}</div>
+                </td></tr>
+              </table>
+              {{/hasCoupon}}
+
+              <p style="text-align:center; margin:20px 0;">
+                <a href="{{restoreUrl}}" style="display:inline-block; background:#ec4899; color:#fff !important; padding:12px 22px; text-decoration:none; border-radius:6px; font-weight:bold;">Return to your cart</a>
+              </p>
+              <p style="margin:16px 0 0; color:#6b7280; font-size:12px;">Prices and stock are confirmed when you check out.</p>
+            </td>
+          </tr>
+          <tr><td align="center" style="padding:16px; font-size:11px; color:#6b7280; border-top:1px solid #e5e7eb; background:#f9fafb;">
+            © Infants Care. You're receiving this because you left items in your cart.<br />
+            <a href="{{unsubscribeUrl}}" style="color:#6b7280;">Unsubscribe from cart reminders</a>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>

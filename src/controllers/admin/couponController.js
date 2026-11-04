@@ -4,6 +4,28 @@ const Order = require("../../models/Order");
 const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
 
+/** Validation message for the free-gift trigger, or null when it is valid. */
+const freeGiftTriggerError = (fg) => {
+  if (fg?.triggerType === "category") {
+    return fg.triggerCategoryIds?.length
+      ? null
+      : "At least one trigger category is required for category-triggered free gifts";
+  }
+  return fg?.triggerProductIds?.length
+    ? null
+    : "At least one trigger product is required for free gift coupons";
+};
+
+/** Keep only the trigger list that matches triggerType, so stale ids never count. */
+const normalizeFreeGiftTrigger = (fg) => {
+  const triggerType = fg.triggerType === "category" ? "category" : "products";
+  return {
+    triggerType,
+    triggerProductIds: triggerType === "products" ? fg.triggerProductIds : [],
+    triggerCategoryIds: triggerType === "category" ? fg.triggerCategoryIds : [],
+  };
+};
+
 /**
  * POST /api/v1/admin/coupons
  */
@@ -71,8 +93,9 @@ const createCoupon = async (req, res) => {
       if (isCustomGift && !freeGift?.giftLabel?.trim()) {
         return res.status(400).json({ success: false, message: "Gift label is required for custom free gifts" });
       }
-      if (!freeGift?.triggerProductIds || freeGift.triggerProductIds.length === 0) {
-        return res.status(400).json({ success: false, message: "At least one trigger product is required for free gift coupons" });
+      const triggerError = freeGiftTriggerError(freeGift);
+      if (triggerError) {
+        return res.status(400).json({ success: false, message: triggerError });
       }
     }
 
@@ -98,7 +121,7 @@ const createCoupon = async (req, res) => {
       minCartValue: minCartValue || 0,
       maxDiscount: type === "percentage" ? maxDiscount || null : null,
       freeGift: type === "free_gift" ? {
-        triggerProductIds: freeGift.triggerProductIds,
+        ...normalizeFreeGiftTrigger(freeGift),
         triggerMinQty: freeGift.triggerMinQty || 1,
         giftType: freeGift.giftType || "product",
         giftProductId: freeGift.giftType === "product" ? freeGift.giftProductId : undefined,
@@ -196,8 +219,12 @@ const updateCoupon = async (req, res) => {
       if (isCustomGift && !fg?.giftLabel?.trim()) {
         return res.status(400).json({ success: false, message: "Gift label is required for custom free gifts" });
       }
-      if (!fg?.triggerProductIds || fg.triggerProductIds.length === 0) {
-        return res.status(400).json({ success: false, message: "At least one trigger product is required for free gift coupons" });
+      const triggerError = freeGiftTriggerError(fg);
+      if (triggerError) {
+        return res.status(400).json({ success: false, message: triggerError });
+      }
+      if (updates.freeGift) {
+        updates.freeGift = { ...updates.freeGift, ...normalizeFreeGiftTrigger(updates.freeGift) };
       }
     }
 

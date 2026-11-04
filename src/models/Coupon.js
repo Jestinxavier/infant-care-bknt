@@ -22,8 +22,14 @@ const couponSchema = new mongoose.Schema(
     },
     // Only for type === "free_gift"
     freeGift: {
+      // "products" = cart must contain triggerProductIds; "category" = any product
+      // whose main category or sub-categories include one of triggerCategoryIds
+      triggerType: { type: String, enum: ["products", "category"], default: "products" },
       triggerProductIds: [
         { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
+      ],
+      triggerCategoryIds: [
+        { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
       ],
       triggerMinQty: { type: Number, default: 1, min: 1 },
       // "product" = fixed catalog item; "custom" = manual fulfillment; "category" = customer picks one item
@@ -74,6 +80,17 @@ const couponSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Where the coupon came from: created by an admin, or generated for one
+    // abandoned-cart reminder (single use, private, short expiry)
+    source: {
+      type: String,
+      enum: ["manual", "abandoned_cart"],
+      default: "manual",
+    },
+    // abandoned_cart coupons: who it was emailed to, and for which cart
+    // (per-customer cooldown and recovered-revenue reporting)
+    issuedToEmail: { type: String, lowercase: true, trim: true, default: null },
+    issuedForCartId: { type: String, default: null },
     // When false, coupon is excluded from the public available-coupons list
     // but can still be redeemed by entering the code manually
     isPublic: {
