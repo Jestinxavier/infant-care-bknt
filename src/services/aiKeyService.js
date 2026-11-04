@@ -84,7 +84,20 @@ const recordAiKeyCheck = async ({ ok, message }) => {
   }
 };
 
-const recordAiKeyFailure = (message) => recordAiKeyCheck({ ok: false, message });
+// Live chat results flip the status only when it changes, so a busy chat
+// doesn't write on every message and a fixed key turns green by itself.
+let lastLiveOk = null;
+
+const recordAiKeyFailure = (message) => {
+  lastLiveOk = false;
+  return recordAiKeyCheck({ ok: false, message });
+};
+
+const noteAiKeySuccess = () => {
+  if (lastLiveOk === true) return;
+  lastLiveOk = true;
+  recordAiKeyCheck({ ok: true, message: "Key accepted" });
+};
 
 const getEnvKeyCheck = () => envKeyCheck;
 
@@ -95,5 +108,6 @@ module.exports = {
   invalidateAiKey,
   recordAiKeyCheck,
   recordAiKeyFailure,
+  noteAiKeySuccess,
   getEnvKeyCheck,
 };

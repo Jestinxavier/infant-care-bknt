@@ -3,7 +3,10 @@ process.env.SETTINGS_ENCRYPTION_KEY = "test-master-key-for-settings-encryption";
 const request = require("supertest");
 const app = require("../../src/app");
 const IntegrationSecret = require("../../src/models/IntegrationSecret");
-const { invalidateAiKey } = require("../../src/services/aiKeyService");
+const {
+  invalidateAiKey,
+  recordAiKeyFailure,
+} = require("../../src/services/aiKeyService");
 const {
   createVerifiedUser,
   accessTokenFor,
@@ -131,5 +134,28 @@ describe("Chat AI key from the dashboard", () => {
     } finally {
       process.env.SETTINGS_ENCRYPTION_KEY = saved;
     }
+  });
+
+  it("any admin can see whether the chat AI works, without key details", async () => {
+    const admin = await createVerifiedUser({ role: "admin" });
+    await request(app).put(url).set(auth(superAdmin)).send({ apiKey: GOOD_KEY });
+
+    await recordAiKeyFailure("Key rejected: expired");
+    const failed = await request(app).get(`${url}/status`).set(auth(admin));
+    expect(failed.status).toBe(200);
+    expect(failed.body.status).toMatchObject({
+      configured: true,
+      ok: false,
+      message: "Key rejected: expired",
+    });
+    expect(JSON.stringify(failed.body)).not.toMatch(/WXYZ|last4|gsk_/);
+
+    // The next successful chat turns it back to working by itself.
+    await request(app)
+      .post("/api/v1/chat/message")
+      .send({ sessionId: `chat-${Date.now()}`, message: "hello there friend" });
+    await new Promise((r) => setTimeout(r, 50)); // status write is fire-and-forget
+    const fixed = await request(app).get(`${url}/status`).set(auth(admin));
+    expect(fixed.body.status.ok).toBe(true);
   });
 });

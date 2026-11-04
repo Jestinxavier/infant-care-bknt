@@ -36,6 +36,26 @@ const describe = async () => {
   };
 };
 
+// GET /api/v1/admin/integrations/ai/status — any admin. Only says whether
+// the chat AI works (for the warning on the Chats page); no key details.
+const getAiStatus = async (req, res) => {
+  try {
+    const ai = await describe();
+    return res.status(200).json({
+      success: true,
+      status: {
+        configured: ai.source !== "none",
+        ok: ai.source === "none" ? false : ai.lastCheck?.ok ?? null,
+        message: ai.source === "none" ? "No AI key configured" : ai.lastCheck?.message || "",
+        at: ai.lastCheck?.at ?? null,
+      },
+    });
+  } catch (err) {
+    logger.error("getAiStatus error", { message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to load AI status" });
+  }
+};
+
 // GET /api/v1/admin/integrations/ai
 const getAiIntegration = async (req, res) => {
   try {
@@ -123,4 +143,4 @@ const removeAiKey = async (req, res) => {
   }
 };
 
-module.exports = { getAiIntegration, saveAiKey, testAiKey, removeAiKey };
+module.exports = { getAiStatus, getAiIntegration, saveAiKey, testAiKey, removeAiKey };

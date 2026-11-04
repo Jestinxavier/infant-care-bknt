@@ -23,7 +23,11 @@ const Notification = require("../../models/Notification");
 
 // The AI key can be replaced from the dashboard (Settings > Integrations), so
 // the client is looked up per request rather than created once at startup.
-const { getGroqClient, recordAiKeyFailure } = require("../../services/aiKeyService");
+const {
+  getGroqClient,
+  recordAiKeyFailure,
+  noteAiKeySuccess,
+} = require("../../services/aiKeyService");
 
 const SYSTEM_PROMPT = `You are Infanta AI, the official shopping assistant for Infantscare.in — a premium online store for baby and infant care products.
 
@@ -514,6 +518,7 @@ Critical rules for "search_for":
     const groq = await getGroqClient();
     if (!groq) throw Object.assign(new Error("No AI key configured"), { status: null });
     response = await groq.chat.completions.create(options);
+    noteAiKeySuccess();
   } catch (apiErr) {
     // Any AI-provider failure (expired key 401, quota 429, network, 5xx) must
     // still give the customer a useful reply from the live catalog instead of

@@ -2092,6 +2092,7 @@ router.post("/reviews/reject", verifyToken, requireAdmin, rejectReview);
 // ==================== INTEGRATIONS (developer / super-admin only) ====================
 // The chat AI key. Write-only: the key is never returned, only its last 4.
 const {
+  getAiStatus,
   getAiIntegration,
   saveAiKey,
   testAiKey,
@@ -2109,6 +2110,8 @@ const requireIntegrationRole = (req, res, next) => {
   next();
 };
 
+// Any admin: just "is the chat AI working" for the Chats page warning.
+router.get("/integrations/ai/status", verifyToken, requireAdmin, getAiStatus);
 router.get("/integrations/ai", verifyToken, requireAdmin, requireIntegrationRole, getAiIntegration);
 router.put("/integrations/ai", verifyToken, requireAdmin, requireIntegrationRole, saveAiKey);
 router.post("/integrations/ai/test", verifyToken, requireAdmin, requireIntegrationRole, testAiKey);
