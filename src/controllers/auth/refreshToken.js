@@ -12,8 +12,10 @@ const refreshToken = async (req, res) => {
     const clientType = getRequestClientType(req);
     const allCookies = req.cookies || {};
 
-    logger.info(`🔄 Refresh token request from: ${clientType}`);
-    logger.info("🍪 Available cookies:", Object.keys(allCookies));
+    // Debug only: runs on every storefront page load, and visitors' cookie
+    // names don't belong in production logs.
+    logger.debug(`🔄 Refresh token request from: ${clientType}`);
+    logger.debug("🍪 Available cookies:", Object.keys(allCookies));
 
     const token = allCookies[getAuthCookieName(clientType, "refresh")];
 
@@ -24,7 +26,7 @@ const refreshToken = async (req, res) => {
       });
     }
 
-    logger.info(`✅ Refresh token found for ${clientType}, refreshing...`);
+    logger.debug(`✅ Refresh token found for ${clientType}, refreshing...`);
     const { accessToken: newAccessToken, refreshToken: nextRefreshToken } =
       await authService.refreshAccessToken(token);
 

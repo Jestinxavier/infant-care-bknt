@@ -81,7 +81,6 @@ const cmsPageSchema = new mongoose.Schema(
   }
 );
 
-cmsPageSchema.index({ "draft.blocks.type": 1 });
 cmsPageSchema.index({ status: 1, updatedAt: -1 });
 
 /** Plain-object representation with a stable string `id`. */
