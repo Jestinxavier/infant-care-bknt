@@ -44,6 +44,12 @@ const chatSessionSchema = new mongoose.Schema(
     staffReadAt: { type: Date, default: null },
     // Set when the chat was closed for being idle (see jobs/chatAutoClose).
     autoClosedAt: { type: Date, default: null },
+    // Order tracking in chat: waiting for an order number / contact detail,
+    // and failed verification attempts (handed to staff after 3).
+    orderLookup: {
+      awaiting: { type: Boolean, default: false },
+      failures: { type: Number, default: 0 },
+    },
     messages: [messageSchema],
     resolvedAt: { type: Date, default: null },
     // Snapshot of customer info for dashboard display

@@ -5,6 +5,8 @@ const ChatSession = require("../../src/models/ChatSession");
 const Category = require("../../src/models/Category");
 const Product = require("../../src/models/Product");
 const Notification = require("../../src/models/Notification");
+const Order = require("../../src/models/Order");
+const DeliveryPartner = require("../../src/models/DeliveryPartner");
 const { remindWaitingChats } = require("../../src/jobs/chatWaitingReminder");
 const { closeIdleChats } = require("../../src/jobs/chatAutoClose");
 const {
@@ -515,5 +517,126 @@ describe("Chat surface", () => {
     const closed = await ChatSession.findById(staleAi._id).lean();
     expect(closed.autoClosedAt).toBeInstanceOf(Date);
     expect(closed.updatedAt.getTime()).toBeLessThan(hoursAgo(24).getTime());
+  });
+
+  describe("order tracking", () => {
+    const makeOrder = async (overrides = {}) =>
+      Order.create({
+        orderId: Math.random().toString(16).slice(2, 10).padEnd(8, "a").toUpperCase(),
+        isGuestOrder: true,
+        guestInfo: { name: "Track Parent", email: "track.parent@example.com", phone: "+91 98765 43210" },
+        items: [
+          {
+            productId: new mongoose.Types.ObjectId(),
+            quantity: 2,
+            price: 250,
+            name: "Tracked romper",
+            sku: unique("SKU"),
+          },
+        ],
+        totalQuantity: 2,
+        totalAmount: 500,
+        subtotal: 500,
+        shippingCost: 0,
+        shippingAddress: { fullName: "Track Parent", phone: "9876543210", city: "Kochi", pincode: "682001" },
+        paymentStatus: "paid",
+        orderStatus: "shipped",
+        trackingId: "TRK123456",
+        placedAt: new Date(),
+        statusHistory: [{ status: "shipped", timestamp: new Date("2026-11-03T06:00:00Z") }],
+        ...overrides,
+      });
+
+    const say = (sessionId, message) =>
+      request(app).post("/api/v1/chat/message").send({ sessionId, message });
+
+    it("answers with the status when the order number and contact match", async () => {
+      const partner = await DeliveryPartner.create({
+        name: unique("Speedy"),
+        trackingUrlTemplate: "https://track.example.com/{trackingId}",
+      });
+      const order = await makeOrder({ deliveryPartner: partner._id });
+      // Pre-chat form contact matches the order's phone.
+      const session = await makeSession({ customerPhone: "98765 43210", customerEmail: null });
+      createCompletion.mockResolvedValueOnce(
+        aiReply({ reply: "Let me check.", track_order: true, order_id: `#${order.orderId}` }),
+      );
+
+      const res = await say(session.sessionId, `where is my order #${order.orderId}`);
+      expect(res.status).toBe(200);
+      expect(res.body.escalated).toBe(false);
+      expect(res.body.products).toEqual([]);
+      expect(res.body.reply).toContain(`#${order.orderId}`);
+      expect(res.body.reply).toContain("Shipped");
+      expect(res.body.reply).toContain(partner.name);
+      expect(res.body.reply).toContain("https://track.example.com/TRK123456");
+      expect(res.body.reply).toContain("/orders/track");
+    });
+
+    it("asks for the number, then a contact, and never confirms an unmatched order", async () => {
+      const order = await makeOrder({ orderStatus: "confirmed", statusHistory: [{ status: "confirmed" }] });
+      // No contact on the session at all.
+      const session = await makeSession({ customerEmail: null, customerPhone: null });
+
+      createCompletion.mockResolvedValueOnce(
+        aiReply({ reply: "Sure!", track_order: true, order_id: null }),
+      );
+      const ask = await say(session.sessionId, "where is my order?");
+      expect(ask.body.reply).toMatch(/order number/i);
+
+      // The next message is routed straight to the lookup (no AI call).
+      createCompletion.mockClear();
+      const numberOnly = await say(session.sessionId, order.orderId);
+      expect(createCompletion).not.toHaveBeenCalled();
+      expect(numberOnly.body.reply).toMatch(/phone number or email/i);
+      expect(numberOnly.body.reply).not.toMatch(/confirmed/i);
+
+      const wrong = await say(session.sessionId, "someone.else@example.com");
+      expect(wrong.body.reply).toMatch(/couldn't find/i);
+      expect(wrong.body.reply).not.toMatch(/confirmed/i);
+
+      const right = await say(session.sessionId, "track.parent@example.com");
+      expect(right.body.reply).toMatch(/Confirmed/);
+      expect(right.body.escalated).toBe(false);
+    });
+
+    it("hands the chat to staff after three failed verifications", async () => {
+      const order = await makeOrder();
+      const session = await makeSession({ customerEmail: null, customerPhone: null });
+      createCompletion.mockResolvedValueOnce(
+        aiReply({ reply: "Sure!", track_order: true, order_id: order.orderId }),
+      );
+      await say(session.sessionId, `status of ${order.orderId}`);
+      await say(session.sessionId, "wrong1@example.com");
+      await say(session.sessionId, "wrong2@example.com");
+      const third = await say(session.sessionId, "wrong3@example.com");
+      expect(third.body.escalated).toBe(true);
+      const saved = await ChatSession.findOne({ sessionId: session.sessionId });
+      expect(saved.status).toBe("escalated");
+      expect(saved.orderId).toBe(order.orderId);
+    });
+
+    it("signed-in owners need no extra contact", async () => {
+      const { createVerifiedUser: makeUser, accessTokenFor: tokenFor } = require("../helpers/authFixtures");
+      const owner = await makeUser({ role: "user" });
+      const order = await makeOrder({
+        isGuestOrder: false,
+        guestInfo: undefined,
+        userId: owner._id,
+        orderStatus: "delivered",
+        statusHistory: [{ status: "delivered", timestamp: new Date() }],
+        shippingAddress: { fullName: "Owner", phone: "9000000000" },
+      });
+      const sessionId = unique("chat");
+      createCompletion.mockResolvedValueOnce(
+        aiReply({ reply: "Checking.", track_order: true, order_id: order.orderId }),
+      );
+      const res = await request(app)
+        .post("/api/v1/chat/message")
+        .set({ Authorization: `Bearer ${tokenFor(owner)}` })
+        .send({ sessionId, message: `track ${order.orderId}` });
+      expect(res.body.reply).toMatch(/Delivered/);
+      expect(res.body.reply).toContain(`/account/orders/${order._id}`);
+    });
   });
 });
