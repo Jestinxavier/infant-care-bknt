@@ -112,8 +112,15 @@ const tools = [
 ];
 
 // ── Tool execution ───────────────────────────────────────────────────
+const hasStock = (item) =>
+  item?.stockObj?.available !== undefined
+    ? item.stockObj.available > 0
+    : item?.stockObj?.isInStock ?? (Number(item?.stock) > 0);
+
 const formatProductForTool = (p) => {
-  const variant = p.variants?.[0];
+  const variants = Array.isArray(p.variants) ? p.variants : [];
+  // Price the variant a shopper can actually buy, not just the first one.
+  const variant = variants.find(hasStock) ?? variants[0];
   const regularPrice = variant?.price ?? p.price ?? 0;
   const offerPrice = variant?.offerPrice ?? p.offerPrice ?? null;
   return {
@@ -123,8 +130,9 @@ const formatProductForTool = (p) => {
     image: p.images?.[0] ?? "",
     regular_price: regularPrice,
     offer_price: offerPrice,
-    in_stock: p.stockObj?.isInStock ?? (p.stockObj?.available > 0) ?? false,
-    has_variants: Array.isArray(p.variants) && p.variants.length > 0,
+    // Products with sizes/colours keep their stock on the variants.
+    in_stock: hasStock(p) || variants.some(hasStock),
+    has_variants: variants.length > 0,
   };
 };
 
@@ -187,43 +195,57 @@ const resolveCategoryIds = async (q) => {
   return [...catIds, ...children.map((c) => c._id)];
 };
 
-const IN_STOCK = { status: "published", "stockObj.isInStock": true };
+// In stock = the product or any of its variants has stock. Products with
+// sizes/colours keep stock on the variants and have the product's own flag
+// off; checking only that flag hid them from the bot entirely. Same rule as
+// filters, home page and recommendations.
+const IN_STOCK_OR = [
+  { "stockObj.available": { $gt: 0 } },
+  { "stockObj.available": { $exists: false }, "stockObj.isInStock": true },
+  { stockObj: { $exists: false }, stock: { $gt: 0 } },
+  { "variants.stockObj.available": { $gt: 0 } },
+  { "variants.stockObj.available": { $exists: false }, "variants.stockObj.isInStock": true },
+  { "variants.stockObj": { $exists: false }, "variants.stock": { $gt: 0 } },
+];
+const inStock = (extra) => ({
+  status: "published",
+  $and: [{ $or: IN_STOCK_OR }, ...(extra ? [extra] : [])],
+});
 const PRODUCT_FIELDS = "_id title url_key images price offerPrice variants stockObj";
 
 // Core product search used by both the AI path and demo fallback
 const searchProducts = async (query, limit = 8) => {
   limit = Math.min(limit, 12);
 
+  // No query (e.g. a greeting): show recent in-stock products.
   if (!query) {
-    return Product.find(IN_STOCK).select(PRODUCT_FIELDS).sort({ updatedAt: -1 }).limit(limit).lean();
+    return Product.find(inStock()).select(PRODUCT_FIELDS).sort({ updatedAt: -1 }).limit(limit).lean();
   }
 
   // Step 1: category-aware search
   const catIds = await resolveCategoryIds(query);
   if (catIds.length) {
-    const results = await Product.find({
-      ...IN_STOCK,
-      $or: [{ category: { $in: catIds } }, { subCategories: { $in: catIds } }],
-    }).select(PRODUCT_FIELDS).sort({ updatedAt: -1 }).limit(limit).lean();
+    const results = await Product.find(
+      inStock({ $or: [{ category: { $in: catIds } }, { subCategories: { $in: catIds } }] }),
+    ).select(PRODUCT_FIELDS).sort({ updatedAt: -1 }).limit(limit).lean();
     if (results.length) return results;
   }
 
   // Step 2: MongoDB full-text search
   try {
-    const results = await Product.find({ ...IN_STOCK, $text: { $search: query } })
+    const results = await Product.find({ ...inStock(), $text: { $search: query } })
       .select(PRODUCT_FIELDS).limit(limit).lean();
     if (results.length) return results;
   } catch (_) {}
 
   // Step 3: regex phrase match on title
-  const results = await Product.find({
-    ...IN_STOCK,
-    title: { $regex: new RegExp(escapeRegex(query), "i") },
-  }).select(PRODUCT_FIELDS).limit(limit).lean();
-  if (results.length) return results;
+  const results = await Product.find(
+    inStock({ title: { $regex: new RegExp(escapeRegex(query), "i") } }),
+  ).select(PRODUCT_FIELDS).limit(limit).lean();
 
-  // Step 4: top in-stock products
-  return Product.find(IN_STOCK).select(PRODUCT_FIELDS).sort({ updatedAt: -1 }).limit(limit).lean();
+  // Nothing matched: show nothing. Falling back to "top products" here made
+  // every unmatched message show the same few unrelated items.
+  return results;
 };
 
 const executeTool = async (name, args) => {
@@ -375,17 +397,18 @@ const getDemoResponse = async (userMessage) => {
   const msg = userMessage.trim();
   const msgLower = msg.toLowerCase();
 
+  const isGreeting =
+    /^(hi|hello|hey|hii|namaste|vanakkam|namaskar|hai|start|begin|നമസ്കാരം|हेलो|வணக்கம்)\b/i.test(msgLower) ||
+    msg.length < 8;
+
   const [parentCategories, rawProducts] = await Promise.all([
     fetchParentCategories(),
-    searchProducts(msg, 8),
+    // A greeting isn't a search ("hi" would match "wHIte"); show recent picks.
+    searchProducts(isGreeting ? "" : msg, 8),
   ]);
 
   const options = parentCategories.map((c) => c.name);
   const formatted = rawProducts.map(formatProductForTool);
-
-  const isGreeting =
-    /^(hi|hello|hey|hii|namaste|vanakkam|namaskar|hai|start|begin|നമസ്കാരം|हेलो|வணக்கம்)\b/i.test(msgLower) ||
-    msg.length < 8;
 
   if (isGreeting) {
     return {

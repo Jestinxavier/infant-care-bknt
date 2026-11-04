@@ -152,6 +152,76 @@ describe("Chat surface", () => {
     expect(session.messages[1].products).toHaveLength(1);
   });
 
+  it("suggests products that match the message, including ones with variants", async () => {
+    const sleepSuits = await Category.create({
+      name: unique("Sleep Suits"),
+      code: unique("sleep-suits"),
+      isActive: true,
+    });
+    const towels = await Category.create({
+      name: unique("Towels"),
+      code: unique("towels"),
+      isActive: true,
+    });
+    // Stock lives on the variants; the product's own flag is off, as it is
+    // for every product with sizes/colours.
+    await Product.create({
+      title: "Zip Sleep Suit",
+      category: sleepSuits._id,
+      status: "published",
+      product_type: "CONFIGURABLE",
+      stockObj: { available: 0, isInStock: false },
+      variants: [
+        {
+          id: unique("v"),
+          sku: unique("sku"),
+          price: 599,
+          stock: 0,
+          stockObj: { available: 0, isInStock: false },
+        },
+        {
+          id: unique("v"),
+          sku: unique("sku"),
+          price: 649,
+          stock: 3,
+          stockObj: { available: 3, isInStock: true },
+        },
+      ],
+      images: ["https://cdn.example.com/sleep.jpg"],
+      url_key: unique("zip-sleep-suit"),
+    });
+    await Product.create({
+      title: "Hooded Bath Towel",
+      category: towels._id,
+      status: "published",
+      stockObj: { available: 5, isInStock: true },
+      images: ["https://cdn.example.com/towel.jpg"],
+      url_key: unique("hooded-bath-towel"),
+    });
+
+    const ask = async (searchFor) => {
+      createCompletion.mockResolvedValueOnce(
+        aiReply({ reply: "Here you go.", search_for: searchFor, escalate: false }),
+      );
+      const res = await request(app)
+        .post("/api/v1/chat/message")
+        .send({ sessionId: unique("chat"), message: `Show me ${searchFor}` });
+      expect(res.status).toBe(200);
+      return res.body.products.map((p) => p.title);
+    };
+
+    const sleep = await ask(sleepSuits.name);
+    expect(sleep).toContain("Zip Sleep Suit");
+    expect(sleep).not.toContain("Hooded Bath Towel");
+
+    const bath = await ask(towels.name);
+    expect(bath).toContain("Hooded Bath Towel");
+    expect(bath).not.toContain("Zip Sleep Suit");
+
+    // A search that matches nothing shows nothing, not unrelated products.
+    expect(await ask("zzqx nonexistent widget")).toEqual([]);
+  });
+
   it("escalates AI replies and queues messages for already-escalated sessions", async () => {
     const sessionId = unique("chat-escalate");
     createCompletion.mockResolvedValue(
