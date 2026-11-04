@@ -631,6 +631,36 @@ const sendReviewRequestEmail = async (order) => {
   });
 };
 
+/** Escape customer-entered text before it goes into email HTML. */
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+/**
+ * Tell a customer who has left the site that support replied to their chat.
+ * Everything typed by staff or the customer is escaped: the template engine
+ * inserts values as raw HTML.
+ */
+const sendChatReplyEmail = async ({ to, customerName, staffName, reply }) => {
+  if (!to) return;
+  const siteUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+  return sendTemplateEmail({
+    to,
+    subject: "You have a reply from Infants Care support",
+    template: "chat-reply",
+    data: {
+      customerName: escapeHtml(customerName || "there"),
+      staffName: escapeHtml(staffName || "Someone"),
+      reply: escapeHtml(String(reply || "").slice(0, 2000)),
+      siteUrl,
+    },
+  });
+};
+
 /* =====================================================
    ✅ EXPORTS
 ===================================================== */
@@ -704,5 +734,6 @@ module.exports = {
   sendReviewRequestEmail,
   sendGuestOrderConfirmationEmail,
   sendOrderConfirmationEmail,
+  sendChatReplyEmail,
   getOrderRecipient,
 };

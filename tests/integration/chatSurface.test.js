@@ -4,6 +4,12 @@ const app = require("../../src/app");
 const ChatSession = require("../../src/models/ChatSession");
 const Category = require("../../src/models/Category");
 const Product = require("../../src/models/Product");
+const Notification = require("../../src/models/Notification");
+const { remindWaitingChats } = require("../../src/jobs/chatWaitingReminder");
+const {
+  createVerifiedUser,
+  accessTokenFor,
+} = require("../helpers/authFixtures");
 
 jest.mock("groq-sdk", () => {
   const create = jest.fn();
@@ -264,5 +270,116 @@ describe("Chat surface", () => {
     expect(again.status).toBe(200);
     const unchanged = await ChatSession.findOne({ sessionId: session.sessionId });
     expect(unchanged.messages).toHaveLength(1);
+  });
+
+  it("hides chats with no messages from the admin list and counts", async () => {
+    const admin = await createVerifiedUser({ role: "admin" });
+    const auth = { Authorization: `Bearer ${accessTokenFor(admin)}` };
+    const empty = await makeSession({ customerName: unique("Empty") });
+    const real = await makeSession({
+      customerName: unique("Real"),
+      messages: [{ role: "user", content: "Is this in stock?" }],
+    });
+
+    const list = await request(app)
+      .get("/api/v1/chat/admin/sessions?status=all&limit=100")
+      .set(auth);
+    expect(list.status).toBe(200);
+    const ids = list.body.sessions.map((s) => s.sessionId);
+    expect(ids).toContain(real.sessionId);
+    expect(ids).not.toContain(empty.sessionId);
+
+    const counts = await request(app).get("/api/v1/chat/admin/sessions/counts").set(auth);
+    expect(counts.body.counts.all).toBe(
+      await ChatSession.countDocuments({ "messages.0": { $exists: true } }),
+    );
+  });
+
+  it("records escalation time and reminds once for chats nobody joined", async () => {
+    const session = await makeSession({
+      messages: [{ role: "user", content: "Where is my order?" }],
+    });
+    await request(app).post(`/api/v1/chat/session/${session.sessionId}/request-human`);
+    const escalated = await ChatSession.findOne({ sessionId: session.sessionId });
+    expect(escalated.escalatedAt).toBeInstanceOf(Date);
+
+    // Not waiting long enough yet: no reminder.
+    await remindWaitingChats();
+    expect(
+      (await ChatSession.findOne({ sessionId: session.sessionId })).waitingReminderAt,
+    ).toBeNull();
+
+    await ChatSession.updateOne(
+      { sessionId: session.sessionId },
+      { $set: { escalatedAt: new Date(Date.now() - 15 * 60 * 1000) } },
+    );
+    await remindWaitingChats();
+    const reminded = await ChatSession.findOne({ sessionId: session.sessionId });
+    expect(reminded.waitingReminderAt).toBeInstanceOf(Date);
+    const bell = await Notification.findOne({
+      type: "chat_escalation",
+      sessionId: session.sessionId,
+    }).lean();
+    expect(bell.message).toMatch(/Still waiting for a reply/);
+
+    // Only once per chat.
+    const firstReminder = reminded.waitingReminderAt.getTime();
+    await remindWaitingChats();
+    expect(
+      (await ChatSession.findOne({ sessionId: session.sessionId })).waitingReminderAt.getTime(),
+    ).toBe(firstReminder);
+  });
+
+  it("tracks unread live chats and marks them read or unread, one or in bulk", async () => {
+    const admin = await createVerifiedUser({ role: "admin" });
+    const auth = { Authorization: `Bearer ${accessTokenFor(admin)}` };
+    const unreadCount = async () =>
+      (await request(app).get("/api/v1/chat/admin/sessions/counts").set(auth)).body
+        .counts.unread;
+
+    const before = await unreadCount();
+    const a = await makeSession({ messages: [{ role: "user", content: "Help please" }] });
+    const b = await makeSession({ messages: [{ role: "user", content: "Order issue" }] });
+    await request(app).post(`/api/v1/chat/session/${a.sessionId}/request-human`);
+    await request(app).post(`/api/v1/chat/session/${b.sessionId}/request-human`);
+    expect(await unreadCount()).toBe(before + 2);
+
+    const list = await request(app)
+      .get("/api/v1/chat/admin/sessions?status=escalated&limit=100")
+      .set(auth);
+    const row = list.body.sessions.find((s) => s.sessionId === a.sessionId);
+    expect(row.unreadCount).toBeGreaterThan(0);
+
+    // Opening one chat (mark read) drops the count by one.
+    const one = await request(app)
+      .post("/api/v1/chat/admin/sessions/read")
+      .set(auth)
+      .send({ sessionIds: [a.sessionId], read: true });
+    expect(one.status).toBe(200);
+    expect(await unreadCount()).toBe(before + 1);
+
+    // Mark unread again, then mark everything in the Live tab read.
+    await request(app)
+      .post("/api/v1/chat/admin/sessions/read")
+      .set(auth)
+      .send({ sessionIds: [a.sessionId], read: false });
+    expect(await unreadCount()).toBe(before + 2);
+    await request(app)
+      .post("/api/v1/chat/admin/sessions/read")
+      .set(auth)
+      .send({ all: true, status: "escalated", read: true });
+    expect(await unreadCount()).toBe(0);
+
+    // A new customer message makes the chat unread again.
+    await request(app)
+      .post("/api/v1/chat/message")
+      .send({ sessionId: b.sessionId, message: "Any update?" });
+    expect(await unreadCount()).toBe(1);
+
+    const empty = await request(app)
+      .post("/api/v1/chat/admin/sessions/read")
+      .set(auth)
+      .send({ sessionIds: [] });
+    expect(empty.status).toBe(400);
   });
 });

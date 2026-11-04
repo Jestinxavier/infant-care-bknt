@@ -174,6 +174,13 @@ const startServer = async () => {
       logger.warn("Failed to start expired assets cleanup cron", { error: cronError.message });
     }
 
+    try {
+      const { startChatWaitingReminderCron } = require("./jobs/chatWaitingReminder");
+      startChatWaitingReminderCron();
+    } catch (cronError) {
+      logger.warn("Failed to start chat waiting reminder cron", { error: cronError.message });
+    }
+
     const http = require("http");
     const server = http.createServer(app);
 

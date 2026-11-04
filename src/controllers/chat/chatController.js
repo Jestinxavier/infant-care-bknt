@@ -6,7 +6,12 @@ const Product = require("../../models/Product");
 const Coupon = require("../../models/Coupon");
 const Category = require("../../models/Category");
 const logger = require("../../utils/logger");
-const { emitEvent, getOnlineAdminCount } = require("../../services/socketService");
+const {
+  emitEvent,
+  getChatStaffCount,
+  isCustomerInChat,
+} = require("../../services/socketService");
+const { sendChatReplyEmail } = require("../../services/emailService");
 const { createChatNotification } = require("../admin/notificationController");
 const Notification = require("../../models/Notification");
 
@@ -555,6 +560,37 @@ const sanitizeUserMessage = (msg) => {
 };
 
 // POST /api/v1/chat/message
+const markEscalated = (session, reason) => {
+  session.status = "escalated";
+  session.escalationReason = reason;
+  session.escalatedAt = new Date();
+  session.waitingReminderAt = null;
+};
+
+// Chats only reach the dashboard once something was said. Opening the chat
+// widget (or a bot) can leave records with no messages; they're hidden.
+const HAS_MESSAGES = { "messages.0": { $exists: true } };
+
+// The customer wrote after staff last read it. Chats from before read
+// tracking existed have no lastCustomerMessageAt and count as read.
+const UNREAD = {
+  lastCustomerMessageAt: { $ne: null },
+  $expr: {
+    $gt: ["$lastCustomerMessageAt", { $ifNull: ["$staffReadAt", new Date(0)] }],
+  },
+};
+
+const unreadMessageCount = (s) => {
+  if (!s.lastCustomerMessageAt) return 0;
+  const readAt = s.staffReadAt ? new Date(s.staffReadAt).getTime() : 0;
+  return (s.messages || []).filter(
+    (m) => m.role === "user" && new Date(m.createdAt).getTime() > readAt
+  ).length;
+};
+
+// One "you have a reply" email per burst of staff replies.
+const REPLY_EMAIL_GAP_MS = 10 * 60 * 1000;
+
 const sendMessage = async (req, res) => {
   try {
     const { sessionId, message } = req.body;
@@ -577,6 +613,7 @@ const sendMessage = async (req, res) => {
     // If already escalated — save message and notify dashboard via socket
     if (session.status === "escalated") {
       session.messages.push({ role: "user", content: cleanMessage });
+      session.lastCustomerMessageAt = new Date();
       await session.save();
       emitEvent("chat:escalated_message", {
         sessionId,
@@ -596,11 +633,12 @@ const sendMessage = async (req, res) => {
         reply: null,
         escalated: true,
         sessionId,
-        staffUnavailable: getOnlineAdminCount() === 0,
+        staffUnavailable: getChatStaffCount() === 0,
       });
     }
 
     session.messages.push({ role: "user", content: cleanMessage });
+    session.lastCustomerMessageAt = new Date();
 
     // Build history from all previous messages (excluding the latest user msg)
     const history = toGroqHistory(session.messages);
@@ -620,9 +658,8 @@ const sendMessage = async (req, res) => {
     });
 
     if (result.escalated) {
-      session.status = "escalated";
-      session.escalationReason = result.escalationReason ?? "Customer needs human support";
-      const staffOnline = getOnlineAdminCount() > 0;
+      markEscalated(session, result.escalationReason ?? "Customer needs human support");
+      const staffOnline = getChatStaffCount() > 0;
       const escalationData = {
         sessionId,
         customerName: session.customerName,
@@ -859,7 +896,8 @@ const getEscalatedSessions = async (req, res) => {
   try {
     const { status = "escalated", page = 1, limit = 20, q = "" } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
-    const filter = status === "all" ? {} : { status };
+    const filter =
+      status === "all" ? { ...HAS_MESSAGES } : { status, ...HAS_MESSAGES };
 
     const search = String(q || "").trim();
     if (search) {
@@ -874,7 +912,7 @@ const getEscalatedSessions = async (req, res) => {
     }
     const [sessions, total] = await Promise.all([
       ChatSession.find(filter)
-        .select("sessionId status customerName customerEmail customerPhone escalationReason assignedStaffId assignedStaffName staffJoinedAt messages orderId issue notes createdAt updatedAt")
+        .select("sessionId status customerName customerEmail customerPhone escalationReason assignedStaffId assignedStaffName staffJoinedAt messages orderId issue notes lastCustomerMessageAt staffReadAt createdAt updatedAt")
         .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -885,6 +923,7 @@ const getEscalatedSessions = async (req, res) => {
       ...s,
       lastMessage: s.messages?.[s.messages.length - 1]?.content ?? "",
       messageCount: s.messages?.length ?? 0,
+      unreadCount: unreadMessageCount(s),
     }));
     return res.status(200).json({
       success: true,
@@ -900,13 +939,21 @@ const getEscalatedSessions = async (req, res) => {
 const getSessionCounts = async (req, res) => {
   try {
     const rows = await ChatSession.aggregate([
+      { $match: HAS_MESSAGES },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]);
-    const counts = { all: 0, active: 0, escalated: 0, resolved: 0 };
+    const counts = { all: 0, active: 0, escalated: 0, resolved: 0, unread: 0 };
     for (const row of rows) {
       counts.all += row.count;
       if (row._id in counts) counts[row._id] = row.count;
     }
+    // Live chats with customer messages staff haven't read: the sidebar
+    // badge, and the dashboard keeps the chat sound ringing while it's > 0.
+    counts.unread = await ChatSession.countDocuments({
+      ...HAS_MESSAGES,
+      ...UNREAD,
+      status: "escalated",
+    });
     return res.status(200).json({ success: true, counts });
   } catch (err) {
     logger.error("getSessionCounts error", { message: err.message });
@@ -938,7 +985,12 @@ const staffReply = async (req, res) => {
     const session = await ChatSession.findOne({ sessionId });
     if (!session) return res.status(404).json({ success: false, message: "Session not found" });
 
+    // Replying takes the chat, so the customer sees who is helping them and
+    // the bell stops ringing — same as pressing "Join chat" first.
+    const joined = await joinAsStaff(session, req.user);
+
     session.messages.push({ role: "staff", content: message.trim(), staffId: req.user.id });
+    session.staffReadAt = new Date();
     await session.save();
 
     const io = require("../../services/socketService").getIO();
@@ -948,7 +1000,27 @@ const staffReply = async (req, res) => {
       createdAt: new Date(),
     });
 
-    return res.status(200).json({ success: true, message: "Reply sent" });
+    // The customer may have left the site; email them so the reply isn't lost.
+    const lastEmail = session.lastReplyEmailAt?.getTime() ?? 0;
+    let emailed = false;
+    if (session.customerEmail && Date.now() - lastEmail > REPLY_EMAIL_GAP_MS) {
+      const stillThere = await isCustomerInChat(sessionId).catch(() => true);
+      if (!stillThere) {
+        session.lastReplyEmailAt = new Date();
+        await session.save();
+        emailed = true;
+        sendChatReplyEmail({
+          to: session.customerEmail,
+          customerName: session.customerName,
+          staffName: req.user?.username,
+          reply: message.trim(),
+        }).catch((err) =>
+          logger.warn("staffReply: reply email failed", { message: err.message })
+        );
+      }
+    }
+
+    return res.status(200).json({ success: true, message: "Reply sent", joined, emailed });
   } catch (err) {
     logger.error("staffReply error", { message: err.message });
     return res.status(500).json({ success: false, message: "Failed to send reply" });
@@ -960,6 +1032,45 @@ const staffReply = async (req, res) => {
 // message so the customer sees it in history, marks the escalation
 // notification as read (bell stops ringing), and notifies the customer
 // in real-time via socket.
+// Records the first staff member to take the chat: a "joined" message the
+// customer sees, the bell notification silenced, and the customer told live.
+// Returns false when someone already joined (idempotent).
+const joinAsStaff = async (session, user) => {
+  if (session.staffJoinedAt || session.assignedStaffId) return false;
+  const staffName = user?.username || "A support agent";
+  const sessionId = session.sessionId;
+  session.assignedStaffId = user.id;
+  session.assignedStaffName = staffName;
+  session.staffJoinedAt = new Date();
+  session.staffReadAt = new Date();
+  session.messages.push({
+    role: "staff",
+    content: `👤 ${staffName} has joined the chat.`,
+    staffId: user.id,
+  });
+  await session.save();
+
+  // Stop the escalation notification from ringing for this chat.
+  try {
+    await Notification.updateMany(
+      { type: "chat_escalation", sessionId, isRead: false },
+      { $set: { isRead: true, readAt: new Date() } }
+    );
+  } catch (err) {
+    logger.warn("joinAsStaff: failed to mark notifications read", { message: err.message });
+  }
+
+  const io = require("../../services/socketService").getIO();
+  io.to(`chat:${sessionId}`).emit("chat:staff_joined", {
+    sessionId,
+    staffName,
+    message: `👤 ${staffName} has joined the chat.`,
+  });
+  // Every dashboard: this chat no longer needs someone (badge + ringing).
+  emitEvent("chat:attention_changed", { sessionId });
+  return true;
+};
+
 const joinSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -967,36 +1078,7 @@ const joinSession = async (req, res) => {
     if (!session) return res.status(404).json({ success: false, message: "Session not found" });
 
     const staffName = req.user?.username || "A support agent";
-
-    // Idempotent — only the first join records anything.
-    if (!session.staffJoinedAt && !session.assignedStaffId) {
-      session.assignedStaffId = req.user.id;
-      session.assignedStaffName = staffName;
-      session.staffJoinedAt = new Date();
-      session.messages.push({
-        role: "staff",
-        content: `👤 ${staffName} has joined the chat.`,
-        staffId: req.user.id,
-      });
-      await session.save();
-
-      // Stop the escalation notification from ringing for this chat.
-      try {
-        await Notification.updateMany(
-          { type: "chat_escalation", sessionId, isRead: false },
-          { $set: { isRead: true, readAt: new Date() } }
-        );
-      } catch (err) {
-        logger.warn("joinSession: failed to mark notifications read", { message: err.message });
-      }
-
-      const io = require("../../services/socketService").getIO();
-      io.to(`chat:${sessionId}`).emit("chat:staff_joined", {
-        sessionId,
-        staffName,
-        message: `👤 ${staffName} has joined the chat.`,
-      });
-    }
+    await joinAsStaff(session, req.user);
 
     return res.status(200).json({
       success: true,
@@ -1007,6 +1089,49 @@ const joinSession = async (req, res) => {
   } catch (err) {
     logger.error("joinSession error", { message: err.message });
     return res.status(500).json({ success: false, message: "Failed to join the chat" });
+  }
+};
+
+// POST /api/v1/chat/admin/sessions/read
+// Mark chats read or unread: { sessionIds: [...] } or { all: true, status },
+// with { read: false } to mark unread. Opening a chat calls this too.
+const MAX_BULK_READ = 500;
+const markSessionsRead = async (req, res) => {
+  try {
+    const { sessionIds, all, status, read = true } = req.body || {};
+    let filter;
+    if (all === true) {
+      filter = { ...HAS_MESSAGES };
+      if (typeof status === "string" && status !== "all") filter.status = status;
+    } else {
+      const ids = Array.isArray(sessionIds)
+        ? sessionIds.filter((id) => typeof id === "string" && id).slice(0, MAX_BULK_READ)
+        : [];
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, message: "No chats selected" });
+      }
+      filter = { sessionId: { $in: ids } };
+    }
+
+    const update = read
+      ? { $set: { staffReadAt: new Date() } }
+      : // Unread needs a customer-message time to compare against; older
+        // chats without one fall back to their last activity.
+        [
+          {
+            $set: {
+              staffReadAt: null,
+              lastCustomerMessageAt: { $ifNull: ["$lastCustomerMessageAt", "$updatedAt"] },
+            },
+          },
+        ];
+    const result = await ChatSession.updateMany(filter, update, { timestamps: false });
+
+    emitEvent("chat:attention_changed", {});
+    return res.status(200).json({ success: true, updated: result.modifiedCount });
+  } catch (err) {
+    logger.error("markSessionsRead error", { message: err.message });
+    return res.status(500).json({ success: false, message: "Failed to update chats" });
   }
 };
 
@@ -1033,6 +1158,7 @@ const resolveSession = async (req, res) => {
     }
 
     const io = require("../../services/socketService").getIO();
+    emitEvent("chat:attention_changed", { sessionId });
     io.to(`chat:${sessionId}`).emit("chat:resolved", {
       message: "Your query has been resolved. Thank you for contacting us!",
     });
@@ -1220,18 +1346,18 @@ const requestHuman = async (req, res) => {
     if (session.status === "escalated") {
       return res
         .status(200)
-        .json({ success: true, staffUnavailable: getOnlineAdminCount() === 0 });
+        .json({ success: true, staffUnavailable: getChatStaffCount() === 0 });
     }
 
     session.messages.push({
       role: "assistant",
       content: "Connecting you to our support team. A team member will be with you shortly! 🔗",
     });
-    session.status = "escalated";
-    session.escalationReason = "Customer requested human support";
+    markEscalated(session, "Customer requested human support");
+    session.lastCustomerMessageAt = new Date();
     await session.save();
 
-    const staffOnline = getOnlineAdminCount() > 0;
+    const staffOnline = getChatStaffCount() > 0;
     const escalationData = {
       sessionId,
       customerName: session.customerName,
@@ -1258,6 +1384,7 @@ const requestHuman = async (req, res) => {
 };
 
 module.exports = {
+  markSessionsRead,
   sendMessage,
   getOrCreateSession,
   getEscalatedSessions,

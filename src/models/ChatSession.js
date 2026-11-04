@@ -34,6 +34,14 @@ const chatSessionSchema = new mongoose.Schema(
     assignedStaffId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     assignedStaffName: { type: String, default: null },
     staffJoinedAt: { type: Date, default: null },
+    // When the chat was handed to staff; drives the "still waiting" reminder.
+    escalatedAt: { type: Date, default: null },
+    waitingReminderAt: { type: Date, default: null },
+    // Last "you have a reply" email, so a burst of replies sends one email.
+    lastReplyEmailAt: { type: Date, default: null },
+    // Unread = the customer wrote after staff last read the chat.
+    lastCustomerMessageAt: { type: Date, default: null },
+    staffReadAt: { type: Date, default: null },
     messages: [messageSchema],
     resolvedAt: { type: Date, default: null },
     // Snapshot of customer info for dashboard display

@@ -17,6 +17,7 @@ const getAdminUserIdFromCookies = (socket) => {
 
 let io;
 let onlineAdmins = 0;
+const CHAT_STAFF_ROOM = "chat-staff";
 
 const init = (server) => {
   io = new Server(server, {
@@ -51,27 +52,28 @@ const init = (server) => {
   io.on("connection", (socket) => {
     logger.debug("Socket connected", { socketId: socket.id });
 
-    const token = getAdminUserIdFromCookies(socket);
-    if (token) {
+    // Resolves once we know whether this socket is staff; admin-only handlers
+    // await it so an event sent right after connecting isn't dropped.
+    const adminReady = (async () => {
+      const token = getAdminUserIdFromCookies(socket);
+      if (!token) return false;
       try {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const User = require("../models/user");
-        User.findById(payload.id)
-          .select("role")
-          .then((user) => {
-            const adminRoles = ["admin", "super-admin", "developer"];
-            if (user && adminRoles.includes(user.role)) {
-              socket.join("admins");
-              socket.data.isAdmin = true;
-              onlineAdmins += 1;
-              socket.emit("authenticated", { success: true });
-            }
-          })
-          .catch(() => {});
+        const user = await User.findById(payload.id).select("role");
+        const adminRoles = ["admin", "super-admin", "developer"];
+        if (user && adminRoles.includes(user.role)) {
+          socket.join("admins");
+          socket.data.isAdmin = true;
+          onlineAdmins += 1;
+          socket.emit("authenticated", { success: true });
+          return true;
+        }
       } catch {
         // Invalid token — remain unauthenticated, no admin events
       }
-    }
+      return false;
+    })();
 
     // Customer joins their own chat room by sessionId (no auth needed)
     socket.on("chat:join", (sessionId) => {
@@ -81,16 +83,21 @@ const init = (server) => {
       }
     });
 
-    // Admin joins a specific chat session room to reply
-    socket.on("chat:join_admin", ({ sessionId, token }) => {
-      try {
-        const jwt = require("jsonwebtoken");
-        jwt.verify(token, process.env.JWT_SECRET);
-        socket.join(`chat:${sessionId}`);
-        logger.debug("Admin joined chat room", { sessionId });
-      } catch {
-        // Invalid token — do not join
-      }
+    // Admin joins a specific chat session room. Authorised by the cookie
+    // session checked above (the dashboard doesn't send a token here).
+    socket.on("chat:join_admin", async ({ sessionId } = {}) => {
+      if (!(await adminReady) || typeof sessionId !== "string") return;
+      socket.join(`chat:${sessionId}`);
+      logger.debug("Admin joined chat room", { sessionId });
+    });
+
+    // Staff with the chat page open. Only they count as "available", so a
+    // customer isn't told "connecting you" while no one is watching chats.
+    socket.on("chat:watch", async () => {
+      if (await adminReady) socket.join(CHAT_STAFF_ROOM);
+    });
+    socket.on("chat:unwatch", () => {
+      socket.leave(CHAT_STAFF_ROOM);
     });
 
     socket.on("disconnect", () => {
@@ -119,4 +126,22 @@ const emitEvent = (event, data) => {
 // Number of staff (admin) dashboards currently connected via Socket.io
 const getOnlineAdminCount = () => onlineAdmins;
 
-module.exports = { init, getIO, emitEvent, getOnlineAdminCount };
+// Staff dashboards that currently have the chat page open.
+const getChatStaffCount = () =>
+  io?.sockets.adapter.rooms.get(CHAT_STAFF_ROOM)?.size ?? 0;
+
+// True when the customer still has this chat open (a non-staff socket in its room).
+const isCustomerInChat = async (sessionId) => {
+  if (!io) return false;
+  const sockets = await io.in(`chat:${sessionId}`).fetchSockets();
+  return sockets.some((s) => !s.data?.isAdmin);
+};
+
+module.exports = {
+  init,
+  getIO,
+  emitEvent,
+  getOnlineAdminCount,
+  getChatStaffCount,
+  isCustomerInChat,
+};

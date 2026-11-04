@@ -8,6 +8,7 @@ const {
   getOrCreateSession,
   getEscalatedSessions,
   getSessionCounts,
+  markSessionsRead,
   getSessionById,
   staffReply,
   joinSession,
@@ -32,6 +33,7 @@ router.post("/session/:sessionId/end", optionalVerifyToken, endSession);
 // ── Admin routes ────────────────────────────────────────────────────
 router.get("/admin/sessions", verifyToken, requireAdmin, getEscalatedSessions);
 router.get("/admin/sessions/counts", verifyToken, requireAdmin, getSessionCounts);
+router.post("/admin/sessions/read", verifyToken, requireAdmin, markSessionsRead);
 router.get("/admin/sessions/:sessionId", verifyToken, requireAdmin, getSessionById);
 router.get("/admin/sessions/:sessionId/suggest-replies", verifyToken, requireAdmin, suggestReplies);
 router.patch("/admin/sessions/:sessionId/details", verifyToken, requireAdmin, updateSessionDetails);
