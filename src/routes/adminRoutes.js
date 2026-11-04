@@ -2089,4 +2089,29 @@ router.post("/reviews/approve", verifyToken, requireAdmin, approveReview);
  */
 router.post("/reviews/reject", verifyToken, requireAdmin, rejectReview);
 
+// ==================== INTEGRATIONS (developer / super-admin only) ====================
+// The chat AI key. Write-only: the key is never returned, only its last 4.
+const {
+  getAiIntegration,
+  saveAiKey,
+  testAiKey,
+  removeAiKey,
+} = require("../controllers/admin/integrationsController");
+
+const requireIntegrationRole = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== "developer" && role !== "super-admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Only a super-admin can manage integration keys.",
+    });
+  }
+  next();
+};
+
+router.get("/integrations/ai", verifyToken, requireAdmin, requireIntegrationRole, getAiIntegration);
+router.put("/integrations/ai", verifyToken, requireAdmin, requireIntegrationRole, saveAiKey);
+router.post("/integrations/ai/test", verifyToken, requireAdmin, requireIntegrationRole, testAiKey);
+router.delete("/integrations/ai", verifyToken, requireAdmin, requireIntegrationRole, removeAiKey);
+
 module.exports = router;

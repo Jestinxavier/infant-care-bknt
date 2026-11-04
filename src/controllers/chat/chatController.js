@@ -1,4 +1,3 @@
-const Groq = require("groq-sdk");
 const { v4: uuidv4 } = require("uuid");
 const ChatSession = require("../../models/ChatSession");
 const KnowledgeBase = require("../../models/KnowledgeBase");
@@ -22,7 +21,9 @@ const {
 const { createChatNotification } = require("../admin/notificationController");
 const Notification = require("../../models/Notification");
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// The AI key can be replaced from the dashboard (Settings > Integrations), so
+// the client is looked up per request rather than created once at startup.
+const { getGroqClient, recordAiKeyFailure } = require("../../services/aiKeyService");
 
 const SYSTEM_PROMPT = `You are Infanta AI, the official shopping assistant for Infantscare.in — a premium online store for baby and infant care products.
 
@@ -510,6 +511,8 @@ Critical rules for "search_for":
       options.user = String(sessionId);
     }
 
+    const groq = await getGroqClient();
+    if (!groq) throw Object.assign(new Error("No AI key configured"), { status: null });
     response = await groq.chat.completions.create(options);
   } catch (apiErr) {
     // Any AI-provider failure (expired key 401, quota 429, network, 5xx) must
@@ -520,6 +523,11 @@ Critical rules for "search_for":
       message: apiErr?.message,
       isInvalidKey: apiErr?.status === 401 || !!apiErr?.code,
     });
+    // Show it on the dashboard's Integrations card.
+    if (apiErr?.status === 401) {
+      const code = apiErr?.error?.error?.code;
+      recordAiKeyFailure(code === "expired_api_key" ? "Key rejected: expired" : "Key rejected: invalid");
+    }
     return await getDemoResponse(userMessage);
   }
 
@@ -1406,7 +1414,8 @@ const suggestReplies = async (req, res) => {
       .join("\n");
 
     let aiSuggestions = [];
-    if (recent) {
+    const groq = recent ? await getGroqClient() : null;
+    if (groq) {
       try {
         const response = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
