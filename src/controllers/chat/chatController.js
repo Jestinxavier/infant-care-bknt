@@ -177,13 +177,17 @@ const findMatchingCategories = async (q) => {
   );
   if (directMatch.length) return directMatch;
 
-  // Tier 4: any significant word from query matches any word inside a category name
-  const words = q
+  // Tier 4: a significant word from the query starts a word in a category
+  // name. Words are cut to their stem first so singular and plural match:
+  // "nappy" -> "napp" finds "Nappies", "dress" -> "dres" finds "Dresses".
+  const stems = q
     .split(/\s+/)
-    .map((w) => w.replace(/[^a-zA-Z]/g, ""))
-    .filter((w) => w.length >= 4 && !STOP_WORDS.has(w.toLowerCase()));
-  if (words.length) {
-    const wordRegex = new RegExp(words.map(escapeRegex).join("|"), "i");
+    .map((w) => w.replace(/[^a-zA-Z]/g, "").toLowerCase())
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
+    .map((w) => w.replace(/(ies|es|s|y)$/, ""))
+    .filter((w) => w.length >= 3);
+  if (stems.length) {
+    const wordRegex = new RegExp(`\\b(${stems.map(escapeRegex).join("|")})`, "i");
     cats = await Category.find({
       isActive: true,
       name: { $regex: wordRegex },
@@ -420,8 +424,8 @@ const getDemoResponse = async (userMessage) => {
   }
 
   const isGreeting =
-    /^(hi|hello|hey|hii|namaste|vanakkam|namaskar|hai|start|begin|നമസ്കാരം|हेलो|வணக்கம்)\b/i.test(msgLower) ||
-    msg.length < 8;
+    // Only real greetings: a short message like "nappy" is a search.
+    /^(hi|hello|hey|hii|namaste|vanakkam|namaskar|hai|start|begin|നമസ്കാരം|हेलो|வணக்கம்)\b/i.test(msgLower);
 
   const [parentCategories, rawProducts] = await Promise.all([
     fetchParentCategories(),

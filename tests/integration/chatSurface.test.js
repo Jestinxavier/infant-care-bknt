@@ -519,6 +519,38 @@ describe("Chat surface", () => {
     expect(closed.updatedAt.getTime()).toBeLessThan(hoursAgo(24).getTime());
   });
 
+  it("without the AI, short product words search instead of greeting, and singular matches plural", async () => {
+    const nappies = await Category.create({
+      name: `Diapering & Nappies ${unique("c")}`,
+      code: unique("nappies"),
+      isActive: true,
+    });
+    await Product.create({
+      title: "Cloth Nappy Set",
+      category: nappies._id,
+      status: "published",
+      stockObj: { available: 5, isInStock: true },
+      images: ["https://cdn.example.com/nappy.jpg"],
+      url_key: unique("cloth-nappy-set"),
+    });
+    // AI key expired: every call fails, the catalog fallback answers.
+    const expired = Object.assign(new Error("Invalid API Key"), { status: 401 });
+
+    createCompletion.mockRejectedValueOnce(expired);
+    const nappy = await request(app)
+      .post("/api/v1/chat/message")
+      .send({ sessionId: unique("chat"), message: "nappy" });
+    expect(nappy.status).toBe(200);
+    expect(nappy.body.reply).not.toMatch(/I'm Infanta AI/);
+    expect(nappy.body.products.map((p) => p.title)).toContain("Cloth Nappy Set");
+
+    createCompletion.mockRejectedValueOnce(expired);
+    const hi = await request(app)
+      .post("/api/v1/chat/message")
+      .send({ sessionId: unique("chat"), message: "hi" });
+    expect(hi.body.reply).toMatch(/Infanta AI/);
+  });
+
   describe("order tracking", () => {
     const makeOrder = async (overrides = {}) =>
       Order.create({
