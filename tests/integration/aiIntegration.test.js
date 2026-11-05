@@ -3,6 +3,7 @@ process.env.SETTINGS_ENCRYPTION_KEY = "test-master-key-for-settings-encryption";
 const request = require("supertest");
 const app = require("../../src/app");
 const IntegrationSecret = require("../../src/models/IntegrationSecret");
+const Notification = require("../../src/models/Notification");
 const {
   invalidateAiKey,
   recordAiKeyFailure,
@@ -157,5 +158,29 @@ describe("Chat AI key from the dashboard", () => {
     await new Promise((r) => setTimeout(r, 50)); // status write is fire-and-forget
     const fixed = await request(app).get(`${url}/status`).set(auth(admin));
     expect(fixed.body.status.ok).toBe(true);
+  });
+
+  it("raises one bell alert when the key fails and clears it when a working key is saved", async () => {
+    await Notification.deleteMany({ type: "system" });
+    // Make sure the alert tracker starts from "working".
+    await request(app).put(url).set(auth(superAdmin)).send({ apiKey: GOOD_KEY });
+
+    await recordAiKeyFailure("Key rejected: expired");
+    await recordAiKeyFailure("Key rejected: expired"); // repeated failure: no duplicate
+    await new Promise((r) => setTimeout(r, 50));
+    const alerts = await Notification.find({ type: "system", key: "ai-key" }).lean();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ isRead: false, href: "/site-config" });
+    expect(alerts[0].message).toMatch(/expired/);
+    // System alerts outlive the usual 24h.
+    expect(alerts[0].expiresAt.getTime() - Date.now()).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
+
+    // It shows in the admin bell feed.
+    const feed = await request(app).get("/api/v1/admin/notifications").set(auth(superAdmin));
+    expect(feed.body.notifications.some((n) => n.type === "system")).toBe(true);
+
+    await request(app).put(url).set(auth(superAdmin)).send({ apiKey: GOOD_KEY });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await Notification.countDocuments({ type: "system", key: "ai-key" })).toBe(0);
   });
 });

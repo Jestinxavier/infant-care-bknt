@@ -71,8 +71,32 @@ const checkGroqKey = async (key) => {
  * Record that the live chat was rejected by the provider, so the dashboard
  * shows it. Only for dashboard-saved keys (env keys have nowhere to show it).
  */
+// Bell alert for a broken key: raised when the key starts failing, cleared
+// when it works again. Tracks the last known state so it fires once per
+// problem rather than on every rejected chat.
+const AI_KEY_ALERT = "ai-key";
+let alertState = null; // null = unknown (e.g. just restarted), true = ok, false = failing
+
+const syncAiKeyAlert = async (ok, message) => {
+  if (ok === alertState) return;
+  alertState = ok;
+  // Required lazily: the notification controller pulls in the socket service.
+  const { createSystemAlert, clearSystemAlert } = require("../controllers/admin/notificationController");
+  if (ok) {
+    await clearSystemAlert(AI_KEY_ALERT);
+  } else {
+    await createSystemAlert({
+      key: AI_KEY_ALERT,
+      title: "Chat AI isn't working",
+      message: `${message}. Infanta AI is only giving basic catalog replies until the key is replaced.`,
+      href: "/site-config",
+    });
+  }
+};
+
 const recordAiKeyCheck = async ({ ok, message }) => {
   const lastCheck = { ok, message, at: new Date() };
+  syncAiKeyAlert(ok, message).catch(() => {});
   try {
     const res = await IntegrationSecret.updateOne(
       { name: SECRET_NAME },

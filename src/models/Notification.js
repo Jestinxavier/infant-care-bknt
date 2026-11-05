@@ -15,6 +15,9 @@ const notificationSchema = new mongoose.Schema(
     href: { type: String, default: null },
     // Optional chat session reference for chat notifications
     sessionId: { type: String, default: null },
+    // System alerts: one notification per problem (e.g. "ai-key"), so a
+    // repeating problem updates its entry instead of adding new ones.
+    key: { type: String, default: null },
     isRead: { type: Boolean, default: false },
     readAt: { type: Date, default: null },
     // Auto-expire: TTL index removes documents 24h after createdAt

@@ -1,6 +1,58 @@
 const Notification = require("../../models/Notification");
 const logger = require("../../utils/logger");
 
+// System alerts stay a week (others 24h) so an ongoing problem doesn't drop
+// out of the bell overnight.
+const SYSTEM_ALERT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const emitToAdmins = (event, data) => {
+  try {
+    require("../../services/socketService").emitEvent(event, data);
+  } catch {
+    // socket server not running (tests / scripts)
+  }
+};
+
+/**
+ * Raise a system alert in every admin's bell (one entry per `key`; raising it
+ * again marks it unread and moves it to the top). Dashboards refresh at once.
+ */
+const createSystemAlert = async ({ key, title, message, href = null }) => {
+  try {
+    await Notification.updateOne(
+      { type: "system", key },
+      {
+        $set: {
+          title,
+          message,
+          href,
+          isRead: false,
+          readAt: null,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + SYSTEM_ALERT_TTL_MS),
+        },
+        $setOnInsert: { type: "system", key },
+      },
+      { upsert: true, timestamps: false }
+    );
+    emitToAdmins("system:alert", { key, title, message, href });
+    return true;
+  } catch (err) {
+    logger.error("❌ Failed to save system alert:", err);
+    return null;
+  }
+};
+
+/** Remove a system alert once the problem is fixed. */
+const clearSystemAlert = async (key) => {
+  try {
+    const res = await Notification.deleteMany({ type: "system", key });
+    if (res.deletedCount) emitToAdmins("system:alert_cleared", { key });
+  } catch (err) {
+    logger.error("❌ Failed to clear system alert:", err);
+  }
+};
+
 /**
  * GET /api/admin/notifications
  * Returns all notifications ordered by newest first (both read and unread)
@@ -136,4 +188,6 @@ module.exports = {
   deleteNotification,
   createOrderNotification,
   createChatNotification,
+  createSystemAlert,
+  clearSystemAlert,
 };

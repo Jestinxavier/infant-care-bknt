@@ -101,6 +101,8 @@ const saveAiKey = async (req, res) => {
       { upsert: true }
     );
     invalidateAiKey();
+    // Clears the "Chat AI isn't working" bell alert straight away.
+    await recordAiKeyCheck({ ok: true, message: check.message });
     logger.info("Chat AI key updated from dashboard", { by: req.user?.email });
     return res.status(200).json({ success: true, ai: await describe() });
   } catch (err) {
