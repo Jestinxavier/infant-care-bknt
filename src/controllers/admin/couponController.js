@@ -4,6 +4,19 @@ const Order = require("../../models/Order");
 const escapeRegex = require("../../utils/escapeRegex");
 const logger = require("../../utils/logger");
 
+/**
+ * References the admin form needs as names, not bare ids (free-gift trigger and
+ * gift products used to come back as ids, so the edit form listed raw ObjectIds).
+ */
+const COUPON_ADMIN_POPULATE = [
+  { path: "applicableProductIds", select: "title images sku" },
+  { path: "applicableCategories", select: "name code" },
+  { path: "freeGift.triggerProductIds", select: "title images sku" },
+  { path: "freeGift.triggerCategoryIds", select: "name code" },
+  { path: "freeGift.giftProductId", select: "title images sku" },
+  { path: "freeGift.giftCategoryId", select: "name code" },
+];
+
 /** Validation message for the free-gift trigger, or null when it is valid. */
 const freeGiftTriggerError = (fg) => {
   if (fg?.triggerType === "category") {
@@ -141,8 +154,7 @@ const createCoupon = async (req, res) => {
       createdBy: req.user._id,
     });
 
-    await coupon.populate("applicableProductIds", "title images sku");
-    const populated = await coupon.populate("applicableCategories", "name code");
+    const populated = await coupon.populate(COUPON_ADMIN_POPULATE);
 
     res.status(201).json({ success: true, coupon: populated });
   } catch (error) {
@@ -162,8 +174,7 @@ const listCoupons = async (req, res) => {
     const coupons = await Coupon.find()
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate("applicableProductIds", "title images sku")
-      .populate("applicableCategories", "name code");
+      .populate(COUPON_ADMIN_POPULATE);
     res.status(200).json({ success: true, coupons });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -255,8 +266,7 @@ const updateCoupon = async (req, res) => {
     }
 
     const updatedCoupon = await Coupon.findByIdAndUpdate(id, updates, { new: true })
-      .populate("applicableProductIds", "title images sku")
-      .populate("applicableCategories", "name code");
+      .populate(COUPON_ADMIN_POPULATE);
 
     res.status(200).json({ success: true, coupon: updatedCoupon });
   } catch (error) {

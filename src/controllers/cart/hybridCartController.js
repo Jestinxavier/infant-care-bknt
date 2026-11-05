@@ -236,6 +236,72 @@ const assignCartTotals = (cart, totals, couponDiscount = 0) => {
 const totalCouponDiscount = (cart) =>
   (cart.coupons || []).reduce((sum, c) => sum + (c.discountAmount ?? 0), 0);
 
+// Published product ids per category set, for category coupons in the public
+// coupon list. Short-lived: a newly published product shows the offer within
+// a minute, and applying the coupon always re-checks the cart live.
+const CATEGORY_SCOPE_TTL_MS = 60 * 1000;
+const categoryScopeCache = new Map();
+
+const publishedProductIdsInCategories = async (categoryIds) => {
+  const key = categoryIds.map(String).sort().join(",");
+  const cached = categoryScopeCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.ids;
+
+  const ids = (
+    await Product.distinct("_id", { status: "published", category: { $in: categoryIds } })
+  ).map(String);
+  categoryScopeCache.set(key, { ids, expiresAt: Date.now() + CATEGORY_SCOPE_TTL_MS });
+  // Keep the cache bounded if many different category sets come and go
+  if (categoryScopeCache.size > 200) {
+    for (const [k, v] of categoryScopeCache) if (v.expiresAt <= Date.now()) categoryScopeCache.delete(k);
+  }
+  return ids;
+};
+
+/**
+ * The cart lines a category coupon applies to: paid (non-gift) items whose
+ * product's main category is one of `categoryIds`. Shared by applyCoupon and
+ * recalculateCouponDiscounts so applying and re-checking can never disagree.
+ *
+ * Reads the category from the populated item.productId when present and only
+ * queries for lines whose product wasn't populated (normally none).
+ *
+ * @returns {{ subtotal: number, itemIds: Set<string> }}
+ */
+const categoryCouponScope = async (cart, itemPrices, categoryIds) => {
+  const eligibleCatIds = new Set((categoryIds || []).map((id) => String(id?._id || id)));
+  const paidItems = (cart.items || []).filter((item) => !item.isFreeGiftCoupon);
+
+  const productIdOf = (item) => (item.productId?._id || item.productId)?.toString() || null;
+  const populatedCategory = (item) => {
+    const cat = item.productId?.category;
+    return cat ? String(cat._id || cat) : null;
+  };
+
+  // Only unpopulated lines need a lookup
+  const missing = paidItems
+    .filter((item) => !populatedCategory(item) && productIdOf(item))
+    .map(productIdOf);
+  const lookedUp = new Map();
+  if (missing.length > 0) {
+    const docs = await Product.find({ _id: { $in: missing } }, "category").lean();
+    for (const doc of docs) lookedUp.set(doc._id.toString(), doc.category ? String(doc.category) : null);
+  }
+
+  let subtotal = 0;
+  const itemIds = new Set();
+  for (const item of paidItems) {
+    const productId = productIdOf(item);
+    const catId = populatedCategory(item) || (productId ? lookedUp.get(productId) : null);
+    if (!catId || !eligibleCatIds.has(catId)) continue;
+    const itemId = (item._id && item._id.toString()) || productId;
+    const pricing = itemId && itemPrices.get(itemId);
+    subtotal += pricing ? pricing.lineTotal : 0;
+    if (itemId) itemIds.add(itemId);
+  }
+  return { subtotal, itemIds };
+};
+
 /**
  * Recalculate each applied coupon's discountAmount based on the current cart subtotal.
  * Fetches coupon type/value from DB. Removes coupons that are no longer eligible.
@@ -257,7 +323,7 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
   ];
   const couponDocs = couponIds.length
     ? await Coupon.find({ _id: { $in: couponIds } })
-        .select("type value maxDiscount applicableTo applicableProductIds isActive freeGift")
+        .select("type value maxDiscount applicableTo applicableProductIds applicableCategories isActive freeGift")
         .lean()
     : [];
   const couponById = new Map(couponDocs.map((c) => [c._id.toString(), c]));
@@ -319,6 +385,13 @@ const recalculateCouponDiscounts = async (cart, discountedSubtotal, itemPrices) 
       if (qualifyingSubtotal === 0) continue;
       eligibleSubtotal = qualifyingSubtotal;
       eligibleItemIds = matchedItemIds;
+    } else if (couponDoc.applicableTo === "category" && couponDoc.applicableCategories?.length > 0) {
+      // Same rule as applyCoupon (shared helper): only items whose main
+      // category is in scope count, and the coupon drops once none are left.
+      const scope = await categoryCouponScope(cart, itemPrices, couponDoc.applicableCategories);
+      if (scope.subtotal === 0) continue;
+      eligibleSubtotal = scope.subtotal;
+      eligibleItemIds = scope.itemIds;
     }
 
     // Recalculate discount amount
@@ -2107,20 +2180,9 @@ const applyCoupon = async (req, res) => {
       eligibleSubtotal = qualifyingSubtotal;
       eligibleItemIds = matchedItemIds;
     } else if (coupon.applicableTo === "category" && coupon.applicableCategories?.length > 0) {
-      const eligibleCatIds = new Set(coupon.applicableCategories.map((id) => id.toString()));
-      let qualifyingSubtotal = 0;
-      const matchedItemIds = new Set();
-
-      for (const item of cart.items) {
-        const product = item.productId;
-        const catId = (product?.category?._id || product?.category)?.toString();
-        if (catId && eligibleCatIds.has(catId)) {
-          const itemId = (item._id && item._id.toString()) || (product?._id ? product._id.toString() : null);
-          const pricing = itemId && itemPrices.get(itemId);
-          qualifyingSubtotal += pricing ? pricing.lineTotal : 0;
-          if (itemId) matchedItemIds.add(itemId);
-        }
-      }
+      const scope = await categoryCouponScope(cart, itemPrices, coupon.applicableCategories);
+      const qualifyingSubtotal = scope.subtotal;
+      const matchedItemIds = scope.itemIds;
 
       if (qualifyingSubtotal === 0) {
         const Category = require("../../models/Category");
@@ -2543,6 +2605,24 @@ const getAvailableCoupons = async (req, res) => {
         }),
     );
 
+    // Category-scoped coupons: expand to product ids so the storefront can show
+    // them on matching product pages and judge cart eligibility. Mirrors
+    // applyCoupon, which matches on the product's main category only.
+    // This endpoint is hit on every storefront page, so the per-category
+    // product id lists are cached briefly (one query per category set per
+    // minute instead of one per coupon per visitor).
+    const categoryScopeProductIds = new Map();
+    await Promise.all(
+      visibleCoupons
+        .filter((c) => c.applicableTo === "category" && c.applicableCategories?.length)
+        .map(async (c) => {
+          const ids = await publishedProductIdsInCategories(
+            c.applicableCategories.map((cat) => cat._id),
+          );
+          categoryScopeProductIds.set(c._id.toString(), ids);
+        }),
+    );
+
     const formattedCoupons = visibleCoupons.map((coupon) => {
       let description;
       let freeGiftInfo = null;
@@ -2642,6 +2722,13 @@ const getAvailableCoupons = async (req, res) => {
         applicableTo: coupon.applicableTo || "all",
         applicableProducts,
         applicableCategories,
+        // Product ids the discount applies to; null = every product (cart-wide)
+        eligibleProductIds:
+          coupon.applicableTo === "specific_products"
+            ? applicableProducts.map((p) => p._id.toString())
+            : coupon.applicableTo === "category"
+              ? categoryScopeProductIds.get(coupon._id.toString()) || []
+              : null,
         freeGift: freeGiftInfo,
       };
     });
@@ -2835,7 +2922,29 @@ const recoverCart = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/cart/shipping-info
+ * Public free-shipping threshold and flat rate, so storefront copy ("free shipping
+ * above ₹X", "add ₹Y more") always matches what the cart actually charges.
+ * Free shipping applies when (discounted subtotal - coupon discounts) >= freeThreshold.
+ */
+const getShippingInfo = async (req, res) => {
+  try {
+    const settings = await getCartSettings();
+    res.set("Cache-Control", "public, max-age=300");
+    res.status(200).json({
+      success: true,
+      freeThreshold: settings.freeThreshold,
+      shippingCost: settings.shippingCost,
+    });
+  } catch (error) {
+    logger.error("❌ Error getting shipping info:", error);
+    res.status(500).json({ success: false, message: "Failed to load shipping info" });
+  }
+};
+
 module.exports = {
+  getShippingInfo,
   createCart,
   getCart,
   addItem,

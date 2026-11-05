@@ -183,6 +183,15 @@ const startServer = async () => {
     }
 
     try {
+      // Every 15 min: settles online-payment orders left "pending" after the
+      // payment page expired (missed webhook), releasing their stock if unpaid
+      const { startPaymentReconcilerCron } = require("./services/paymentReconciler");
+      startPaymentReconcilerCron();
+    } catch (cronError) {
+      logger.warn("Failed to start payment reconciler cron", { error: cronError.message });
+    }
+
+    try {
       const { startChatWaitingReminderCron } = require("./jobs/chatWaitingReminder");
       startChatWaitingReminderCron();
     } catch (cronError) {

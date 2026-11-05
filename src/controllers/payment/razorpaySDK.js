@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const Order = require("../../models/Order");
 const Payment = require("../../models/Payment");
 const Cart = require("../../models/Cart");
-const { restoreOrderStock } = require("../../utils/orderStockRestore");
+const { releaseUnpaidOrderHolds } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const emailService = require("../../services/emailService");
 const logger = require("../../utils/logger");
@@ -176,7 +176,19 @@ const handlePaymentFailure = async (orderId, rawResponse) => {
     }
   );
 
-  await restoreOrderStock(order);
+  await releaseUnpaidOrderHolds(order);
+};
+
+/**
+ * All payment attempts on a Razorpay order, for background reconciliation.
+ * Each item has a status: created, authorized, captured, refunded or failed.
+ */
+const fetchRazorpayOrderPayments = async (razorpayOrderId) => {
+  const { data } = await axios.get(
+    `https://api.razorpay.com/v1/orders/${encodeURIComponent(razorpayOrderId)}/payments`,
+    { headers: { Authorization: razorpayAuthHeader() }, timeout: RAZORPAY_TIMEOUT_MS },
+  );
+  return Array.isArray(data?.items) ? data.items : [];
 };
 
 // Initiate payment for website checkout via Razorpay Orders API
@@ -562,6 +574,9 @@ module.exports = {
   initiatePayment,
   checkOrderStatus,
   verifyPaymentSignature,
+  markOrderAsPaid,
+  handlePaymentFailure,
+  fetchRazorpayOrderPayments,
   razorpayWebhook,
   initiateRefund,
   getRefundStatus,

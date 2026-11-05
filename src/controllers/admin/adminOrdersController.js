@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 const emailService = require("../../services/emailService");
 const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
-const { restoreOrderStock } = require("../../utils/orderStockRestore");
+const { restoreOrderStock, releaseUnpaidOrderHolds } = require("../../utils/orderStockRestore");
 const { neutralizeCsvFormula } = require("../../utils/reportCsv");
 const { ensureInvoiceNumber } = require("../../services/gstService");
 const {
@@ -74,6 +74,7 @@ async function buildOrderFilter(requestData, reqUser) {
     paymentStatus,
     paymentMethod,
     customerType, // "guest" | "registered"
+    channel, // "online" | "pos"
     minTotal, // minimum order amount
     maxTotal, // maximum order amount
     search,
@@ -157,6 +158,13 @@ async function buildOrderFilter(requestData, reqUser) {
 
   if (asFilterString(paymentMethod)) {
     filter.paymentMethod = asFilterString(paymentMethod);
+  }
+
+  // Sales channel. Orders from before POS existed have no channel: online.
+  if (channel === "pos") {
+    filter.channel = "pos";
+  } else if (channel === "online") {
+    filter.channel = { $ne: "pos" };
   }
 
   // Customer type filter (guest vs registered)
@@ -323,6 +331,7 @@ const getAllOrders = async (req, res) => {
       status: order.orderStatus,
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod,
+      channel: order.channel || "online",
       phonepeTransactionId: order.phonepeTransactionId,
       total: order.totalAmount,
       subtotal: order.subtotal,
@@ -384,6 +393,7 @@ function buildStatusCountsCacheKey(requestData, userRole) {
     "paymentStatus",
     "paymentMethod",
     "customerType",
+    "channel",
     "minTotal",
     "maxTotal",
     "search",
@@ -825,7 +835,17 @@ const updateOrderStatus = async (req, res) => {
 
     if (needsStockRestore) {
       try {
-        await restoreOrderStock(currentOrder);
+        // An unpaid order that's cancelled never became a sale, so its coupon
+        // redemption goes back too (otherwise a single-use code stays burnt).
+        // Paid orders and returns only get their stock back.
+        const releasesCoupons =
+          status === "cancelled" &&
+          !["paid", "refunded"].includes(currentOrder.paymentStatus);
+        if (releasesCoupons) {
+          await releaseUnpaidOrderHolds(currentOrder);
+        } else {
+          await restoreOrderStock(currentOrder);
+        }
       } catch (restoreErr) {
         logger.error("Failed to restore stock on order cancel/return", {
           orderId: currentOrder._id,

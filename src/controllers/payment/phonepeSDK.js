@@ -9,7 +9,7 @@ const { phonePeConfig } = require("../../config/phonepeConfig");
 const Order = require("../../models/Order");
 const Payment = require("../../models/Payment");
 const Cart = require("../../models/Cart");
-const { restoreOrderStock } = require("../../utils/orderStockRestore");
+const { restoreOrderStock, releaseUnpaidOrderHolds } = require("../../utils/orderStockRestore");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const jwt = require("jsonwebtoken");
 const { randomUUID } = require("crypto");
@@ -92,6 +92,100 @@ const initiatePayment = async ({ orderId, amount }) => {
     });
     throw err;
   }
+};
+
+/**
+ * The single "PhonePe says this order is paid" path, shared by the webhook,
+ * the redirect and the payment reconciler so they can't drift apart.
+ *
+ * Claims the order atomically on the state it was read in, so racing callers
+ * apply it once (one email, one Purchase event). Same rule as Razorpay: a
+ * pending order becomes confirmed; a cancelled/returned one keeps its status
+ * (its stock was already released) and is logged for a manual refund.
+ *
+ * @returns the updated order, or null if it was already paid, missing,
+ *   changed by someone else meanwhile, or (onlyIfPending) no longer pending
+ */
+const markPhonePeOrderPaid = async (
+  orderId,
+  { transactionId = null, rawResponse = null, req = null, source = "phonepe", note = null, onlyIfPending = false } = {},
+) => {
+  const order = await Order.findOne({ orderId }).lean();
+  if (!order || order.paymentStatus === "paid") return null;
+  if (onlyIfPending && order.orderStatus !== "pending") return null;
+
+  const nextOrderStatus = order.orderStatus === "pending" ? "confirmed" : order.orderStatus;
+  if (["cancelled", "returned"].includes(order.orderStatus)) {
+    logger.error(
+      `[PHONEPE] Payment completed for ${order.orderStatus} order ${orderId} — needs manual refund`,
+      { transactionId, source },
+    );
+  }
+
+  const updatedOrder = await Order.findOneAndUpdate(
+    { orderId, paymentStatus: order.paymentStatus, orderStatus: order.orderStatus },
+    {
+      $set: {
+        paymentStatus: "paid",
+        orderStatus: nextOrderStatus,
+        paymentMethod: PAYMENT_METHODS.PHONEPE,
+        ...(transactionId && { phonepeTransactionId: transactionId }),
+      },
+      ...(note && nextOrderStatus === "confirmed" && {
+        $push: { statusHistory: { status: "confirmed", note } },
+      }),
+    },
+    { new: true },
+  ).lean();
+  if (!updatedOrder) return null;
+
+  invalidateOrderReportCaches(`PhonePe ${source} paid`);
+  await Payment.findOneAndUpdate(
+    { orderId: updatedOrder._id },
+    {
+      $set: {
+        status: "success",
+        transactionId,
+        phonepeTransactionId: transactionId,
+        phonepeResponse: rawResponse,
+      },
+    },
+  );
+  await Cart.findOneAndUpdate(
+    { orderId: updatedOrder._id },
+    { $set: { status: "ordered", completedAt: new Date() } },
+  );
+
+  try {
+    const { emitEvent } = require("../../services/socketService");
+    emitEvent("newOrder", {
+      orderId: updatedOrder.orderId,
+      totalAmount: updatedOrder.totalAmount,
+      customerName:
+        updatedOrder.shippingAddress?.fullName ||
+        updatedOrder.shippingAddress?.name ||
+        "Customer",
+      itemsCount: updatedOrder.totalQuantity,
+      createdAt: updatedOrder.createdAt,
+    });
+  } catch {
+    /* live dashboard notice is best effort */
+  }
+
+  Promise.resolve()
+    .then(() => emailService.sendOrderConfirmationEmail(updatedOrder, { onlyOnce: true }))
+    .catch((err) =>
+      logger.error(`❌ Failed to send order confirmation email (${source}):`, { message: err.message, stack: err.stack })
+    );
+
+  // Meta Conversions API (CAPI) Purchase event
+  Promise.resolve()
+    .then(() => require("../../services/metaConversionService").trackPurchase({ order: updatedOrder, req }))
+    .catch((err) =>
+      logger.error(`❌ [PHONEPE] Failed to send Meta CAPI purchase event (${source}):`, err)
+    );
+
+  return updatedOrder;
 };
 
 /**
@@ -181,57 +275,22 @@ const checkOrderStatus = async (req, res) => {
     const paymentDetails = response?.paymentDetails ?? [];
 
     if (state === "COMPLETED") {
-      const order = await Order.findOne({ orderId }).lean();
-      if (order && order.paymentStatus !== "paid") {
-        const paymentAttempt =
-          Array.isArray(paymentDetails) && paymentDetails.length
-            ? paymentDetails[0]
-            : null;
-        const transactionId =
-          paymentAttempt?.transactionId ??
-          paymentAttempt?.transaction_id ??
-          null;
+      const paymentAttempt =
+        Array.isArray(paymentDetails) && paymentDetails.length
+          ? paymentDetails[0]
+          : null;
+      const transactionId =
+        paymentAttempt?.transactionId ??
+        paymentAttempt?.transaction_id ??
+        null;
 
-        await Order.findOneAndUpdate(
-          { orderId },
-          {
-            $set: {
-              paymentStatus: "paid",
-              orderStatus: "confirmed",
-              paymentMethod: PAYMENT_METHODS.PHONEPE,
-              ...(transactionId && { phonepeTransactionId: transactionId }),
-            },
-          },
-        );
-        const updatedOrder = await Order.findOne({ orderId }).lean();
-        if (updatedOrder) {
-          invalidateOrderReportCaches("PhonePe callback paid");
-          await Payment.findOneAndUpdate(
-            { orderId: updatedOrder._id },
-            {
-              $set: {
-                status: "success",
-                transactionId: transactionId,
-                phonepeTransactionId: transactionId,
-                phonepeResponse: response,
-              },
-            },
-          );
-          await Cart.findOneAndUpdate(
-            { orderId: updatedOrder._id },
-            { $set: { status: "ordered", completedAt: new Date() } },
-          );
-          emailService.sendOrderConfirmationEmail(updatedOrder, { onlyOnce: true }).catch((err) =>
-            logger.error("❌ Failed to send order confirmation email (redirect):", { message: err.message, stack: err.stack })
-          );
-
-          // Meta Conversions API (CAPI) Purchase event
-          const { trackPurchase } = require("../../services/metaConversionService");
-          trackPurchase({ order: updatedOrder, req }).catch((err) =>
-            logger.error("❌ [PHONEPE] Failed to send Meta CAPI purchase event (redirect):", err)
-          );
-        }
-      }
+      // Shared with the webhook: if both arrive, only the first applies it
+      await markPhonePeOrderPaid(orderId, {
+        transactionId,
+        rawResponse: response,
+        req,
+        source: "redirect",
+      });
       return res.redirect(
         `${process.env.FRONTEND_URL}/order-confirmation?status=success&orderId=${encodeURIComponent(orderId)}`,
       );
@@ -276,6 +335,27 @@ const checkOrderStatus = async (req, res) => {
       : `${process.env.FRONTEND_URL}/order-confirmation?status=failed`;
     return res.redirect(fallback);
   }
+};
+
+/**
+ * Server-side status lookup for background reconciliation (no req/res).
+ * Returns PhonePe's order state: COMPLETED, FAILED or PENDING.
+ */
+const fetchPhonePeOrderStatus = async (orderId) => {
+  const response = await withTimeout(
+    client.getOrderStatus(orderId),
+    PHONEPE_TIMEOUT_MS,
+    "PhonePe getOrderStatus (reconcile)"
+  );
+  const attempt =
+    Array.isArray(response?.paymentDetails) && response.paymentDetails.length
+      ? response.paymentDetails[0]
+      : null;
+  return {
+    state: response?.state ?? null,
+    transactionId: attempt?.transactionId ?? attempt?.transaction_id ?? null,
+    raw: response,
+  };
 };
 
 /**
@@ -483,32 +563,18 @@ const phonepeWebhook = async (req, res) => {
         payload?.transactionId ??
         null;
 
-      const updatedOrder = await Order.findOneAndUpdate(
-        { orderId: merchantOrderId },
-        {
-          $set: {
-            paymentStatus: "paid",
-            orderStatus: "confirmed",
-            paymentMethod: PAYMENT_METHODS.PHONEPE,
-            phonepeTransactionId: transactionId,
-          },
-        },
-        { new: true }, // returns updated document ̰
-      );
-
-      // Update Payment record with transaction ID and status
-      await Payment.findOneAndUpdate(
-        { orderId: updatedOrder._id },
-        {
-          $set: {
-            status: "success",
-            transactionId: transactionId,
-            phonepeTransactionId: transactionId,
-            phonepeResponse: payload, // Store full response for reference
-          },
-        },
-        { new: true },
-      );
+      // Order, Payment and Cart updates, email, dashboard notice and Purchase
+      // event all live in the shared helper
+      const updatedOrder = await markPhonePeOrderPaid(merchantOrderId, {
+        transactionId,
+        rawResponse: payload,
+        req,
+        source: "webhook",
+      });
+      if (!updatedOrder) {
+        wlog("PAID_SKIPPED_ALREADY_HANDLED", { merchantOrderId });
+        return res.status(200).send("OK");
+      }
 
       wlog("ORDER_MARKED_PAID", {
         merchantOrderId,
@@ -516,7 +582,6 @@ const phonepeWebhook = async (req, res) => {
         paymentStatus: updatedOrder.paymentStatus,
         orderStatus: updatedOrder.orderStatus,
       });
-      invalidateOrderReportCaches("PhonePe webhook paid");
       const successLog = {
           transactionId,
           orderId: updatedOrder._id,
@@ -530,32 +595,6 @@ const phonepeWebhook = async (req, res) => {
       );
       logPhonePeInfo(`Payment successful for order ${merchantOrderId}`, successLog);
 
-      await Cart.findOneAndUpdate(
-        { orderId: updatedOrder._id },
-        { $set: { status: "ordered", completedAt: new Date() } },
-      );
-
-      const { emitEvent } = require("../../services/socketService");
-      emitEvent("newOrder", {
-        orderId: updatedOrder.orderId,
-        totalAmount: updatedOrder.totalAmount,
-        customerName:
-          updatedOrder.shippingAddress?.fullName ||
-          updatedOrder.shippingAddress?.name ||
-          "Customer",
-        itemsCount: updatedOrder.totalQuantity,
-        createdAt: updatedOrder.createdAt,
-      });
-
-      emailService.sendOrderConfirmationEmail(updatedOrder, { onlyOnce: true }).catch((err) =>
-        logger.error("❌ Failed to send order confirmation email (webhook):", { message: err.message, stack: err.stack })
-      );
-
-      // Meta Conversions API (CAPI) Purchase event
-      const { trackPurchase } = require("../../services/metaConversionService");
-      trackPurchase({ order: updatedOrder, req }).catch((err) =>
-        logger.error("❌ [PHONEPE] Failed to send Meta CAPI purchase event (webhook):", err)
-      );
     } else if (
       type === "CHECKOUT_ORDER_FAILED" ||
       type === "checkout.order.failed"
@@ -614,7 +653,7 @@ const phonepeWebhook = async (req, res) => {
         },
       );
 
-      await restoreOrderStock(order);
+      await releaseUnpaidOrderHolds(order);
     } else {
       wlog("UNHANDLED_EVENT_TYPE", { type, merchantOrderId });
     }
@@ -1257,6 +1296,8 @@ module.exports = {
   initiatePayment,
   checkOrderStatus,
   phonepeWebhook,
+  fetchPhonePeOrderStatus,
+  markPhonePeOrderPaid,
   manualCheckPaymentStatus,
   initiateRefund,
   getRefundStatus,

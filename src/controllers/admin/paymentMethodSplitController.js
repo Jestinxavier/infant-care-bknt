@@ -34,7 +34,7 @@ function parseDateRange(from, to) {
   return Object.keys(range).length > 0 ? range : null;
 }
 
-const METHODS = ["COD", "PHONEPE", "RAZORPAY"];
+const METHODS = ["COD", "PHONEPE", "RAZORPAY", "CASH", "UPI", "CARD"];
 
 /**
  * @desc    Payment method split report
@@ -42,7 +42,7 @@ const METHODS = ["COD", "PHONEPE", "RAZORPAY"];
  * @access  Private/Admin
  *
  * Order count, value and successful-payment breakdown by payment method
- * (COD, PhonePe, Razorpay) for the selected range.
+ * (COD, PhonePe, Razorpay, and in-store Cash/UPI/Card) for the selected range.
  */
 exports.getPaymentMethodSplit = async (req, res) => {
   try {

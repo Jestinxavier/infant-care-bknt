@@ -144,3 +144,19 @@ async function restoreOrderStock(order) {
 }
 
 module.exports = { restoreOrderStock };
+
+/**
+ * The one place an UNPAID order's reservations are given back when it is
+ * cancelled: its stock and the coupon redemptions it consumed at checkout.
+ * Every unpaid-cancel path (payment failure, abandoned payment, admin cancel
+ * of an unpaid order) goes through here so none forgets the coupon.
+ * Call it once per order, after atomically claiming the cancellation.
+ */
+async function releaseUnpaidOrderHolds(order) {
+  // Required lazily: orderCouponRelease is a sibling util with its own models
+  const { releaseOrderCoupons } = require("./orderCouponRelease");
+  await restoreOrderStock(order);
+  await releaseOrderCoupons(order);
+}
+
+module.exports.releaseUnpaidOrderHolds = releaseUnpaidOrderHolds;

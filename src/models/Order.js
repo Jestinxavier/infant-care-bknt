@@ -85,8 +85,37 @@ const orderGstSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// Counter-sale details for orders rung up in the dashboard POS.
+const orderPosSchema = new mongoose.Schema(
+  {
+    cashierId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    cashierName: { type: String, default: "" },
+    // Bill-level discount the cashier applied (included in order.discount)
+    billDiscount: {
+      type: { type: String, enum: ["flat", "percent"] },
+      value: { type: Number, default: 0 },
+      amount: { type: Number, default: 0 },
+    },
+    // Cash only: what the customer handed over, and the change returned
+    amountTendered: { type: Number, default: null },
+    changeDue: { type: Number, default: null },
+    // UPI UTR / card slip number, when the cashier records one
+    paymentReference: { type: String, default: "" },
+    note: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
 const orderSchema = new mongoose.Schema(
   {
+    // "online" = storefront checkout, "pos" = in-store sale from the dashboard
+    channel: {
+      type: String,
+      enum: ["online", "pos"],
+      default: "online",
+      index: true,
+    },
+    pos: { type: orderPosSchema, default: undefined },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -180,6 +209,9 @@ const orderSchema = new mongoose.Schema(
     // repeated payment notifications (PhonePe redirect + webhook + retries)
     // can't email the customer the same confirmation more than once.
     confirmationEmailSentAt: { type: Date, default: null },
+    // Last time the payment reconciler asked the gateway about this unpaid
+    // order; lets undecided orders rotate through its batches.
+    paymentReconcileCheckedAt: { type: Date, default: undefined },
     orderStatus: {
       type: String,
       enum: [

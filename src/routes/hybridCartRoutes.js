@@ -19,6 +19,7 @@ const {
   applyCoupon,
   removeCoupon,
   getAvailableCoupons,
+  getShippingInfo,
   recoverCart,
 } = require("../controllers/cart/hybridCartController");
 const startCheckout = require("../controllers/cart/startCheckout");
@@ -385,6 +386,18 @@ router.get("/restore", restoreCart);
  *         description: List of available coupons
  */
 router.get("/coupons", optionalVerifyToken, getAvailableCoupons);
+
+/**
+ * @swagger
+ * /api/v1/cart/shipping-info:
+ *   get:
+ *     summary: Free-shipping threshold and flat shipping rate
+ *     tags: [Cart]
+ *     responses:
+ *       200:
+ *         description: "{ freeThreshold, shippingCost }"
+ */
+router.get("/shipping-info", getShippingInfo);
 
 /**
  * @swagger

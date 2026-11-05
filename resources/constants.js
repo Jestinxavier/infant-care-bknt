@@ -11,7 +11,18 @@ const PAYMENT_METHODS = {
   COD: "COD",
   PHONEPE: "PHONEPE",
   RAZORPAY: "RAZORPAY",
+  // In-store (POS) tenders, recorded by staff at the counter
+  CASH: "CASH",
+  UPI: "UPI",
+  CARD: "CARD",
 };
+
+// Tenders only the dashboard POS may use; online checkout must reject them.
+const POS_PAYMENT_METHODS = [
+  PAYMENT_METHODS.CASH,
+  PAYMENT_METHODS.UPI,
+  PAYMENT_METHODS.CARD,
+];
 
 const TOKEN_EXPIRY = {
   ACCESS_TOKEN: "15m",
@@ -63,6 +74,7 @@ module.exports = {
   ACCESS_TOKEN,
   REFRESH_TOKEN,
   PAYMENT_METHODS,
+  POS_PAYMENT_METHODS,
   TOKEN_EXPIRY,
   ACCESS_TOKEN_LIFETIME_MS,
   OTP_EXPIRY_MS,

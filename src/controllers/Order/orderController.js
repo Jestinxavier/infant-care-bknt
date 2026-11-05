@@ -4,14 +4,20 @@ const Address = require("../../models/Address");
 const Payment = require("../../models/Payment");
 const Product = require("../../models/Product");
 const Cart = require("../../models/Cart");
-const { PAYMENT_METHODS } = require("../../../resources/constants");
+const {
+  PAYMENT_METHODS,
+  POS_PAYMENT_METHODS,
+} = require("../../../resources/constants");
 const { consumeCoupon } = require("../../utils/couponValidation");
 const bundleService = require("../../features/product/bundle.service");
 const { PRODUCT_TYPES } = require("../../features/product/product.model");
-const crypto = require("crypto");
 const phonepeSDK = require("../../controllers/payment/phonepeSDK");
 const razorpaySDK = require("../../controllers/payment/razorpaySDK");
 const logger = require("../../utils/logger");
+const { releasePreviousAttempt } = require("../../services/paymentReconciler");
+const { releaseOrderCoupons } = require("../../utils/orderCouponRelease");
+const { backfillLegacyStock } = require("../../utils/legacyStockBackfill");
+const { generateOrderId } = require("../../utils/orderId");
 const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
 const { logError } = require("../../utils/errorLogger");
 const {
@@ -19,8 +25,6 @@ const {
 } = require("../admin/orderCacheInvalidation");
 const { buildOrderGst } = require("../../services/gstService");
 
-const generateOrderId = () =>
-  crypto.randomBytes(4).toString("hex").toUpperCase();
 
 /**
  * Release (restore) stock for a set of checkout stock updates in one round-trip.
@@ -111,6 +115,16 @@ const createOrder = async (req, res) => {
       });
     }
 
+    // Cash/UPI/Card are counter tenders recorded by staff in the POS; an online
+    // order with one of them would skip the payment gateway entirely.
+    if (POS_PAYMENT_METHODS.includes(paymentMethod)) {
+      return res.status(400).json({
+        success: false,
+        errorCode: "INVALID_PAYMENT_METHOD",
+        message: "This payment method is not available for online orders",
+      });
+    }
+
     if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
@@ -161,6 +175,43 @@ const createOrder = async (req, res) => {
         order: existingOrder,
         idempotent: true,
         message: "Order already exists with this idempotency key",
+      });
+    }
+
+    // === RETRY AFTER AN UNPAID RAZORPAY ATTEMPT ===
+    // Closing the Razorpay popup tells us nothing, so the earlier attempt on
+    // this cart still holds its stock and coupon. Ask Razorpay about it first:
+    // release it if unpaid; stop if it was paid or a payment is still moving.
+    // Any error here keeps the old behaviour (carry on and place the order).
+    try {
+      const retryCartQuery = isGuest
+        ? cartId
+          ? { cartId }
+          : null
+        : { userId, ...(cartId && { cartId }) };
+      const retryCart = retryCartQuery
+        ? await Cart.findOne(retryCartQuery).select("status orderId").lean()
+        : null;
+      const previousAttempt = await releasePreviousAttempt(retryCart);
+      if (previousAttempt === "paid") {
+        return res.status(400).json({
+          success: false,
+          errorCode: "CART_ALREADY_ORDERED",
+          message:
+            "Your earlier payment for this cart went through, so the order is already placed. Please check your orders.",
+        });
+      }
+      if (previousAttempt === "in-progress") {
+        return res.status(409).json({
+          success: false,
+          errorCode: "PAYMENT_IN_PROGRESS",
+          message:
+            "Your earlier payment is still open or being processed. Please wait a minute, then check your orders before trying again.",
+        });
+      }
+    } catch (retryErr) {
+      logger.warn("Could not check earlier payment attempt; continuing", {
+        message: retryErr.message,
       });
     }
 
@@ -555,6 +606,10 @@ const createOrder = async (req, res) => {
     }
 
     // Step 3: Atomic stock decrement
+    // stockObj.available is the real count. Legacy records that only have
+    // `stock` get it copied over first, so every decrement below matches on
+    // `stockObj.available >= qty` alone and a stale `stock` can't oversell.
+    await backfillLegacyStock(stockUpdates, session);
     for (const update of stockUpdates) {
       // Handle bundle child SKU deductions
       if (update.type === "BUNDLE_CHILD") {
@@ -563,10 +618,7 @@ const createOrder = async (req, res) => {
           {
             sku: update.sku,
             product_type: PRODUCT_TYPES.SIMPLE,
-            $or: [
-              { "stockObj.available": { $gte: update.quantity } },
-              { stock: { $gte: update.quantity } },
-            ],
+            "stockObj.available": { $gte: update.quantity },
           },
           {
             $inc: {
@@ -584,10 +636,7 @@ const createOrder = async (req, res) => {
               variants: {
                 $elemMatch: {
                   sku: update.sku,
-                  $or: [
-                    { "stockObj.available": { $gte: update.quantity } },
-                    { stock: { $gte: update.quantity } },
-                  ],
+                  "stockObj.available": { $gte: update.quantity },
                 },
               },
             },
@@ -652,14 +701,11 @@ const createOrder = async (req, res) => {
           };
         }
       } else {
-        // Simple product (or gift) - handle both stockObj.available and legacy stock
+        // Simple product (or gift); legacy-only stock was backfilled above
         const result = await Product.findOneAndUpdate(
           {
             _id: update.productId,
-            $or: [
-              { "stockObj.available": { $gte: update.quantity } },
-              { stock: { $gte: update.quantity } },
-            ],
+            "stockObj.available": { $gte: update.quantity },
           },
           {
             $inc: {
@@ -963,6 +1009,7 @@ const createOrder = async (req, res) => {
 
           // 2. Release Stock (single bulkWrite instead of one update per item)
           await releaseStockUpdates(stockUpdates);
+          await releaseOrderCoupons(order);
 
           // 3. Reset cart to active so the user can restart checkout from the cart page.
           await Cart.findByIdAndUpdate(cart._id, {
@@ -1032,6 +1079,7 @@ const createOrder = async (req, res) => {
 
           // 2. Release Stock (single bulkWrite instead of one update per item)
           await releaseStockUpdates(stockUpdates);
+          await releaseOrderCoupons(order);
 
           // 3. Reset cart to active so the user can restart checkout from the cart page.
           await Cart.findByIdAndUpdate(cart._id, {
