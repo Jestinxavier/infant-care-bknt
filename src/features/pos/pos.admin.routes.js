@@ -18,4 +18,9 @@ router.get("/items", posController.searchItems);
 // POST /api/v1/admin/pos/sales — requires an Idempotency-Key header
 router.post("/sales", posController.createSale);
 
+// Extra charge types (Shipping, Gift wrapping...): owners only. Cashiers get
+// the active ones through /config and can only apply them to a bill.
+router.get("/charges", requirePermission("manage:pos_charges"), posController.getCharges);
+router.put("/charges", requirePermission("manage:pos_charges"), posController.updateCharges);
+
 module.exports = router;

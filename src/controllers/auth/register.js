@@ -11,7 +11,7 @@ const {
  */
 const requestOTP = async (req, res) => {
   try {
-    logger.info("📧 Request OTP called with:", req.body);
+    logger.info("📧 Request OTP called for:", req.body?.email);
 
     // Validate email exists
     if (!req.body.email) {

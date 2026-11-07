@@ -68,7 +68,7 @@ async function getSellerAddress() {
  * @returns {Promise<null | { gst: object, items: Array }>} `items` are the
  *   same items with taxableValue/taxAmount/gstRate filled in.
  */
-async function buildOrderGst({ items, couponDiscount, shippingCost, codCost, customerState }) {
+async function buildOrderGst({ items, couponDiscount, shippingCost, codCost, otherCharges = 0, customerState }) {
   const settings = await getGstSettings();
   if (!settings.enabled) return null;
 
@@ -78,6 +78,7 @@ async function buildOrderGst({ items, couponDiscount, shippingCost, codCost, cus
     couponDiscount,
     shippingCost,
     codCost,
+    otherCharges,
     defaultRate: settings.defaultRate,
     sellerState: seller.state,
     customerState,

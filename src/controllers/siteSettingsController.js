@@ -7,6 +7,18 @@ const {
   getSiteSettingDefinition,
   normalizeSiteSettingKey,
 } = require("../config/siteSettingRegistry");
+// Settings that have their own permission-checked endpoint; the generic
+// routes (requireAdmin only) must not be a way around that permission.
+const DEDICATED_SETTING_KEYS = new Set([SITE_SETTING_KEYS.POS_CHARGES]);
+const rejectDedicatedKey = (key, res) => {
+  if (!DEDICATED_SETTING_KEYS.has(String(key || "").trim())) return false;
+  res.status(403).json({
+    success: false,
+    message: "This setting can only be changed from its own page.",
+  });
+  return true;
+};
+
 const POPULAR_SEARCHES_KEY = SITE_SETTING_KEYS.SEARCH_POPULAR_TERMS;
 const POPULAR_SEARCHES_DESCRIPTION =
   getSiteSettingDefinition(POPULAR_SEARCHES_KEY)?.description ||
@@ -79,6 +91,7 @@ const createSetting = async (req, res) => {
   try {
     const { key, value } = req.body;
     const normalizedKey = normalizeSiteSettingKey(key);
+    if (rejectDedicatedKey(normalizedKey, res)) return;
     const definition = getSiteSettingDefinition(normalizedKey);
 
     if (!definition) {
@@ -133,6 +146,7 @@ const createSetting = async (req, res) => {
 const updateSetting = async (req, res) => {
   try {
     const key = normalizeSiteSettingKey(req.params.key);
+    if (rejectDedicatedKey(key, res)) return;
     const { value, description, scope } = req.body;
     const userRole = req.user?.role;
 
@@ -206,6 +220,7 @@ const updateSetting = async (req, res) => {
 const deleteSetting = async (req, res) => {
   try {
     const key = normalizeSiteSettingKey(req.params.key);
+    if (rejectDedicatedKey(key, res)) return;
 
     const setting = await SiteSetting.findOneAndDelete({ key });
 

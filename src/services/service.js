@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 const User = require("../models/user");
 const PendingUser = require("../models/PendingUser");
 const Token = require("../models/token");
@@ -23,6 +24,24 @@ exports.requestOTP = async ({ email, username, password }) => {
     throw new Error("Email is already registered");
   }
 
+  // Never keep the plaintext password in the pending record. Validate the
+  // length here (the User model only ever sees the hash after this) and hash
+  // with the same cost as the User model; its pre-save hook skips values that
+  // are already bcrypt hashes, so the account is created from this hash.
+  let passwordHash;
+  if (password !== undefined && password !== null && password !== "") {
+    if (typeof password !== "string") {
+      throw new Error("Invalid password");
+    }
+    if (password.length < 6) {
+      throw new Error("Password must be at least 6 characters");
+    }
+    if (password.length > 64) {
+      throw new Error("Password must not exceed 64 characters");
+    }
+    passwordHash = await bcrypt.hash(password, 10);
+  }
+
   // Generate OTP
   const otp = generateOTP();
   const otpExpires = new Date(Date.now() + OTP_EXPIRY_MS);
@@ -36,7 +55,7 @@ exports.requestOTP = async ({ email, username, password }) => {
     otp,
     otpExpires,
     username,
-    password,
+    password: passwordHash,
   });
 
   // Send OTP email

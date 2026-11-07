@@ -50,6 +50,54 @@ describe("Auth API", () => {
       expect(res.body.success).toBe(true);
       expect(res.body.user).toHaveProperty("email", testUser.email);
     });
+
+    describe("password sent with the OTP request (storefront flow)", () => {
+      const PendingUser = require("../../src/models/PendingUser");
+      const pending = {
+        username: "pending_hash_user",
+        email: "pending.hash.test@example.com",
+        password: "PendingPass123!",
+      };
+
+      beforeAll(async () => {
+        await User.deleteOne({ email: pending.email });
+        await PendingUser.deleteMany({ email: pending.email });
+      });
+
+      afterAll(async () => {
+        await User.deleteOne({ email: pending.email });
+        await PendingUser.deleteMany({ email: pending.email });
+      });
+
+      it("stores only a bcrypt hash, then registers and logs in with the original password", async () => {
+        const reqRes = await request(app)
+          .post("/api/v1/auth/request-otp")
+          .send(pending);
+        expect(reqRes.statusCode).toEqual(200);
+
+        const record = await PendingUser.findOne({ email: pending.email });
+        expect(record.password).not.toEqual(pending.password);
+        expect(record.password).toMatch(/^\$2[ayb]\$.{56}$/);
+
+        const verifyRes = await request(app)
+          .post("/api/v1/auth/verify-otp")
+          .send({ email: pending.email, otp: testUser.otp });
+        expect(verifyRes.statusCode).toEqual(201);
+
+        const loginRes = await request(app)
+          .post("/api/v1/auth/login")
+          .send({ email: pending.email, password: pending.password });
+        expect(loginRes.statusCode).toEqual(200);
+      });
+
+      it("rejects a password longer than 64 characters", async () => {
+        const res = await request(app)
+          .post("/api/v1/auth/request-otp")
+          .send({ ...pending, password: "a".repeat(65) });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.message).toMatch(/64 characters/);
+      });
+    });
   });
 
   describe("POST /api/v1/auth/login", () => {

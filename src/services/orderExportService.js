@@ -140,6 +140,7 @@ const mapOrderToSummaryRow = (order) => {
   const discount = Number(order.discount ?? 0);
   const shippingCost = Number(order.shippingCost ?? 0);
   const codCost = Number(order.codCost ?? 0);
+  const otherCharges = Number(order.otherCharges ?? 0);
   const totalAmount = Number(order.totalAmount ?? 0);
 
   const deliveryPartnerName =
@@ -182,6 +183,7 @@ const mapOrderToSummaryRow = (order) => {
     "Discount Amount (INR)": discount.toFixed(2),
     "Shipping Fee (INR)": shippingCost.toFixed(2),
     "COD Handling Fee (INR)": codCost.toFixed(2),
+    "Other Charges (INR)": otherCharges.toFixed(2),
     "Grand Total (INR)": totalAmount.toFixed(2),
     "Delivery Partner": deliveryPartnerName,
     "Tracking Number / AWB": order.trackingId || "",

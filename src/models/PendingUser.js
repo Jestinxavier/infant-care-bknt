@@ -30,8 +30,8 @@ const pendingUserSchema = new mongoose.Schema(
       trim: true
     },
     password: {
-      type: String,
-      trim: true
+      // bcrypt hash only — never plaintext (hashed in services/service.js)
+      type: String
     },
     isLoginOTP: {
       type: Boolean,

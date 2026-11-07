@@ -51,6 +51,10 @@ const ROLE_PERMISSIONS = {
     "edit:settings",
     "manage:users",
     "manage:roles",
+
+    // POS: set up extra charge types; change a locked charge on a bill
+    "manage:pos_charges",
+    "override:pos_charges",
   ],
 
   // Developer: Same as super-admin + exclusive payment options access
@@ -98,6 +102,10 @@ const ROLE_PERMISSIONS = {
     "edit:payment_options",
     "manage:users",
     "manage:roles",
+
+    // POS: set up extra charge types; change a locked charge on a bill
+    "manage:pos_charges",
+    "override:pos_charges",
   ],
 
   // Admin: Operational management only.

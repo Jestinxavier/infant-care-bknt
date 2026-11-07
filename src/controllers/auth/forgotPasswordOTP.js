@@ -97,6 +97,13 @@ const verifyPasswordResetOTP = async (req, res) => {
       });
     }
 
+    if (newPassword.length > 64) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must not exceed 64 characters",
+      });
+    }
+
     if (newPassword.length < 6) {
       return res.status(400).json({
         success: false,

@@ -102,6 +102,26 @@ const orderPosSchema = new mongoose.Schema(
     // UPI UTR / card slip number, when the cashier records one
     paymentReference: { type: String, default: "" },
     note: { type: String, default: "" },
+    // Extra charges as they were on the bill (a copy, so later changes to the
+    // store's charge types never rewrite old bills). Shipping-kind amounts are
+    // also in order.shippingCost; the rest add up to order.otherCharges.
+    charges: {
+      type: [
+        new mongoose.Schema(
+          {
+            code: { type: String, required: true },
+            name: { type: String, required: true },
+            kind: { type: String, enum: ["shipping", "other"], default: "other" },
+            type: { type: String, enum: ["flat", "percent"], default: "flat" },
+            value: { type: Number, default: 0 },
+            amount: { type: Number, default: 0 },
+            taxable: { type: Boolean, default: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: undefined,
+    },
   },
   { _id: false },
 );
@@ -162,6 +182,11 @@ const orderSchema = new mongoose.Schema(
       default: 0,
     },
     codCost: {
+      type: Number,
+      default: 0,
+    },
+    // Charges other than shipping/COD (POS gift wrap, packing...); itemised in pos.charges
+    otherCharges: {
       type: Number,
       default: 0,
     },

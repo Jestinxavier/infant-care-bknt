@@ -12,6 +12,7 @@ const registerValidation = [
   body("password")
     .notEmpty().withMessage("Password is required")
     .isLength({ min: 6 }).withMessage("Password must be at least 6 characters")
+    .isLength({ max: 64 }).withMessage("Password must not exceed 64 characters")
 ];
 
 // Validation for login route

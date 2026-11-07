@@ -21,7 +21,9 @@ const {
   invalidateOrderReportCaches,
 } = require("../../controllers/admin/orderCacheInvalidation");
 const { POS_PAYMENT_METHODS, PAYMENT_METHODS } = require("../../../resources/constants");
+const { hasPermission } = require("../../../resources/permissions");
 const logger = require("../../utils/logger");
+const { ChargeError, getChargeTypes, resolveBillCharges } = require("./pos.charges");
 
 const MAX_LINES = 100;
 const MAX_LINE_QTY = 999;
@@ -139,7 +141,11 @@ async function searchSellableItems(rawQuery, limit = 20) {
 
 /** Store details and GST display flags the receipt needs. */
 async function getPosConfig() {
-  const [seller, gst] = await Promise.all([getSellerAddress(), getGstSettings()]);
+  const [seller, gst, chargeTypes] = await Promise.all([
+    getSellerAddress(),
+    getGstSettings(),
+    getChargeTypes(),
+  ]);
   return {
     store: {
       businessName: seller.businessName || "",
@@ -153,6 +159,8 @@ async function getPosConfig() {
     },
     gst: { enabled: gst.enabled, display: gst.display.invoice },
     paymentMethods: POS_PAYMENT_METHODS,
+    // Only the ones the till can use right now
+    charges: chargeTypes.filter((c) => c.active),
   };
 }
 
@@ -347,7 +355,7 @@ function parseCustomer(raw) {
  * Ring up a counter sale.
  * @returns {Promise<{ order: object, idempotent: boolean }>}
  */
-async function createPosSale({ body, cashierId, idempotencyKey }) {
+async function createPosSale({ body, cashierId, cashierRole, idempotencyKey }) {
   if (!idempotencyKey || typeof idempotencyKey !== "string") {
     throw new PosError("MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required");
   }
@@ -370,7 +378,21 @@ async function createPosSale({ body, cashierId, idempotencyKey }) {
   const { orderItems, subtotal, itemsTotal } = await priceLines(lines);
   const billDiscount = parseBillDiscount(body?.discount, itemsTotal);
   const billDiscountAmount = billDiscount?.amount || 0;
-  const totalAmount = round2(itemsTotal - billDiscountAmount);
+  const afterDiscount = round2(itemsTotal - billDiscountAmount);
+
+  // Charges come after the discount (a discount never reduces shipping) and
+  // are priced from the store's settings, not from what the till sent.
+  let billCharges;
+  try {
+    billCharges = resolveBillCharges(body?.charges, await getChargeTypes(), {
+      base: afterDiscount,
+      canOverride: hasPermission(cashierRole, "override:pos_charges"),
+    });
+  } catch (err) {
+    if (err instanceof ChargeError) throw new PosError(err.code, err.message, err.status);
+    throw err;
+  }
+  const totalAmount = round2(afterDiscount + billCharges.total);
 
   // The cashier collects what the screen showed; refuse if the server's total
   // moved (an offer ended, a price was edited) so the drawer never comes up short.
@@ -403,8 +425,10 @@ async function createPosSale({ body, cashierId, idempotencyKey }) {
   const gstResult = await buildOrderGst({
     items: orderItems,
     couponDiscount: billDiscountAmount,
-    shippingCost: 0,
+    // Only taxable charges carry GST (inclusive, at the highest item rate)
+    shippingCost: billCharges.taxableShipping,
     codCost: 0,
+    otherCharges: billCharges.taxableOther,
     customerState: seller.state,
   });
 
@@ -422,8 +446,9 @@ async function createPosSale({ body, cashierId, idempotencyKey }) {
       gst: gstResult ? gstResult.gst : undefined,
       totalQuantity: orderItems.reduce((sum, i) => sum + i.quantity, 0),
       subtotal,
-      shippingCost: 0,
+      shippingCost: billCharges.shippingCost,
       codCost: 0,
+      otherCharges: billCharges.otherCharges,
       discount: round2(subtotal - itemsTotal + billDiscountAmount),
       totalAmount,
       shippingAddress: {
@@ -450,6 +475,7 @@ async function createPosSale({ body, cashierId, idempotencyKey }) {
         changeDue,
         paymentReference,
         note,
+        charges: billCharges.charges.length ? billCharges.charges : undefined,
       },
     };
 

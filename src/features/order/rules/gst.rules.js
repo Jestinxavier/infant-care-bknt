@@ -52,6 +52,8 @@ function taxInsideInclusive(amount, rate) {
  * @param {number} params.couponDiscount Total coupon discount on the order.
  * @param {number} params.shippingCost
  * @param {number} params.codCost
+ * @param {number} [params.otherCharges] Other taxable charges (POS gift wrap,
+ *   packing...). Taxed like shipping: GST-inclusive, at the highest item rate.
  * @param {number} params.defaultRate Store default for items without their own rate.
  * @param {string} params.sellerState
  * @param {string} params.customerState
@@ -67,6 +69,7 @@ function calculateOrderGst({
   couponDiscount = 0,
   shippingCost = 0,
   codCost = 0,
+  otherCharges = 0,
   defaultRate = 0,
   sellerState = "",
   customerState = "",
@@ -98,7 +101,9 @@ function calculateOrderGst({
     (max, line, i) => (lineValues[i] > 0 && line.gstRate > max ? line.gstRate : max),
     0,
   );
-  const charges = round2((Number(shippingCost) || 0) + (Number(codCost) || 0));
+  const charges = round2(
+    (Number(shippingCost) || 0) + (Number(codCost) || 0) + (Number(otherCharges) || 0),
+  );
   const chargesTax = taxInsideInclusive(charges, chargesRate);
   const chargesTaxableValue = round2(charges - chargesTax);
 
