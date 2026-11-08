@@ -24,6 +24,7 @@ const { POS_PAYMENT_METHODS, PAYMENT_METHODS } = require("../../../resources/con
 const { hasPermission } = require("../../../resources/permissions");
 const logger = require("../../utils/logger");
 const { ChargeError, getChargeTypes, resolveBillCharges } = require("./pos.charges");
+const { SourceError, getSources, resolveSaleSource } = require("./pos.sources");
 
 const MAX_LINES = 100;
 const MAX_LINE_QTY = 999;
@@ -93,13 +94,32 @@ function toSellable(product, variant) {
  * Find sellable lines by title or SKU. An exact SKU (a barcode scan) returns
  * just that line, so the dashboard can add it to the bill straight away.
  */
-async function searchSellableItems(rawQuery, limit = 20) {
+async function searchSellableItems(rawQuery, limit = 20, { browse = false, category } = {}) {
   const q = typeof rawQuery === "string" ? rawQuery.trim() : "";
-  if (q.length < 2) return { items: [], exactMatch: false };
-
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
   const sellableTypes = [PRODUCT_TYPES.SIMPLE, PRODUCT_TYPES.CONFIGURABLE];
   const base = { status: "published", product_type: { $in: sellableTypes } };
+
+  // Browse (no search text): show products straight away, optionally for one
+  // category, so the cashier can tap common items without typing
+  if (q.length < 2) {
+    if (!browse) return { items: [], exactMatch: false };
+    const filter = { ...base };
+    if (typeof category === "string" && /^[a-f0-9]{24}$/i.test(category)) {
+      filter.category = category;
+    }
+    const products = await Product.find(filter).sort({ updatedAt: -1 }).limit(safeLimit).lean();
+    const items = [];
+    for (const product of products) {
+      if (product.product_type === PRODUCT_TYPES.CONFIGURABLE) {
+        for (const variant of product.variants || []) items.push(toSellable(product, variant));
+      } else {
+        items.push(toSellable(product, null));
+      }
+    }
+    items.sort((a, b) => Number(b.stock > 0) - Number(a.stock > 0));
+    return { items: items.slice(0, safeLimit * 2), exactMatch: false };
+  }
 
   const exactSku = new RegExp(`^${escapeRegex(q)}$`, "i");
   const exact = await Product.findOne({
@@ -141,10 +161,12 @@ async function searchSellableItems(rawQuery, limit = 20) {
 
 /** Store details and GST display flags the receipt needs. */
 async function getPosConfig() {
-  const [seller, gst, chargeTypes] = await Promise.all([
+  const [seller, gst, chargeTypes, sources, categories] = await Promise.all([
     getSellerAddress(),
     getGstSettings(),
     getChargeTypes(),
+    getSources(),
+    getBrowseCategories(),
   ]);
   return {
     store: {
@@ -161,7 +183,35 @@ async function getPosConfig() {
     paymentMethods: POS_PAYMENT_METHODS,
     // Only the ones the till can use right now
     charges: chargeTypes.filter((c) => c.active),
+    // Customer sources the cashier picks from (one is required per sale)
+    sources: sources.filter((s) => s.active),
+    // Category chips for browsing: the ones with the most sellable products
+    categories,
   };
+}
+
+/** Up to 12 categories with the most sellable products, biggest first. */
+async function getBrowseCategories() {
+  const rows = await Product.aggregate([
+    {
+      $match: {
+        status: "published",
+        product_type: { $in: [PRODUCT_TYPES.SIMPLE, PRODUCT_TYPES.CONFIGURABLE] },
+        category: { $ne: null },
+      },
+    },
+    { $group: { _id: "$category", fallbackName: { $first: "$categoryName" }, count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: 12 },
+    { $lookup: { from: "categories", localField: "_id", foreignField: "_id", as: "cat" } },
+  ]);
+  return rows
+    .map((r) => ({
+      id: String(r._id),
+      name: String(r.cat?.[0]?.name || r.fallbackName || "").trim(),
+      count: r.count,
+    }))
+    .filter((c) => c.name);
 }
 
 function parseLines(rawItems) {
@@ -375,6 +425,15 @@ async function createPosSale({ body, cashierId, cashierRole, idempotencyKey }) {
 
   const lines = parseLines(body?.items);
   const customer = parseCustomer(body?.customer);
+  // How the customer found the store: required, no default, so the numbers
+  // reflect what the cashier actually asked
+  let source;
+  try {
+    source = resolveSaleSource(body?.source, await getSources());
+  } catch (err) {
+    if (err instanceof SourceError) throw new PosError(err.code, err.message, err.status);
+    throw err;
+  }
   const { orderItems, subtotal, itemsTotal } = await priceLines(lines);
   const billDiscount = parseBillDiscount(body?.discount, itemsTotal);
   const billDiscountAmount = billDiscount?.amount || 0;
@@ -476,6 +535,7 @@ async function createPosSale({ body, cashierId, cashierRole, idempotencyKey }) {
         paymentReference,
         note,
         charges: billCharges.charges.length ? billCharges.charges : undefined,
+        source,
       },
     };
 

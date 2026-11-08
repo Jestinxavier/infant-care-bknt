@@ -75,6 +75,7 @@ async function buildOrderFilter(requestData, reqUser) {
     paymentMethod,
     customerType, // "guest" | "registered"
     channel, // "online" | "pos"
+    source, // POS customer source code ("instagram", "whatsapp"...)
     minTotal, // minimum order amount
     maxTotal, // maximum order amount
     search,
@@ -165,6 +166,12 @@ async function buildOrderFilter(requestData, reqUser) {
     filter.channel = "pos";
   } else if (channel === "online") {
     filter.channel = { $ne: "pos" };
+  }
+
+  // How a counter customer found the store; only POS sales carry one
+  const sourceCode = asFilterString(source);
+  if (sourceCode && /^[a-z0-9_]{2,30}$/.test(sourceCode)) {
+    filter["pos.source.code"] = sourceCode;
   }
 
   // Customer type filter (guest vs registered)
@@ -332,6 +339,8 @@ const getAllOrders = async (req, res) => {
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod,
       channel: order.channel || "online",
+      source: order.pos?.source?.name || null,
+      sourceNote: order.pos?.source?.note || "",
       phonepeTransactionId: order.phonepeTransactionId,
       total: order.totalAmount,
       subtotal: order.subtotal,
@@ -394,6 +403,7 @@ function buildStatusCountsCacheKey(requestData, userRole) {
     "paymentMethod",
     "customerType",
     "channel",
+    "source",
     "minTotal",
     "maxTotal",
     "search",

@@ -1,6 +1,7 @@
 // features/pos/pos.admin.controller.js
 const posService = require("./pos.service");
 const posCharges = require("./pos.charges");
+const posSources = require("./pos.sources");
 const logger = require("../../utils/logger");
 
 const sendPosError = (res, err, fallbackMessage) => {
@@ -29,7 +30,10 @@ const getConfig = async (req, res) => {
 /** GET /admin/pos/items?q= */
 const searchItems = async (req, res) => {
   try {
-    const result = await posService.searchSellableItems(req.query.q, req.query.limit);
+    const result = await posService.searchSellableItems(req.query.q, req.query.limit, {
+      browse: req.query.browse === "1",
+      category: req.query.category,
+    });
     res.status(200).json({ success: true, ...result });
   } catch (err) {
     sendPosError(res, err, "Failed to search products");
@@ -74,4 +78,45 @@ const updateCharges = async (req, res) => {
   }
 };
 
-module.exports = { getConfig, searchItems, createSale, getCharges, updateCharges };
+/** GET /admin/pos/sources — every customer source, including inactive ones */
+const getSources = async (req, res) => {
+  try {
+    res.status(200).json({ success: true, sources: await posSources.getSources() });
+  } catch (err) {
+    sendPosError(res, err, "Failed to load customer sources");
+  }
+};
+
+/** PUT /admin/pos/sources — replace the list of customer sources */
+const updateSources = async (req, res) => {
+  try {
+    const sources = await posSources.saveSources(req.body?.sources);
+    logger.info("[POS] Customer sources updated", { by: req.user.id, count: sources.length });
+    res.status(200).json({ success: true, sources });
+  } catch (err) {
+    if (err instanceof posSources.SourceError) {
+      return res.status(err.status).json({ success: false, errorCode: err.code, message: err.message });
+    }
+    sendPosError(res, err, "Failed to save customer sources");
+  }
+};
+
+/** GET /admin/pos/source-options — every source, for order filters (view:orders) */
+const getSourceOptions = async (req, res) => {
+  try {
+    res.status(200).json({ success: true, sources: await posSources.getSourceFilterOptions() });
+  } catch (err) {
+    sendPosError(res, err, "Failed to load customer sources");
+  }
+};
+
+module.exports = {
+  getSourceOptions,
+  getConfig,
+  searchItems,
+  createSale,
+  getCharges,
+  updateCharges,
+  getSources,
+  updateSources,
+};

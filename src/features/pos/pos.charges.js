@@ -2,7 +2,7 @@
 // Extra charges at the counter (Shipping, Gift wrapping, ...).
 //
 // The store's charge types live in one site setting (`pos.charges`) that only
-// roles with "manage:pos_charges" can change. A sale names the types it uses;
+// roles with "manage:pos_settings" can change. A sale names the types it uses;
 // the server looks each one up and works out the amount, so the cashier can't
 // invent a charge or change a locked price.
 const SiteSetting = require("../../models/SiteSetting");

@@ -64,7 +64,8 @@ describe("POS sales", () => {
       .post("/api/v1/admin/pos/sales")
       .set(auth(t))
       .set("Idempotency-Key", key)
-      .send(body);
+      // Every POS sale needs a customer source (see posSources.test.js)
+      .send({ source: { code: "walkin" }, ...body });
 
   it("rejects non-admins", async () => {
     const res = await request(app).get("/api/v1/admin/pos/config").set(auth(userToken));

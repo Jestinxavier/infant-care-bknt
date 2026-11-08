@@ -9,7 +9,10 @@ const {
 } = require("../config/siteSettingRegistry");
 // Settings that have their own permission-checked endpoint; the generic
 // routes (requireAdmin only) must not be a way around that permission.
-const DEDICATED_SETTING_KEYS = new Set([SITE_SETTING_KEYS.POS_CHARGES]);
+const DEDICATED_SETTING_KEYS = new Set([
+  SITE_SETTING_KEYS.POS_CHARGES,
+  SITE_SETTING_KEYS.POS_SOURCES,
+]);
 const rejectDedicatedKey = (key, res) => {
   if (!DEDICATED_SETTING_KEYS.has(String(key || "").trim())) return false;
   res.status(403).json({

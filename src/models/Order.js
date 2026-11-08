@@ -102,6 +102,19 @@ const orderPosSchema = new mongoose.Schema(
     // UPI UTR / card slip number, when the cashier records one
     paymentReference: { type: String, default: "" },
     note: { type: String, default: "" },
+    // How the customer found the store, as picked at the till (a copy of the
+    // source's name, so renaming a source later never rewrites old bills)
+    source: {
+      type: new mongoose.Schema(
+        {
+          code: { type: String, required: true },
+          name: { type: String, required: true },
+          note: { type: String, default: "" },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     // Extra charges as they were on the bill (a copy, so later changes to the
     // store's charge types never rewrite old bills). Shipping-kind amounts are
     // also in order.shippingCost; the rest add up to order.otherCharges.

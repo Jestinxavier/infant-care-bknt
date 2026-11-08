@@ -48,7 +48,7 @@ describe("POS extra charges", () => {
       .post("/api/v1/admin/pos/sales")
       .set(auth(t))
       .set("Idempotency-Key", token("idem"))
-      .send({ paymentMethod: "UPI", ...body });
+      .send({ paymentMethod: "UPI", source: { code: "walkin" }, ...body });
 
   describe("managing charge types (RBAC)", () => {
     it("starts with a Shipping charge for owners", async () => {

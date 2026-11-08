@@ -157,6 +157,10 @@ const mapOrderToSummaryRow = (order) => {
     "Order Status": capitalize(order.orderStatus),
     "Payment Status": capitalize(order.paymentStatus),
     "Payment Method": formatPaymentMethod(order.paymentMethod),
+    // POS only: how the customer found the store ("Other · Exhibition")
+    "Customer Source": order.pos?.source?.name
+      ? [order.pos.source.name, order.pos.source.note].filter(Boolean).join(" · ")
+      : "",
     "Transaction ID": order.phonepeTransactionId || "",
     "Customer Type": customerType,
     "Customer Name": customerName,
@@ -231,6 +235,7 @@ const mapOrderToItemRows = (order) => {
       "Order Status": baseOrderInfo["Order Status"],
       "Payment Status": baseOrderInfo["Payment Status"],
       "Payment Method": baseOrderInfo["Payment Method"],
+      "Customer Source": baseOrderInfo["Customer Source"],
       "Customer Name": baseOrderInfo["Customer Name"],
       "Customer Phone": baseOrderInfo["Customer Phone"],
       "Customer Email": baseOrderInfo["Customer Email"],

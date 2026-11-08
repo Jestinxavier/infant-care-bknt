@@ -17,10 +17,12 @@ const SITE_SETTING_KEYS = {
   CONTACT_WHATSAPP: "contact.whatsapp",
   CONTACT_FACEBOOK: "contact.facebook",
   CONTACT_INSTAGRAM: "contact.instagram",
-  // POS extra charge types. Not in SITE_SETTING_DEFINITIONS on purpose: it is
-  // edited only through /admin/pos/charges ("manage:pos_charges"), never the
-  // generic settings routes.
+  // POS extra charge types and customer sources. Not in
+  // SITE_SETTING_DEFINITIONS on purpose: they are edited only through
+  // /admin/pos/charges and /admin/pos/sources ("manage:pos_settings"),
+  // never the generic settings routes.
   POS_CHARGES: "pos.charges",
+  POS_SOURCES: "pos.sources",
 };
 
 // Places where GST details can appear, and the details each can show.

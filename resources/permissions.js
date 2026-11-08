@@ -52,8 +52,8 @@ const ROLE_PERMISSIONS = {
     "manage:users",
     "manage:roles",
 
-    // POS: set up extra charge types; change a locked charge on a bill
-    "manage:pos_charges",
+    // POS: set up charge types & customer sources; change a locked charge on a bill
+    "manage:pos_settings",
     "override:pos_charges",
   ],
 
@@ -103,8 +103,8 @@ const ROLE_PERMISSIONS = {
     "manage:users",
     "manage:roles",
 
-    // POS: set up extra charge types; change a locked charge on a bill
-    "manage:pos_charges",
+    // POS: set up charge types & customer sources; change a locked charge on a bill
+    "manage:pos_settings",
     "override:pos_charges",
   ],
 
