@@ -5,6 +5,25 @@ const {
   TTL,
 } = require("../../utils/redisCache");
 const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
+const {
+  pickGranularity,
+  bucketIdExpr,
+  bucketKeys,
+} = require("../../utils/reportBuckets");
+
+// Online checkouts whose payment never completed. The payment reconciler
+// cancels these, so they used to inflate "Cancellations" and the total the
+// rate is divided by. They are reported separately as unpaidOnline.
+const UNPAID_ONLINE_MATCH = {
+  paymentMethod: { $ne: "COD" },
+  paymentStatus: { $in: ["pending", "failed"] },
+};
+const REAL_ORDER_MATCH = {
+  $or: [
+    { paymentMethod: "COD" },
+    { paymentStatus: { $nin: ["pending", "failed"] } },
+  ],
+};
 
 const CSV_COLUMNS = [
   { field: "key", header: "Date" },
@@ -46,8 +65,8 @@ exports.getReturnsCancellations = async (req, res) => {
 
     const customDateRange = parseDateRange(from, to);
     const cacheKey = customDateRange
-      ? `report:returns-cancellations:custom:${from || "start"}:${to || "end"}`
-      : `report:returns-cancellations:${period}`;
+      ? `report:returns-cancellations:v2:custom:${from || "start"}:${to || "end"}`
+      : `report:returns-cancellations:v2:${period}`;
 
     const result = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
       const now = new Date();
@@ -74,9 +93,25 @@ exports.getReturnsCancellations = async (req, res) => {
 
       const baseMatch = { ...dateMatch };
 
-      const [byStatus, totalsAgg, trend] = await Promise.all([
+      const realMatch = { ...baseMatch, ...REAL_ORDER_MATCH };
+
+      // Trend buckets: hourly for a single day, else daily. With a bounded
+      // range every bucket is listed (trendKeys) so quiet periods chart as
+      // zero instead of being skipped. All-time stays sparse and daily.
+      const rangeStart = dateMatch.createdAt?.$gte;
+      const rangeEnd = dateMatch.createdAt?.$lte
+        ? dateMatch.createdAt.$lte
+        : dateMatch.createdAt?.$lt
+          ? new Date(dateMatch.createdAt.$lt.getTime() - 1)
+          : now;
+      const granularity = rangeStart
+        ? pickGranularity(rangeStart, rangeEnd, Infinity)
+        : "day";
+      const trendKeys = rangeStart ? bucketKeys(rangeStart, rangeEnd, granularity) : null;
+
+      const [byStatus, totalsAgg, trend, unpaidOnlineAgg] = await Promise.all([
         Order.aggregate([
-          { $match: { ...baseMatch, orderStatus: { $in: ["cancelled", "returned"] } } },
+          { $match: { ...realMatch, orderStatus: { $in: ["cancelled", "returned"] } } },
           {
             $group: {
               _id: "$orderStatus",
@@ -86,7 +121,7 @@ exports.getReturnsCancellations = async (req, res) => {
           },
         ]),
         Order.aggregate([
-          { $match: baseMatch },
+          { $match: realMatch },
           {
             $group: {
               _id: null,
@@ -96,20 +131,29 @@ exports.getReturnsCancellations = async (req, res) => {
           },
         ]),
         Order.aggregate([
-          { $match: { ...baseMatch, orderStatus: { $in: ["cancelled", "returned"] } } },
+          { $match: { ...realMatch, orderStatus: { $in: ["cancelled", "returned"] } } },
           {
             $group: {
+              // IST bucket (see utils/reportBuckets)
               _id: {
-                year: { $year: "$createdAt" },
-                month: { $month: "$createdAt" },
-                day: { $dayOfMonth: "$createdAt" },
+                day: bucketIdExpr(granularity),
                 status: "$orderStatus",
               },
               count: { $sum: 1 },
               gross: { $sum: "$totalAmount" },
             },
           },
-          { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+          { $sort: { "_id.day": 1 } },
+        ]),
+        Order.aggregate([
+          { $match: { ...baseMatch, ...UNPAID_ONLINE_MATCH } },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              gross: { $sum: "$totalAmount" },
+            },
+          },
         ]),
       ]);
 
@@ -124,9 +168,7 @@ exports.getReturnsCancellations = async (req, res) => {
       const totalCount = totals.count || 0;
 
       const trendRows = trend.map((r) => ({
-        key: `${r._id.year}-${String(r._id.month).padStart(2, "0")}-${String(
-          r._id.day,
-        ).padStart(2, "0")}`,
+        key: r._id.day,
         status: r._id.status,
         count: r.count || 0,
         gross: Number(r.gross) || 0,
@@ -148,7 +190,13 @@ exports.getReturnsCancellations = async (req, res) => {
           rate: totalCount > 0 ? (affectedCount / totalCount) * 100 : 0,
           gross: Number(totals.gross) || 0,
         },
+        unpaidOnline: {
+          count: unpaidOnlineAgg[0]?.count || 0,
+          gross: Number(unpaidOnlineAgg[0]?.gross) || 0,
+        },
         trend: trendRows,
+        granularity,
+        trendKeys,
       };
     });
 

@@ -1,5 +1,9 @@
 const Order = require("../../models/Order");
-const { NET_REVENUE } = require("../../utils/revenueExpr");
+const {
+  NET_REVENUE,
+  IS_BOOKED,
+  IS_UNPAID_ONLINE,
+} = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -59,8 +63,8 @@ exports.getOrdersByStatus = async (req, res) => {
 
     const customDateRange = parseDateRange(from, to);
     const cacheKey = customDateRange
-      ? `report:orders-by-status:custom:${from || "start"}:${to || "end"}`
-      : `report:orders-by-status:${period}`;
+      ? `report:orders-by-status:v2:custom:${from || "start"}:${to || "end"}`
+      : `report:orders-by-status:v2:${period}`;
 
     const result = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
       const now = new Date();
@@ -101,6 +105,10 @@ exports.getOrdersByStatus = async (req, res) => {
               _id: "$orderStatus",
               count: { $sum: 1 },
               gross: { $sum: "$totalAmount" },
+              // Booked = real sales (utils/revenueExpr); unpaid online =
+              // checkouts whose payment never completed.
+              bookedValue: { $sum: { $cond: [IS_BOOKED, NET_REVENUE, 0] } },
+              unpaidOnline: { $sum: { $cond: [IS_UNPAID_ONLINE, 1, 0] } },
             },
           },
         ]),
@@ -125,6 +133,12 @@ exports.getOrdersByStatus = async (req, res) => {
               count: { $sum: 1 },
               paidCount: {
                 $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, 1, 0] },
+              },
+              bookedCount: { $sum: { $cond: [IS_BOOKED, 1, 0] } },
+              bookedValue: { $sum: { $cond: [IS_BOOKED, NET_REVENUE, 0] } },
+              unpaidOnlineCount: { $sum: { $cond: [IS_UNPAID_ONLINE, 1, 0] } },
+              unpaidOnlineTotal: {
+                $sum: { $cond: [IS_UNPAID_ONLINE, "$totalAmount", 0] },
               },
             },
           },
@@ -165,6 +179,8 @@ exports.getOrdersByStatus = async (req, res) => {
           status: s,
           count: r.count || 0,
           gross: Number(r.gross) || 0,
+          bookedValue: Number(r.bookedValue) || 0,
+          unpaidOnline: r.unpaidOnline || 0,
         };
       });
 
@@ -208,6 +224,12 @@ exports.getOrdersByStatus = async (req, res) => {
         totals: {
           orders: totals.count || 0,
           paidOrders: totals.paidCount || 0,
+          bookedOrders: totals.bookedCount || 0,
+          bookedValue: Number(totals.bookedValue) || 0,
+          unpaidOnline: {
+            count: totals.unpaidOnlineCount || 0,
+            total: Number(totals.unpaidOnlineTotal) || 0,
+          },
         },
       };
     });

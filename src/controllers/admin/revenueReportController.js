@@ -1,5 +1,11 @@
 const Order = require("../../models/Order");
-const { NET_REVENUE } = require("../../utils/revenueExpr");
+const { NET_REVENUE, IS_PAID, bookedMatch } = require("../../utils/revenueExpr");
+const {
+  DAY_MS,
+  pickGranularity,
+  bucketIdExpr,
+  bucketKeys,
+} = require("../../utils/reportBuckets");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -9,10 +15,11 @@ const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
 
 const CSV_COLUMNS = [
   { field: "key", header: "Date" },
-  { field: "total", header: "Revenue" },
+  { field: "total", header: "Booked Sales" },
+  { field: "collected", header: "Collected" },
   { field: "orders", header: "Orders" },
   { field: "codPending", header: "COD Pending" },
-  { field: "prevTotal", header: "Prev Revenue" },
+  { field: "prevTotal", header: "Prev Booked Sales" },
   { field: "prevOrders", header: "Prev Orders" },
 ];
 
@@ -35,15 +42,49 @@ function parseDateRange(from, to) {
   return Object.keys(range).length > 0 ? range : null;
 }
 
-// Sales revenue match — paid orders only (not cancelled/returned).
-// Unpaid COD is captured separately as codPending below.
-function revenueMatch(dateMatch) {
-  return {
-    orderStatus: { $nin: ["cancelled", "returned"] },
-    paymentStatus: "paid",
-    ...dateMatch,
-  };
+const COD_AWAITING = {
+  $and: [{ $eq: ["$paymentMethod", "COD"] }, { $ne: ["$paymentStatus", "paid"] }],
+};
+
+// Booked sales per bucket (shared definition, utils/revenueExpr), with the
+// collected (paid) part and the COD part still awaiting cash.
+async function bookedBuckets(start, end, granularity) {
+  const rows = await Order.aggregate([
+    { $match: bookedMatch({ createdAt: { $gte: start, $lte: end } }) },
+    {
+      $group: {
+        _id: bucketIdExpr(granularity),
+        total: { $sum: NET_REVENUE },
+        collected: { $sum: { $cond: [IS_PAID, NET_REVENUE, 0] } },
+        codPending: { $sum: { $cond: [COD_AWAITING, "$totalAmount", 0] } },
+        orders: { $sum: 1 },
+      },
+    },
+  ]);
+  const byKey = new Map(rows.map((r) => [r._id, r]));
+  return bucketKeys(start, end, granularity).map((key) => {
+    const r = byKey.get(key) || {};
+    return {
+      key,
+      total: Number(r.total) || 0,
+      collected: Number(r.collected) || 0,
+      codPending: Number(r.codPending) || 0,
+      orders: r.orders || 0,
+    };
+  });
 }
+
+const sumSeries = (series) =>
+  series.reduce(
+    (acc, s) => {
+      acc.revenue += s.total;
+      acc.collected += s.collected;
+      acc.codPending += s.codPending;
+      acc.orders += s.orders;
+      return acc;
+    },
+    { revenue: 0, collected: 0, codPending: 0, orders: 0 },
+  );
 
 /**
  * @desc    Revenue over time report (trend buckets + previous-period comparison)
@@ -51,9 +92,10 @@ function revenueMatch(dateMatch) {
  * @access  Private/Admin
  *
  * Buckets revenue & orders by day (default) or month across the selected
- * range, plus the same for the preceding period for comparison. Revenue is
- * counted for paid orders only (not cancelled/returned). Unpaid COD that is
- * still collectible is reported separately per bucket as codPending.
+ * range (IST), plus the preceding period for comparison. Revenue is booked
+ * sales (see utils/revenueExpr): paid orders plus COD awaiting collection.
+ * Each bucket also carries `collected` (paid) and `codPending` (COD not yet
+ * collected, part of the booked total).
  */
 exports.getRevenueOverTime = async (req, res) => {
   try {
@@ -61,8 +103,8 @@ exports.getRevenueOverTime = async (req, res) => {
 
     const customDateRange = parseDateRange(from, to);
     const cacheKey = customDateRange
-      ? `report:revenue-over-time:custom:${from || "start"}:${to || "end"}`
-      : `report:revenue-over-time:${period}`;
+      ? `report:revenue-over-time:v2:custom:${from || "start"}:${to || "end"}`
+      : `report:revenue-over-time:v2:${period}`;
 
     const result = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
       const now = new Date();
@@ -100,177 +142,45 @@ exports.getRevenueOverTime = async (req, res) => {
         endDate = new Date();
       }
 
-      // Granularity: month for very long ranges, else day
-      const rangeDays = Math.max(
-        1,
-        Math.round((endDate.getTime() - startDate.getTime()) / 86400000),
-      );
-      const byMonth = rangeDays > 95;
+      // Hourly for a single IST day, monthly for long ranges, else daily
+      const granularity = pickGranularity(startDate, endDate);
 
-      const dateMatch = { createdAt: { $gte: startDate, $lte: endDate } };
+      // Booked sales per bucket, plus the preceding period of equal length.
+      // The previous series is aligned to the current one by position: its
+      // `key` is the matching current bucket (so the chart can pair them) and
+      // `prevKey` is its real date. Matching by date string never paired
+      // anything, so the comparison line always showed zero.
+      const series = await bookedBuckets(startDate, endDate, granularity);
 
-      // Collectible-but-unpaid COD in the selected range (separate from
-      // revenue, which now only counts paid orders).
-      const codPendingMatch = {
-        paymentMethod: "COD",
-        paymentStatus: { $ne: "paid" },
-        orderStatus: { $nin: ["cancelled", "returned"] },
-        ...dateMatch,
-      };
-
-      const [current, previous, codPendingAgg] = await Promise.all([
-        Order.aggregate([
-          { $match: revenueMatch(dateMatch) },
-          {
-            $group: {
-              _id: byMonth
-                ? {
-                    year: { $year: "$createdAt" },
-                    month: { $month: "$createdAt" },
-                  }
-                : {
-                    year: { $year: "$createdAt" },
-                    month: { $month: "$createdAt" },
-                    day: { $dayOfMonth: "$createdAt" },
-                  },
-              total: { $sum: NET_REVENUE },
-              orders: { $sum: 1 },
-            },
-          },
-          { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
-        ]),
-        Order.aggregate([
-          {
-            $match: {
-              ...revenueMatch({}),
-              createdAt: {
-                $gte: startDate,
-                $lte: endDate,
-              },
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              total: { $sum: NET_REVENUE },
-              orders: { $sum: 1 },
-              currentStartMin: { $min: "$createdAt" },
-              currentStartMax: { $max: "$createdAt" },
-            },
-          },
-        ]),
-        Order.aggregate([
-          { $match: codPendingMatch },
-          {
-            $group: {
-              _id: byMonth
-                ? {
-                    year: { $year: "$createdAt" },
-                    month: { $month: "$createdAt" },
-                  }
-                : {
-                    year: { $year: "$createdAt" },
-                    month: { $month: "$createdAt" },
-                    day: { $dayOfMonth: "$createdAt" },
-                  },
-              total: { $sum: "$totalAmount" },
-            },
-          },
-          { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
-        ]),
-      ]);
-
-      const labelFor = (id) => {
-        const y = id.year;
-        const m = String(id.month).padStart(2, "0");
-        const d = String(id.day ?? 1).padStart(2, "0");
-        return `${y}-${m}-${d}`;
-      };
-
-      const codPendingByKey = new Map(
-        codPendingAgg.map((r) => [labelFor(r._id), r.total || 0]),
-      );
-
-      const series = current.map((r) => ({
-        key: labelFor(r._id),
-        total: Number(r.total) || 0,
-        orders: r.orders || 0,
-        codPending: Number(codPendingByKey.get(labelFor(r._id))) || 0,
-      }));
-
-      // Build previous-period comparison when the range is not custom "today"
-      const rangeLenMs = endDate.getTime() - startDate.getTime() + 1;
+      // Single day: the previous period is the whole previous day (for today
+      // the range so far is shorter than a day). Otherwise equal length.
+      const rangeLenMs =
+        granularity === "hour" ? DAY_MS : endDate.getTime() - startDate.getTime() + 1;
       const prevStart = new Date(startDate.getTime() - rangeLenMs);
-
-      const previousSeries =
-        customDateRange || period !== "today"
-          ? await Order.aggregate([
-              {
-                $match: {
-                  ...revenueMatch({}),
-                  createdAt: { $gte: prevStart, $lt: startDate },
-                },
-              },
-              {
-                $group: {
-                  _id: byMonth
-                    ? {
-                        year: { $year: "$createdAt" },
-                        month: { $month: "$createdAt" },
-                      }
-                    : {
-                        year: { $year: "$createdAt" },
-                        month: { $month: "$createdAt" },
-                        day: { $dayOfMonth: "$createdAt" },
-                      },
-                  total: { $sum: NET_REVENUE },
-                  orders: { $sum: 1 },
-                },
-              },
-              { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
-            ])
-          : [];
-
-      const previousSeriesByKey = new Map(
-        previousSeries.map((r) => [labelFor(r._id), r]),
+      const prevSeries = await bookedBuckets(
+        prevStart,
+        new Date(startDate.getTime() - 1),
+        granularity,
       );
 
-      // Align previous values onto current bucket keys
-      const previousPeriod = series.map((s) => ({
+      const previousPeriod = series.map((s, i) => ({
         key: s.key,
-        total: Number(previousSeriesByKey.get(s.key)?.total) || 0,
-        orders: previousSeriesByKey.get(s.key)?.orders || 0,
+        prevKey: prevSeries[i]?.key ?? null,
+        total: prevSeries[i]?.total ?? 0,
+        orders: prevSeries[i]?.orders ?? 0,
       }));
 
-      const summary = current.reduce(
-        (acc, r) => {
-          acc.revenue += Number(r.total) || 0;
-          acc.orders += r.orders || 0;
-          return acc;
-        },
-        { revenue: 0, orders: 0 },
-      );
-      summary.codPending = codPendingAgg.reduce(
-        (acc, r) => acc + (Number(r.total) || 0),
-        0,
-      );
-
-      const prevSummary = previousSeries.reduce(
-        (acc, r) => {
-          acc.revenue += Number(r.total) || 0;
-          acc.orders += r.orders || 0;
-          return acc;
-        },
-        { revenue: 0, orders: 0 },
-      );
-
+      const summary = sumSeries(series);
+      // Over the aligned buckets only, so today compares with the same hours
+      // yesterday rather than with all of yesterday.
+      const prevSummary = sumSeries(prevSeries.slice(0, series.length));
       return {
         success: true,
         series,
         previousPeriod,
         summary,
         previousPeriodSummary: prevSummary,
-        granularity: byMonth ? "month" : "day",
+        granularity,
         range: {
           start: startDate.toISOString(),
           end: endDate.toISOString(),
@@ -284,6 +194,7 @@ exports.getRevenueOverTime = async (req, res) => {
         return {
           key: s.key,
           total: s.total,
+          collected: s.collected,
           orders: s.orders,
           codPending: s.codPending,
           prevTotal: prev.total || 0,

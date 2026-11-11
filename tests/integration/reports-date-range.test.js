@@ -108,40 +108,42 @@ describe("Report controllers — date-range correctness", () => {
     {
       const all = await callCtrl(getRevenueOverTime, { period: "all" });
       expect(all.success).toBe(true);
-      // Revenue counts PAID orders that are not cancelled/returned:
-      // Paid PHONEPE 200 (today) + RAZORPAY 300 (yesterday). Excluded:
-      // pending COD 100/400 (unpaid), paid-but-cancelled 50, returned COD 60
-      // = 200 + 300 = 500
+      // Revenue = booked sales (utils/revenueExpr): paid orders plus COD
+      // awaiting collection, not cancelled/returned:
+      // PHONEPE 200 + COD 100 (today) + RAZORPAY 300 + COD 400 (10d) = 1000.
+      // Excluded: paid-but-cancelled 50, returned COD 60.
       const seriesTotal = all.series.reduce((a, s) => a + (s.total || 0), 0);
-      expect(seriesTotal).toBe(500);
-      expect(all.summary.revenue).toBe(500);
-      expect(all.summary.orders).toBe(2);
-      // COD pending (COD & not paid & not cancelled/returned): today COD 100 + 10d COD 400 = 500
+      expect(seriesTotal).toBe(1000);
+      expect(all.summary.revenue).toBe(1000);
+      expect(all.summary.orders).toBe(4);
+      // Collected (paid) part: 200 + 300
+      expect(all.summary.collected).toBe(500);
+      // COD pending (part of booked): today COD 100 + 10d COD 400 = 500
       expect(all.summary.codPending).toBe(500);
 
       const todayRes = await callCtrl(getRevenueOverTime, { period: "today" });
-      expect(todayRes.summary.revenue).toBe(200); // 200 paid only (COD 100 is unpaid)
-      expect(todayRes.summary.orders).toBe(1);
+      expect(todayRes.summary.revenue).toBe(300); // paid 200 + COD awaiting 100
+      expect(todayRes.summary.orders).toBe(2);
 
       const yesterdayRes = await callCtrl(getRevenueOverTime, { period: "yesterday" });
       expect(yesterdayRes.summary.revenue).toBe(300); // RAZORPAY paid 300
       expect(yesterdayRes.summary.orders).toBe(1);
 
       const weekRes = await callCtrl(getRevenueOverTime, { period: "week" });
-      // Revenue in the last-7-days window (>= 6 days ago): today(200) + yesterday(300).
-      // 3d cancelled order is paid but excluded; 10d COD is unpaid.
-      expect(weekRes.summary.revenue).toBe(500);
-      expect(weekRes.summary.orders).toBe(2);
+      // Last 7 days (>= 6 days ago): today(200 + 100) + yesterday(300).
+      // 3d cancelled order excluded; 10d COD is outside the window.
+      expect(weekRes.summary.revenue).toBe(600);
+      expect(weekRes.summary.orders).toBe(3);
 
       const custom = await callCtrl(getRevenueOverTime, {
         period: "custom",
         from: kolkataDateDaysAgo(0),
         to: kolkataDateDaysAgo(0),
       });
-      // custom range = exactly today (Kolkata) -> same as "today": 200 revenue, 1 order
+      // custom range = exactly today (Kolkata) -> same as "today": 300, 2 orders
       expect(custom.success).toBe(true);
-      expect(custom.summary.revenue).toBe(200);
-      expect(custom.summary.orders).toBe(1);
+      expect(custom.summary.revenue).toBe(300);
+      expect(custom.summary.orders).toBe(2);
     }
 
     //
@@ -163,6 +165,10 @@ describe("Report controllers — date-range correctness", () => {
       expect(codRow.total).toBe(560);
       // codPending: COD & not paid & not cancelled/returned = today(100) + 10d(400) = 500
       expect(byStatus.codPending.total).toBe(500);
+      // Booked value replaces the old all-orders "gross" headline
+      expect(byStatus.totals.bookedOrders).toBe(4);
+      expect(byStatus.totals.bookedValue).toBe(1000);
+      expect(byStatus.totals.unpaidOnline.count).toBe(0);
     }
 
     //
@@ -187,11 +193,12 @@ describe("Report controllers — date-range correctness", () => {
       const phonep = split.splits.find((s) => s.method === "PHONEPE");
       // COD count = 3 (today pending, 10d pending, 40d returned). paid online only PHONEPE 200 (cancelled 50 excluded from paid? no, it's paid so counts).
       expect(cod.count).toBe(3);
-      // collectionRate: collected = paidOnline(after fix: PHONEPE 200 + cancelled 50 + RAZORPAY 300) + codCollected(valid COD not cancelled/ret = today+10d = 2)
-      // paidOnline = PHONEPE paidCount(2) + RAZORPAY paidCount(1) = 3; codCollected=2; total orders=6 -> rate=(3+2)/6=83.3%
+      // collectionRate = collected (booked AND paid: 200 + 300) / booked
+      // value (1000) = 50%. COD awaiting cash is booked but not collected.
       expect(split.totals.orders).toBe(6);
-      expect(split.totals.collectionRate).toBeGreaterThan(70);
-      expect(split.totals.collectionRate).toBeLessThan(90);
+      expect(split.totals.bookedValue).toBe(1000);
+      expect(split.totals.collectedTotal).toBe(500);
+      expect(split.totals.collectionRate).toBeCloseTo(50, 5);
     }
 
     //
@@ -258,7 +265,8 @@ describe("Report controllers — date-range correctness", () => {
       const row = cust.rows.find((r) => r.id === String(user._id));
       expect(row).toBeDefined();
       expect(row.lifetimeSpent).toBe(200);
-      expect(row.lifetimeOrders).toBe(2);
+      // Order counts use booked orders too: the cancelled one is not counted
+      expect(row.lifetimeOrders).toBe(1);
       expect(cust.summary.customerCount ?? cust.summary.customers).toBe(1);
     }
   });

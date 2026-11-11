@@ -6,6 +6,7 @@ const {
 } = require("../../utils/redisCache");
 const { wantsCsv, sendReportCsv } = require("../../utils/reportCsv");
 const { formatVariantName } = require("../../utils/formatVariantName");
+const { bookedMatch } = require("../../utils/revenueExpr");
 
 const CSV_COLUMNS = [
   { field: "name", header: "Product" },
@@ -83,8 +84,8 @@ exports.getSalesByProduct = async (req, res) => {
     // cached payload is the complete filtered/sorted dataset (page-independent).
     const cacheKey = [
       customDateRange
-        ? `report:sales-by-product:custom:${from || "start"}:${to || "end"}`
-        : `report:sales-by-product:${period}`,
+        ? `report:sales-by-product:v2:custom:${from || "start"}:${to || "end"}`
+        : `report:sales-by-product:v2:${period}`,
       `q:${String(search || "").toLowerCase()}`,
       `s:${sortKey}:${order}`,
     ].join(":");
@@ -114,12 +115,9 @@ exports.getSalesByProduct = async (req, res) => {
         }
       }
 
-      // Sales exclude cancelled/returned and only count paid revenue.
-      const match = {
-        orderStatus: { $nin: ["cancelled", "returned"] },
-        paymentStatus: "paid",
-        ...dateMatch,
-      };
+      // Booked sales (shared definition, utils/revenueExpr): paid orders plus
+      // COD awaiting collection; cancelled/returned and unpaid online excluded.
+      const match = bookedMatch(dateMatch);
 
       // Group item snapshots by product + variant so each variant is a row.
       const grouped = await Order.aggregate([
@@ -191,6 +189,8 @@ exports.getSalesByProduct = async (req, res) => {
             unitsSold: 1,
             revenue: 1,
             orders: { $size: "$orders" },
+            // Kept for the summary's distinct order count (stripped below)
+            orderIds: "$orders",
           },
         },
       ]);
@@ -253,6 +253,7 @@ exports.getSalesByProduct = async (req, res) => {
           // Refund splitting can produce fractions of a paisa; round to paise.
           revenue: Math.round((Number(r.revenue) || 0) * 100) / 100,
           orders: r.orders || 0,
+          _orderIds: r.orderIds || [],
         };
       });
 
@@ -279,14 +280,19 @@ exports.getSalesByProduct = async (req, res) => {
       };
       rows.sort(sortFn[sortKey]);
 
+      // Orders = distinct orders across the matching rows. Summing each row's
+      // count counted an order once per product/variant it contained.
+      const distinctOrders = new Set();
+      for (const r of rows) for (const id of r._orderIds) distinctOrders.add(String(id));
+      rows = rows.map(({ _orderIds, ...row }) => row);
+
       const summary = rows.reduce(
         (acc, r) => {
           acc.revenue += r.revenue;
           acc.unitsSold += r.unitsSold;
-          acc.orders += r.orders;
           return acc;
         },
-        { revenue: 0, unitsSold: 0, orders: 0, variants: rows.length },
+        { revenue: 0, unitsSold: 0, orders: distinctOrders.size, variants: rows.length },
       );
 
       return { rows, total: rows.length, summary };

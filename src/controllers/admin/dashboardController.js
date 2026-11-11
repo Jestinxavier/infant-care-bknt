@@ -2,7 +2,7 @@ const User = require("../../models/user");
 const Product = require("../../models/Product");
 const Category = require("../../models/Category");
 const Order = require("../../models/Order");
-const { NET_REVENUE } = require("../../utils/revenueExpr");
+const { NET_REVENUE, bookedMatch } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -115,8 +115,8 @@ exports.getDashboardStats = async (req, res) => {
     const { period = "week", from, to } = req.query;
     const customDateRange = parseDateRange(from, to);
     const cacheKey = customDateRange
-      ? `dashboard:custom:${from || "start"}:${to || "end"}`
-      : `dashboard:${period}`;
+      ? `dashboard:v2:custom:${from || "start"}:${to || "end"}`
+      : `dashboard:v2:${period}`; // v2: revenue switched to booked sales
 
     const cached = await cacheGetOrSet(cacheKey, TTL.DASHBOARD, async () => {
       // Get current date/time in Asia/Kolkata timezone
@@ -199,11 +199,11 @@ exports.getDashboardStats = async (req, res) => {
             ? { createdAt: { $gte: startDate, $lte: endDateTime } }
             : { createdAt: { $gte: startDate } };
       const baseMatch = { orderStatus: { $ne: "cancelled" }, ...dateMatch };
-      const salesMatch = {
-        orderStatus: { $nin: ["cancelled", "returned"] },
-        paymentStatus: "paid",
-        ...dateMatch,
-      };
+      // Booked sales (shared definition, see utils/revenueExpr). Paid-only
+      // revenue is returned as collectedRevenue. Counting COD at placement
+      // keeps period comparisons fair: with paid-only, recent periods looked
+      // worse simply because their COD wasn't collected yet.
+      const salesMatch = bookedMatch(dateMatch);
 
       // Effective available stock per product: sum of variant stock when the
       // product has variants, else its own stock. Shared by the inventory count.
@@ -242,7 +242,17 @@ exports.getDashboardStats = async (req, res) => {
       ] = await Promise.all([
         Order.aggregate([
           { $match: salesMatch },
-          { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE } } },
+          {
+            $group: {
+              _id: null,
+              totalRevenue: { $sum: NET_REVENUE },
+              collectedRevenue: {
+                $sum: {
+                  $cond: [{ $eq: ["$paymentStatus", "paid"] }, NET_REVENUE, 0],
+                },
+              },
+            },
+          },
         ]),
         Order.countDocuments(salesMatch),
         User.countDocuments({ role: "user" }),
@@ -277,6 +287,8 @@ exports.getDashboardStats = async (req, res) => {
       ]);
       const totalRevenue =
         revenueResult.length > 0 ? revenueResult[0].totalRevenue : 0;
+      const collectedRevenue =
+        revenueResult.length > 0 ? revenueResult[0].collectedRevenue : 0;
 
       const totalProducts = inventoryResult?.totalProducts || 0;
       const productsInStock = inventoryResult?.productsInStock || 0;
@@ -297,14 +309,13 @@ exports.getDashboardStats = async (req, res) => {
       let ordersTrendObj = null;
       let aovTrendObj = null;
 
-      // The earliest paid order is needed both for the all-time trend split and
-      // for the revenue-per-day divisor — fetch it once.
+      // The earliest booked order is needed both for the all-time trend split
+      // and for the revenue-per-day divisor — fetch it once.
       let earliestPaidOrder = null;
       if (isAllTime) {
-        earliestPaidOrder = await Order.findOne(
-          { orderStatus: { $nin: ["cancelled", "returned"] }, paymentStatus: "paid" },
-          { createdAt: 1 },
-        ).sort({ createdAt: 1 });
+        earliestPaidOrder = await Order.findOne(bookedMatch({}), {
+          createdAt: 1,
+        }).sort({ createdAt: 1 });
       }
 
       if (isAllTime) {
@@ -318,23 +329,11 @@ exports.getDashboardStats = async (req, res) => {
 
           const [firstHalfRevRes, secondHalfRevRes] = await Promise.all([
             Order.aggregate([
-              {
-                $match: {
-                  orderStatus: { $nin: ["cancelled", "returned"] },
-                  paymentStatus: "paid",
-                  createdAt: { $lt: midpoint },
-                },
-              },
+              { $match: bookedMatch({ createdAt: { $lt: midpoint } }) },
               { $group: { _id: null, total: { $sum: NET_REVENUE }, count: { $sum: 1 } } },
             ]),
             Order.aggregate([
-              {
-                $match: {
-                  orderStatus: { $nin: ["cancelled", "returned"] },
-                  paymentStatus: "paid",
-                  createdAt: { $gte: midpoint },
-                },
-              },
+              { $match: bookedMatch({ createdAt: { $gte: midpoint } }) },
               { $group: { _id: null, total: { $sum: NET_REVENUE }, count: { $sum: 1 } } },
             ]),
           ]);
@@ -367,20 +366,10 @@ exports.getDashboardStats = async (req, res) => {
 
         const [prevRevRes, prevOrdersCount] = await Promise.all([
           Order.aggregate([
-            {
-              $match: {
-                orderStatus: { $nin: ["cancelled", "returned"] },
-                paymentStatus: "paid",
-                ...prevDateMatch,
-              },
-            },
+            { $match: bookedMatch(prevDateMatch) },
             { $group: { _id: null, totalRevenue: { $sum: NET_REVENUE } } },
           ]),
-          Order.countDocuments({
-            orderStatus: { $nin: ["cancelled", "returned"] },
-            paymentStatus: "paid",
-            ...prevDateMatch,
-          }),
+          Order.countDocuments(bookedMatch(prevDateMatch)),
         ]);
 
         const prevTotalRevenue = prevRevRes[0]?.totalRevenue || 0;
@@ -467,11 +456,9 @@ exports.getDashboardStats = async (req, res) => {
 
         const prevPeriodSalesRaw = await Order.aggregate([
           {
-            $match: {
-              orderStatus: { $nin: ["cancelled", "returned"] },
-              paymentStatus: "paid",
+            $match: bookedMatch({
               createdAt: { $gte: prevPeriodStart, $lte: prevPeriodEnd },
-            },
+            }),
           },
           {
             $group: {
@@ -516,7 +503,7 @@ exports.getDashboardStats = async (req, res) => {
         }
       }
 
-      // Monthly financial summary. This uses paid non-cancelled revenue as
+      // Monthly financial summary. This uses booked non-cancelled revenue as
       // gross profit because the current product/order schemas do not store cost.
       const monthlySummary = await Order.aggregate([
         { $match: salesMatch },
@@ -756,9 +743,70 @@ const [prevCodPendingRevRes] = await Order.aggregate([
         }));
       }
 
+      // 11. Single-day ranges (today, yesterday, custom from==to): one daily
+      // bucket makes a one-dot chart, so switch the series to hourly buckets.
+      // The previous series is the day before, by the same hours.
+      let granularity = "day";
+      if (!isAllTime && daysCount === 1) {
+        granularity = "hour";
+        const HOUR_MS = 60 * 60 * 1000;
+        const dayStart = new Date(customDateRange?.$gte || startDate);
+        const dayEnd = new Date(dayStart.getTime() + 24 * HOUR_MS - 1);
+        const prevDayStart = new Date(dayStart.getTime() - 24 * HOUR_MS);
+        const istDay = (d) =>
+          new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(d);
+        // For today, stop at the current hour rather than drawing future zeros.
+        const isToday = istDay(dayStart) === istDay(now);
+        const currentHour = Number(
+          new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Kolkata",
+            hour: "2-digit",
+            hourCycle: "h23",
+          }).format(now),
+        );
+        const hoursShown = isToday ? currentHour + 1 : 24;
+        const hourLabel = (h) => `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+
+        const hourly = async (match, sumExpr, dayStr) => {
+          const rows = await Order.aggregate([
+            { $match: match },
+            {
+              $group: {
+                _id: {
+                  $dateToString: { format: "%H", date: "$createdAt", timezone: "Asia/Kolkata" },
+                },
+                total: { $sum: sumExpr },
+                orders: { $sum: 1 },
+              },
+            },
+          ]);
+          const byHour = new Map(rows.map((r) => [Number(r._id), r]));
+          return Array.from({ length: hoursShown }, (_, h) => ({
+            name: hourLabel(h),
+            date: dayStr,
+            hour: h,
+            total: byHour.get(h)?.total || 0,
+            orders: byHour.get(h)?.orders || 0,
+          }));
+        };
+
+        const dayRange = { createdAt: { $gte: dayStart, $lte: dayEnd } };
+        [formattedSales, previousPeriodSales, codPendingOverTime] = await Promise.all([
+          hourly(bookedMatch(dayRange), NET_REVENUE, istDay(dayStart)),
+          hourly(
+            bookedMatch({ createdAt: { $gte: prevDayStart, $lt: dayStart } }),
+            NET_REVENUE,
+            istDay(prevDayStart),
+          ),
+          hourly({ ...codPendingMatch, ...dayRange }, "$totalAmount", istDay(dayStart)),
+        ]);
+      }
+
       return {
         success: true,
-        totalRevenue,
+        granularity,
+        totalRevenue, // booked sales (see bookedMatch)
+        collectedRevenue, // paid part of totalRevenue
         newOrders,
         totalCustomers,
         totalProducts,

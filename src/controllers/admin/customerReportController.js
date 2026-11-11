@@ -1,6 +1,6 @@
 const User = require("../../models/user");
 const Order = require("../../models/Order");
-const { NET_REVENUE } = require("../../utils/revenueExpr");
+const { NET_REVENUE, IS_BOOKED } = require("../../utils/revenueExpr");
 const {
   cacheGetOrSet,
   cacheDelPattern,
@@ -78,13 +78,12 @@ exports.getCustomersReport = async (req, res) => {
     const exportAll = String(limit).trim() === "0";
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
 
-    // Paid-only revenue (excludes unpaid COD, cancelled, returned)
-    const PAID_VALID_COND = {
-      $and: [
-        { $eq: ["$paymentStatus", "paid"] },
-        { $not: [{ $in: ["$orderStatus", ["cancelled", "returned"]] }] },
-      ],
-    };
+    // Booked orders only (shared definition, utils/revenueExpr) for BOTH spend
+    // and order counts. Counting every order while summing only paid spend made
+    // AOV too low, turned failed-payment attempts into "active" customers, and
+    // made a retried payment look like a returning customer.
+    const bookedOnly = (value) => ({ $cond: [IS_BOOKED, value, 0] });
+    const bookedDate = { $cond: [IS_BOOKED, "$createdAt", null] }; // $min/$max skip null
 
     const SORTABLE = new Set([
       "totalSpent",
@@ -104,8 +103,8 @@ exports.getCustomersReport = async (req, res) => {
     // cached payload is the complete filtered/sorted dataset (page-independent).
     const cacheKey = [
       customDateRange
-        ? `report:customers:custom:${from || "start"}:${to || "end"}`
-        : `report:customers:${period}`,
+        ? `report:customers:v2:custom:${from || "start"}:${to || "end"}`
+        : `report:customers:v2:${period}`,
       `q:${String(search || "").toLowerCase()}`,
       `s:${sortKey}:${order}`,
     ].join(":");
@@ -165,12 +164,10 @@ exports.getCustomersReport = async (req, res) => {
         {
           $group: {
             _id: "$userId",
-            lifetimeSpent: {
-              $sum: { $cond: [PAID_VALID_COND, NET_REVENUE, 0] },
-            },
-            lifetimeOrders: { $sum: 1 },
-            firstOrderDate: { $min: "$createdAt" },
-            lastOrderDate: { $max: "$createdAt" },
+            lifetimeSpent: { $sum: bookedOnly(NET_REVENUE) },
+            lifetimeOrders: { $sum: bookedOnly(1) },
+            firstOrderDate: { $min: bookedDate },
+            lastOrderDate: { $max: bookedDate },
           },
         },
       ]);
@@ -181,10 +178,8 @@ exports.getCustomersReport = async (req, res) => {
         {
           $group: {
             _id: "$userId",
-            periodSpent: {
-              $sum: { $cond: [PAID_VALID_COND, NET_REVENUE, 0] },
-            },
-            periodOrders: { $sum: 1 },
+            periodSpent: { $sum: bookedOnly(NET_REVENUE) },
+            periodOrders: { $sum: bookedOnly(1) },
           },
         },
       ]);

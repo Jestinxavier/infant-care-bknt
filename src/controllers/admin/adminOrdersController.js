@@ -17,6 +17,11 @@ const logger = require("../../utils/logger");
 const { resolveAttributeLabels } = require("../../utils/formatCartResponse");
 const { formatVariantName } = require("../../utils/formatVariantName");
 const { cacheGetOrSet } = require("../../utils/redisCache");
+const {
+  NET_REVENUE,
+  IS_BOOKED,
+  IS_UNPAID_ONLINE,
+} = require("../../utils/revenueExpr");
 
 const escapeRegex = require("../../utils/escapeRegex");
 
@@ -418,7 +423,8 @@ function buildStatusCountsCacheKey(requestData, userRole) {
       : `${field}=${encodeURIComponent(String(value))}`;
   });
 
-  return `admin:orders:status-counts:${userRole || "guest"}:${parts.join("&")}`;
+  // v2: adds bookedAmount / unpaidOnline per status
+  return `admin:orders:status-counts:v2:${userRole || "guest"}:${parts.join("&")}`;
 }
 
 const getOrderStatusCounts = async (req, res) => {
@@ -453,6 +459,14 @@ const getOrderStatusCounts = async (req, res) => {
               _id: "$orderStatus",
               count: { $sum: 1 },
               amount: { $sum: "$totalAmount" },
+              // Booked = real sales (utils/revenueExpr). Unpaid online =
+              // checkouts whose payment never completed: in "pending" these
+              // are not orders waiting for the team to confirm.
+              bookedAmount: { $sum: { $cond: [IS_BOOKED, NET_REVENUE, 0] } },
+              unpaidOnlineCount: { $sum: { $cond: [IS_UNPAID_ONLINE, 1, 0] } },
+              unpaidOnlineAmount: {
+                $sum: { $cond: [IS_UNPAID_ONLINE, "$totalAmount", 0] },
+              },
             },
           },
         ]);
@@ -462,12 +476,20 @@ const getOrderStatusCounts = async (req, res) => {
           status,
           count: byStatus.get(status)?.count || 0,
           amount: byStatus.get(status)?.amount || 0,
+          bookedAmount: byStatus.get(status)?.bookedAmount || 0,
+          unpaidOnlineCount: byStatus.get(status)?.unpaidOnlineCount || 0,
+          unpaidOnlineAmount: byStatus.get(status)?.unpaidOnlineAmount || 0,
         }));
 
         return {
           counts,
           total: counts.reduce((sum, item) => sum + item.count, 0),
           totalAmount: counts.reduce((sum, item) => sum + item.amount, 0),
+          bookedAmount: counts.reduce((sum, item) => sum + item.bookedAmount, 0),
+          unpaidOnlineCount: counts.reduce(
+            (sum, item) => sum + item.unpaidOnlineCount,
+            0,
+          ),
         };
       },
     );
