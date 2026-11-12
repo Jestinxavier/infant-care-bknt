@@ -6,13 +6,19 @@ const {
   getProductsIndex,
   isMeilisearchEnabled,
 } = require("../../config/meilisearch");
+const {
+  isSkuLikeTerm,
+  buildSkuPrefixClauses,
+  findExactSkuProductIds,
+} = require("../../utils/skuSearch");
 
 const CACHE_TTL_SECONDS = 120;
 const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 10;
 const MIN_QUERY_LENGTH = 2;
+const SKU_ONLY_MIN_LENGTH = 8;
 
-const CACHE_PREFIX = "search:suggest:v3";
+const CACHE_PREFIX = "search:suggest:v4";
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -88,22 +94,7 @@ const suggestViaMeilisearch = async (normalized, limit) => {
     total: products.length,
   };
 
-  // Exact-SKU detection without an extra Mongo roundtrip — the index
-  // carries sku/skus attributes for this purpose.
-  if (/^[a-z0-9-]+$/.test(normalized) && products.length > 0) {
-    const firstHitSkus = [
-      ...(hits[0].sku ? [hits[0].sku] : []),
-      ...(hits[0].skus || []),
-    ];
-    if (
-      firstHitSkus.some((sku) => String(sku).toLowerCase() === normalized)
-    ) {
-      payload.products = products.slice(0, 1);
-      payload.total = 1;
-      payload.exactMatch = true;
-    }
-  }
-
+  // Exact SKUs are resolved before this runs (see searchSuggest).
   return payload;
 };
 
@@ -225,6 +216,65 @@ const searchSuggest = async (req, res) => {
       logger.warn("⚠️ Suggest cache read failed:", cacheError.message);
     }
 
+    // ── Exact SKU short-circuit ─────────────────────────────────────
+    // Runs before Meilisearch: its typo tolerance tokenises "NEW--PRMM-689839"
+    // into words and can rank other products above the exact SKU owner. Uses
+    // the same rule as the /search listing so "View all" shows the same item.
+    const exactSkuIds = await findExactSkuProductIds(rawQuery);
+    if (exactSkuIds.length > 0) {
+      const exactSkuProduct = await Product.findOne({ _id: exactSkuIds[0] })
+        .select(BASE_SELECT)
+        .populate("category", "name")
+        .lean();
+      if (exactSkuProduct) {
+        const payload = {
+          success: true,
+          query: normalized,
+          products: [toSuggestion(exactSkuProduct)],
+          total: 1,
+          exactMatch: true,
+        };
+        try {
+          await redis.set(
+            cacheKey,
+            JSON.stringify(payload),
+            "EX",
+            CACHE_TTL_SECONDS
+          );
+        } catch (cacheError) {
+          logger.warn("⚠️ Suggest cache write failed:", cacheError.message);
+        }
+        return res.status(200).json(payload);
+      }
+    }
+
+    // ── Partial SKU (long code-like query, no exact hit) ────────────
+    // Only SKU-prefix matches — no typo/title fuzziness — so suggestions are
+    // the same products the /search listing's SKU leg returns. The length
+    // floor keeps short size-like tokens ("0-3m", "6-12") on the normal path.
+    if (isSkuLikeTerm(rawQuery) && rawQuery.length >= SKU_ONLY_MIN_LENGTH) {
+      const docs = await Product.find({
+        status: "published",
+        $or: buildSkuPrefixClauses(rawQuery),
+      })
+        .select(BASE_SELECT)
+        .populate("category", "name")
+        .limit(limit)
+        .lean();
+      const payload = {
+        success: true,
+        query: normalized,
+        products: docs.map((doc) => toSuggestion(doc)),
+        total: docs.length,
+      };
+      try {
+        await redis.set(cacheKey, JSON.stringify(payload), "EX", CACHE_TTL_SECONDS);
+      } catch (cacheError) {
+        logger.warn("⚠️ Suggest cache write failed:", cacheError.message);
+      }
+      return res.status(200).json(payload);
+    }
+
     // ── Meilisearch path (typo tolerance, prefix, synonyms) ─────────
     if (isMeilisearchEnabled()) {
       try {
@@ -246,51 +296,6 @@ const searchSuggest = async (req, res) => {
           "❌ Meilisearch suggest failed, using Mongo fallback:",
           searchError.message
         );
-      }
-    }
-
-    const escaped = escapeRegExp(normalized);
-    const prefixRegex = new RegExp(`^${escaped}`, "i");
-    const isSkuLike = /^[a-z0-9-]+$/.test(normalized);
-
-    // ── Exact SKU short-circuit ─────────────────────────────────────
-    if (isSkuLike) {
-      const exactSkuProduct = await Product.findOne({
-        status: "published",
-        $or: [{ sku: prefixRegex }, { "variants.sku": prefixRegex }],
-      })
-        .select(BASE_SELECT)
-        .populate("category", "name")
-        .lean();
-
-      const hasExactSku =
-        exactSkuProduct &&
-        [
-          exactSkuProduct.sku,
-          ...(exactSkuProduct.variants || []).map((v) => v.sku),
-        ]
-          .filter(Boolean)
-          .some((sku) => sku.toLowerCase() === normalized);
-
-      if (hasExactSku) {
-        const payload = {
-          success: true,
-          query: normalized,
-          products: [toSuggestion(exactSkuProduct)],
-          total: 1,
-          exactMatch: true,
-        };
-        try {
-          await redis.set(
-            cacheKey,
-            JSON.stringify(payload),
-            "EX",
-            CACHE_TTL_SECONDS
-          );
-        } catch (cacheError) {
-          logger.warn("⚠️ Suggest cache write failed:", cacheError.message);
-        }
-        return res.status(200).json(payload);
       }
     }
 

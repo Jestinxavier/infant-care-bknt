@@ -103,4 +103,82 @@ describe("Product search surface", () => {
       expect.objectContaining({ limit: 1 }),
     );
   });
+
+  // Regression: suggest showed the SKU's product, but "View all"
+  // (/product/all?search=<sku>) returned nothing or unrelated products.
+  describe("exact SKU: suggest and /search listing agree", () => {
+    const listing = (search, extra = {}) =>
+      request(app).get("/api/v1/product/all").query({ search, ...extra });
+    const facets = (search) =>
+      request(app).get("/api/v1/filter/all").query({ search });
+    const suggest = (q) =>
+      request(app).get("/api/v1/product/search/suggest").query({ q });
+
+    it("finds a SIMPLE product by its root SKU (case-insensitive)", async () => {
+      const sku = `${Date.now()}`.slice(-6) + "o2eag1ix-17872180";
+      const product = await makeProduct({
+        title: "Root Sku Cord Set",
+        product_type: "SIMPLE",
+        sku,
+        price: 250,
+      });
+
+      const s = await suggest(sku.toUpperCase());
+      expect(s.body.exactMatch).toBe(true);
+      expect(s.body.products.map((p) => p.id)).toEqual([String(product._id)]);
+
+      const res = await listing(sku.toUpperCase());
+      expect(res.status).toBe(200);
+      expect(res.body.items.map((i) => String(i.id))).toEqual([
+        String(product._id),
+      ]);
+
+      const f = await facets(sku);
+      expect(f.status).toBe(200);
+    });
+
+    it("shows a sold-out SKU unless a stock filter is chosen, and ignores near-miss SKUs", async () => {
+      const base = `NEW--PRMM-${Date.now()}`.toUpperCase();
+      const soldOut = await makeProduct({
+        title: "Mosquito Net Bedding Set",
+        product_type: "CONFIGURABLE",
+        stockObj: { available: 0, isInStock: false },
+        variants: [
+          {
+            id: unique("variant"),
+            sku: base,
+            price: 999,
+            stock: 0,
+            stockObj: { available: 0, isInStock: false },
+          },
+        ],
+      });
+      // One-char-off SKU on a different, in-stock product.
+      await makeProduct({
+        title: "Carry Nest Pink",
+        product_type: "SIMPLE",
+        sku: `${base}1`,
+        price: 800,
+      });
+
+      const s = await suggest(base);
+      expect(s.body.exactMatch).toBe(true);
+      expect(s.body.products[0].id).toBe(String(soldOut._id));
+
+      const res = await listing(base);
+      expect(res.body.items.map((i) => String(i.id))).toEqual([
+        String(soldOut._id),
+      ]);
+
+      const inStockOnly = await listing(base, { inStock: "true" });
+      expect(inStockOnly.body.items).toHaveLength(0);
+
+      // Non-existent SKU: no fuzzy title matches in suggest or listing.
+      const missing = `${base}ZZ9`;
+      expect((await suggest(missing)).body.products).toHaveLength(0);
+      const lm = await listing(missing);
+      expect(lm.status).toBe(200);
+      expect(lm.body.items).toHaveLength(0);
+    });
+  });
 });

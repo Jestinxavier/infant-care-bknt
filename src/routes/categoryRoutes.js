@@ -10,6 +10,9 @@ const {
   bulkDeleteCategories,
 } = require("../controllers/category");
 const verifyToken = require("../middlewares/authMiddleware");
+// Writes here must be admin-only: verifyToken alone lets any signed-in
+// customer create, edit or delete categories.
+const requireAdmin = require("../middlewares/adminMiddleware");
 const logger = require("../utils/logger");
 const { categoryImageUploader } = require("../config/categoryImageUpload");
 const { uploadFilesMiddleware } = require("../config/mediaServer");
@@ -108,7 +111,7 @@ router.get("/", getAllCategories);
  *       401:
  *         description: Unauthorized
  */
-router.post("/bulk-delete", verifyToken, bulkDeleteCategories);
+router.post("/bulk-delete", verifyToken, requireAdmin, bulkDeleteCategories);
 
 /**
  * @swagger
@@ -171,6 +174,7 @@ router.get("/:categoryId", getCategoryById);
 router.post(
   "/",
   verifyToken,
+  requireAdmin,
   (req, res, next) => {
     categoryImageUploader.single("image")(req, res, function (err) {
       if (err) {
@@ -235,6 +239,7 @@ router.post(
 router.put(
   "/:categoryId",
   verifyToken,
+  requireAdmin,
   (req, res, next) => {
     categoryImageUploader.single("image")(req, res, function (err) {
       if (err) {
@@ -273,6 +278,6 @@ router.put(
  *       404:
  *         description: Category not found
  */
-router.delete("/:categoryId", verifyToken, deleteCategory);
+router.delete("/:categoryId", verifyToken, requireAdmin, deleteCategory);
 
 module.exports = router;

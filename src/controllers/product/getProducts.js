@@ -74,6 +74,11 @@ const getAllProducts = async (req, res) => {
       subCategories: filters.subCategories,
       search: requestData.search || requestData.q,
       collection,
+      // inStock above defaults to true; an exact-SKU search ignores that
+      // default (shows the product even when sold out) but not a real filter.
+      inStockExplicit: [filters.inStock, requestData.inStock].some(
+        (v) => v !== undefined && v !== null && v !== "",
+      ),
     };
 
     // If category is provided as code (e.g. "clothing"), resolve it to ID first

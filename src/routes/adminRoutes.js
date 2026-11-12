@@ -74,6 +74,7 @@ const {
   updateCategory,
   deleteCategory,
   bulkDeleteCategories,
+  reorderCategories,
 } = require("../controllers/category");
 const { categoryImageUploader } = require("../config/categoryImageUpload");
 
@@ -1753,6 +1754,36 @@ router.post(
   requireAdmin,
   bulkDeleteCategories,
 );
+
+/**
+ * @swagger
+ * /api/v1/admin/categories/reorder:
+ *   put:
+ *     summary: Set the display order of one parent's subcategories (or the top-level ones)
+ *     tags: [Admin - Categories]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [orderedIds]
+ *             properties:
+ *               parentId:
+ *                 type: string
+ *                 nullable: true
+ *                 description: Parent category id, or null for top-level categories
+ *               orderedIds:
+ *                 type: array
+ *                 items: { type: string }
+ *     responses:
+ *       200: { description: Order saved }
+ *       409: { description: The group changed since it was loaded }
+ */
+// Registered before "/categories/:categoryId" so "reorder" is never read as an id
+router.put("/categories/reorder", verifyToken, requireAdmin, reorderCategories);
 
 /**
  * @swagger

@@ -94,31 +94,39 @@ function toSellable(product, variant) {
  * Find sellable lines by title or SKU. An exact SKU (a barcode scan) returns
  * just that line, so the dashboard can add it to the bill straight away.
  */
-async function searchSellableItems(rawQuery, limit = 20, { browse = false, category } = {}) {
+async function searchSellableItems(rawQuery, limit = 20, { browse = false, category, page = 1 } = {}) {
   const q = typeof rawQuery === "string" ? rawQuery.trim() : "";
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
   const sellableTypes = [PRODUCT_TYPES.SIMPLE, PRODUCT_TYPES.CONFIGURABLE];
   const base = { status: "published", product_type: { $in: sellableTypes } };
 
   // Browse (no search text): show products straight away, optionally for one
-  // category, so the cashier can tap common items without typing
+  // category, so the cashier can tap common items without typing. Paged by
+  // product (`page`, `hasMore`) so the whole catalog is reachable, and every
+  // variant of a product on the page is returned (never cut off mid-product).
   if (q.length < 2) {
-    if (!browse) return { items: [], exactMatch: false };
+    if (!browse) return { items: [], exactMatch: false, hasMore: false };
     const filter = { ...base };
     if (typeof category === "string" && /^[a-f0-9]{24}$/i.test(category)) {
       filter.category = category;
     }
-    const products = await Product.find(filter).sort({ updatedAt: -1 }).limit(safeLimit).lean();
+    const safePage = Math.min(Math.max(parseInt(page, 10) || 1, 1), 1000);
+    // _id breaks ties so paging is stable when many products share updatedAt
+    const products = await Product.find(filter)
+      .sort({ updatedAt: -1, _id: -1 })
+      .skip((safePage - 1) * safeLimit)
+      .limit(safeLimit + 1)
+      .lean();
+    const hasMore = products.length > safeLimit;
     const items = [];
-    for (const product of products) {
+    for (const product of products.slice(0, safeLimit)) {
       if (product.product_type === PRODUCT_TYPES.CONFIGURABLE) {
         for (const variant of product.variants || []) items.push(toSellable(product, variant));
       } else {
         items.push(toSellable(product, null));
       }
     }
-    items.sort((a, b) => Number(b.stock > 0) - Number(a.stock > 0));
-    return { items: items.slice(0, safeLimit * 2), exactMatch: false };
+    return { items, exactMatch: false, hasMore, page: safePage };
   }
 
   const exactSku = new RegExp(`^${escapeRegex(q)}$`, "i");

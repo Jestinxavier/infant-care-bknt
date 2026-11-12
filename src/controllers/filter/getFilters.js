@@ -13,6 +13,10 @@ const {
   resolveCatalogValueForAttribute,
 } = require("../../utils/attributeCatalogGuard");
 const { cacheGet, cacheSet, TTL } = require("../../utils/redisCache");
+const {
+  buildSkuPrefixClauses,
+  findExactSkuProductIds,
+} = require("../../utils/skuSearch");
 
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MIN_FUZZY_QUERY_LENGTH = 3;
@@ -35,7 +39,6 @@ const SEARCH_TEXT_FIELDS = [
   "name",
   "categoryName",
 ];
-const SKU_SEARCH_FIELD = "variants.sku";
 
 const normalizeValue = (value) => (value ?? "").toString().trim().toLowerCase();
 const escapeRegexLiteral = (value = "") =>
@@ -178,19 +181,21 @@ const tokenizeSearchTerm = (searchTerm = "") =>
     .split(/\s+/)
     .filter(Boolean);
 
-const getSearchFields = (searchTerm = "") => {
-  const raw = String(searchTerm || "");
-  if (/[0-9-]/.test(raw)) {
-    return [...SEARCH_TEXT_FIELDS, SKU_SEARCH_FIELD];
-  }
-  return SEARCH_TEXT_FIELDS;
-};
+
+// MongoDB rejects $regex patterns over 32KB (error 51091 → a 500 on /search).
+const MAX_TOKEN_PATTERN_LENGTH = 16000;
 
 const buildTokenRegex = (token, { includeFuzzy = false } = {}) => {
-  const variants = buildSearchVariants(token);
+  // Codes/SKUs (anything with a digit) are matched literally: a one-char edit
+  // of a code is a different product, and long codes would otherwise expand
+  // into hundreds of variants.
+  const variants = /[0-9]/.test(token) ? [token] : buildSearchVariants(token);
   if (variants.length === 0) return null;
 
-  const variantPattern = variants.map((term) => escapeRegexLiteral(term)).join("|");
+  let variantPattern = variants.map((term) => escapeRegexLiteral(term)).join("|");
+  if (variantPattern.length > MAX_TOKEN_PATTERN_LENGTH) {
+    variantPattern = escapeRegexLiteral(token);
+  }
   const patternParts = [`\\b(?:${variantPattern})`];
 
   if (includeFuzzy) {
@@ -209,16 +214,16 @@ const buildTokenRegex = (token, { includeFuzzy = false } = {}) => {
 const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
   const tokens = tokenizeSearchTerm(searchTerm);
   if (tokens.length === 0) return null;
-  const fields = getSearchFields(searchTerm);
 
   const tokenClauses = tokens
     .map((token) => {
       const tokenRegex = buildTokenRegex(token, { includeFuzzy });
       if (!tokenRegex) return null;
 
-      return {
-        $or: fields.map((field) => ({ [field]: tokenRegex })),
-      };
+      // Mirrors product.service buildSearchQuery: SKU leg is a plain prefix.
+      const clauses = SEARCH_TEXT_FIELDS.map((field) => ({ [field]: tokenRegex }));
+      if (/[0-9-]/.test(token)) clauses.push(...buildSkuPrefixClauses(token));
+      return { $or: clauses };
     })
     .filter(Boolean);
 
@@ -237,10 +242,8 @@ const applySearchFilter = (baseFilter, rawSearchTerm, useFuzzy = false) => {
     includeFuzzy: !!useFuzzy,
   });
 
-  if (searchQuery?.$or) {
-    filter.$or = searchQuery.$or;
-  } else if (searchQuery?.$and) {
-    filter.$and = searchQuery.$and;
+  if (searchQuery) {
+    filter.$and = [...(filter.$and || []), searchQuery];
   }
 
   return filter;
@@ -434,11 +437,12 @@ const getFilters = async (req, res) => {
     }
     Object.assign(productFilter, buildFilterAttributesQuery(parsedFilters));
 
-    const effectiveProductFilter = applySearchFilter(
-      productFilter,
-      rawSearchTerm,
-      false
-    );
+    // Exact SKU → facets for exactly that product (mirrors the listing).
+    const exactSkuIds = await findExactSkuProductIds(rawSearchTerm);
+    const isExactSkuSearch = exactSkuIds.length > 0;
+    const effectiveProductFilter = isExactSkuSearch
+      ? { ...productFilter, _id: { $in: exactSkuIds } }
+      : applySearchFilter(productFilter, rawSearchTerm, false);
 
     // Applied AFTER the search filter (which overwrites `$and`) so it is never
     // clobbered. The clause is kept by reference so the category facet can be
@@ -456,11 +460,15 @@ const getFilters = async (req, res) => {
     // explicit inStock=false). Out-of-stock products never surface in the
     // default grid, so they must not inflate the counts. Applied AFTER the
     // search filter (which may set its own $and) so it is never clobbered.
+    // Exception, as in the listing: an exact-SKU search shows the product
+    // even when sold out unless the shopper explicitly picked a stock filter.
     const inStock = parsedFilters.inStock === "false" ? false : true;
-    effectiveProductFilter.$and = [
-      ...(effectiveProductFilter.$and || []),
-      buildInStockQuery(inStock),
-    ];
+    if (!(isExactSkuSearch && parsedFilters.inStock === undefined)) {
+      effectiveProductFilter.$and = [
+        ...(effectiveProductFilter.$and || []),
+        buildInStockQuery(inStock),
+      ];
+    }
 
     // Get all products for this category/search (for filter generation).
     // Only the fields the facet builder reads are projected — the previous

@@ -33,6 +33,7 @@ const searchItems = async (req, res) => {
     const result = await posService.searchSellableItems(req.query.q, req.query.limit, {
       browse: req.query.browse === "1",
       category: req.query.category,
+      page: req.query.page,
     });
     res.status(200).json({ success: true, ...result });
   } catch (err) {

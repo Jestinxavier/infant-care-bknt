@@ -27,6 +27,10 @@ const Product = require("./product.model");
 const Review = require("../../models/Review");
 const { getBundleAvailability } = require("./bundle.service");
 const logger = require("../../utils/logger");
+const {
+  buildSkuPrefixClauses,
+  findExactSkuProductIds,
+} = require("../../utils/skuSearch");
 
 const MIN_FUZZY_QUERY_LENGTH = 3;
 // Cap the token length used for the fuzzy pattern: each character expands to a
@@ -97,7 +101,6 @@ const SEARCH_TEXT_FIELDS = [
   "collections",
   "variants.name",
 ];
-const SKU_SEARCH_FIELD = "variants.sku";
 const SEARCH_TERM_SYNONYMS = {
   dress: ["frock", "gown", "one-piece", "onepiece"],
   frock: ["dress", "gown"],
@@ -321,19 +324,21 @@ const applySearchIntentFilters = (filters = {}) => {
   return nextFilters;
 };
 
-const getSearchFields = (searchTerm = "") => {
-  const raw = String(searchTerm || "");
-  if (/[0-9-]/.test(raw)) {
-    return [...SEARCH_TEXT_FIELDS, SKU_SEARCH_FIELD];
-  }
-  return SEARCH_TEXT_FIELDS;
-};
+
+// MongoDB rejects $regex patterns over 32KB (error 51091 → a 500 on /search).
+const MAX_TOKEN_PATTERN_LENGTH = 16000;
 
 const buildTokenRegex = (token, { includeFuzzy = false } = {}) => {
-  const variants = buildSearchVariants(token);
+  // Codes/SKUs (anything with a digit) are matched literally: a one-char edit
+  // of a code is a different product, and long codes would otherwise expand
+  // into hundreds of variants.
+  const variants = /[0-9]/.test(token) ? [token] : buildSearchVariants(token);
   if (variants.length === 0) return null;
 
-  const variantPattern = variants.map((term) => escapeRegexLiteral(term)).join("|");
+  let variantPattern = variants.map((term) => escapeRegexLiteral(term)).join("|");
+  if (variantPattern.length > MAX_TOKEN_PATTERN_LENGTH) {
+    variantPattern = escapeRegexLiteral(token);
+  }
   const patternParts = [`\\b(?:${variantPattern})`];
 
   if (includeFuzzy) {
@@ -352,16 +357,17 @@ const buildTokenRegex = (token, { includeFuzzy = false } = {}) => {
 const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
   const tokens = tokenizeSearchTerm(searchTerm);
   if (tokens.length === 0) return null;
-  const fields = getSearchFields(searchTerm);
 
   const tokenClauses = tokens
     .map((token) => {
       const tokenRegex = buildTokenRegex(token, { includeFuzzy });
       if (!tokenRegex) return null;
 
-      return {
-        $or: fields.map((field) => ({ [field]: tokenRegex })),
-      };
+      const clauses = SEARCH_TEXT_FIELDS.map((field) => ({ [field]: tokenRegex }));
+      // SKU leg: plain prefix on root + variant SKUs. Never typo-expanded —
+      // a one-char edit of a SKU is a different product's SKU.
+      if (/[0-9-]/.test(token)) clauses.push(...buildSkuPrefixClauses(token));
+      return { $or: clauses };
     })
     .filter(Boolean);
 
@@ -498,17 +504,26 @@ class ProductService {
 
     Object.assign(matchStage, buildFilterAttributesQuery(effectiveFilters));
 
-    // Search Filter (Regex on title/name)
-    if (effectiveFilters.search) {
+    // Exact SKU query → show exactly that product (same rule as the search
+    // suggest endpoint), even when it is out of stock, unless the shopper
+    // explicitly chose a stock filter.
+    const exactSkuIds = options.isAdmin
+      ? []
+      : await findExactSkuProductIds(filters.search);
+    const isExactSkuSearch = exactSkuIds.length > 0;
+
+    // Search Filter (Regex on title/name/SKU). Added under $and so it never
+    // overwrites the category/subcategory $or set above.
+    if (isExactSkuSearch) {
+      matchStage._id = { $in: exactSkuIds };
+    } else if (effectiveFilters.search) {
       const rawSearchTerm = String(effectiveFilters.search).trim();
       if (rawSearchTerm) {
         const searchQuery = buildSearchQuery(rawSearchTerm, {
           includeFuzzy: !!effectiveFilters.searchFuzzy,
         });
-        if (searchQuery?.$or) {
-          matchStage.$or = searchQuery.$or;
-        } else if (searchQuery?.$and) {
-          matchStage.$and = searchQuery.$and;
+        if (searchQuery) {
+          matchStage.$and = [...(matchStage.$and || []), searchQuery];
         }
       }
     }
@@ -693,7 +708,9 @@ class ProductService {
         : []),
 
       // Stock Filter - only apply if explicitly requested (inStock is normalized above)
-      ...(inStock === true
+      ...(isExactSkuSearch && !effectiveFilters.inStockExplicit
+        ? []
+        : inStock === true
         ? [{ $match: { isInStock: true } }]
         : inStock === false
         ? [{ $match: { isInStock: false } }]

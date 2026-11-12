@@ -1,6 +1,7 @@
 const BaseRepository = require("../../core/BaseRepository");
 const Product = require("./product.model");
 const { buildFilterAttributesQuery } = require("../../utils/filterAttributes");
+const { buildSkuPrefixClauses } = require("../../utils/skuSearch");
 
 /**
  * Product Repository
@@ -45,12 +46,11 @@ class ProductRepository extends BaseRepository {
     const isSkuLike = /^[A-Za-z0-9-]+$/.test(searchTerm) && searchTerm.length <= 20;
 
     const textFilter = { $text: { $search: searchTerm } };
-    const skuFilter = isSkuLike
-      ? { "variants.sku": new RegExp(`^${searchTerm}`, "i") }
-      : null;
+    // Root `sku` too — SIMPLE products keep their SKU on the product itself.
+    const skuFilters = isSkuLike ? buildSkuPrefixClauses(searchTerm) : [];
 
     const filter = {
-      $or: skuFilter ? [textFilter, skuFilter] : [textFilter],
+      $or: [textFilter, ...skuFilters],
     };
 
     if (!options.includeNonPublished) {
