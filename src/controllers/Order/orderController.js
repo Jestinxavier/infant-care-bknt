@@ -18,6 +18,7 @@ const { releasePreviousAttempt } = require("../../services/paymentReconciler");
 const { releaseOrderCoupons } = require("../../utils/orderCouponRelease");
 const { backfillLegacyStock } = require("../../utils/legacyStockBackfill");
 const { generateOrderId } = require("../../utils/orderId");
+const { parseIndianPhone } = require("../../utils/phone");
 const { computeCartItemPricing } = require("../../utils/quantityPricingUtils");
 const { logError } = require("../../utils/errorLogger");
 const {
@@ -93,7 +94,7 @@ const createOrder = async (req, res) => {
       guestInfo,
       items,
       addressId,
-      newAddress,
+      newAddress: rawNewAddress,
       paymentMethod: requestedPaymentMethod,
       cartId: requestedCartId,
       metaContext,
@@ -150,6 +151,26 @@ const createOrder = async (req, res) => {
           message: "Please provide a valid email address",
         });
       }
+    }
+
+    // Phones: Indian mobiles only, stored as 10 digits. Saved addresses are
+    // used as stored (validated when they were saved); a guest's phone and a
+    // newly entered address are checked here.
+    let guestPhone = null;
+    if (isGuest) {
+      const parsed = parseIndianPhone(guestInfo.phone, { required: true });
+      if (!parsed.ok) {
+        return res.status(400).json({ success: false, errorCode: "INVALID_PHONE", message: parsed.message });
+      }
+      guestPhone = parsed.phone;
+    }
+    let newAddress = rawNewAddress;
+    if (rawNewAddress) {
+      const parsed = parseIndianPhone(rawNewAddress.phone, { required: true });
+      if (!parsed.ok) {
+        return res.status(400).json({ success: false, errorCode: "INVALID_PHONE", message: parsed.message });
+      }
+      newAddress = { ...rawNewAddress, phone: parsed.phone };
     }
 
     // === IDEMPOTENCY CHECK (Key-Based) ===
@@ -870,7 +891,7 @@ const createOrder = async (req, res) => {
       guestInfo: isGuest ? {
         name: guestInfo.name,
         email: guestInfo.email.toLowerCase().trim(),
-        phone: guestInfo.phone,
+        phone: guestPhone,
       } : undefined,
       orderId,
       idempotencyKey, // Store idempotency key with order

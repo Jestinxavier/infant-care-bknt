@@ -1,5 +1,6 @@
 const Address = require("../../models/Address");
 const logger = require("../../utils/logger");
+const { parseIndianPhone } = require("../../utils/phone");
 
 const updateAddress = async (req, res) => {
   try {
@@ -22,6 +23,15 @@ const updateAddress = async (req, res) => {
 
     // Strip userId from updateData to prevent mass assignment
     const { userId: _removed, ...safeUpdateData } = updateData;
+
+    // Only when the phone is part of this update (e.g. not for "set default")
+    if (Object.prototype.hasOwnProperty.call(safeUpdateData, "phone")) {
+      const parsedPhone = parseIndianPhone(safeUpdateData.phone, { required: true });
+      if (!parsedPhone.ok) {
+        return res.status(400).json({ success: false, message: parsedPhone.message });
+      }
+      safeUpdateData.phone = parsedPhone.phone;
+    }
 
     // If this address is being set as default, unset all other default addresses for this user
     if (safeUpdateData.isDefault === true) {

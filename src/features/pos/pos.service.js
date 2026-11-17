@@ -25,6 +25,7 @@ const { hasPermission } = require("../../../resources/permissions");
 const logger = require("../../utils/logger");
 const { ChargeError, getChargeTypes, resolveBillCharges } = require("./pos.charges");
 const { SourceError, getSources, resolveSaleSource } = require("./pos.sources");
+const { parseIndianPhone } = require("../../utils/phone");
 
 const MAX_LINES = 100;
 const MAX_LINE_QTY = 999;
@@ -402,11 +403,10 @@ async function reserveStock(orderItems) {
 
 function parseCustomer(raw) {
   const name = typeof raw?.name === "string" ? raw.name.trim().slice(0, 100) : "";
-  const phone = typeof raw?.phone === "string" ? raw.phone.replace(/[\s-]/g, "") : "";
-  if (phone && !/^\+?\d{7,15}$/.test(phone)) {
-    throw new PosError("INVALID_PHONE", "Enter a valid phone number");
-  }
-  return { name, phone };
+  // Optional, but when given it must be an Indian mobile (stored as 10 digits)
+  const parsed = parseIndianPhone(raw?.phone);
+  if (!parsed.ok) throw new PosError("INVALID_PHONE", parsed.message);
+  return { name, phone: parsed.phone };
 }
 
 /**

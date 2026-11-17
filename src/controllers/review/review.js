@@ -787,7 +787,8 @@ const getVariantReviews = async (req, res) => {
  */
 const getTopReviews = async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 10;
+    // Public endpoint: cap the page size
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
     const minRating = parseInt(req.query.minRating) || 4; // Default to 4+ star reviews
 
     const reviews = await Review.find({
@@ -795,24 +796,26 @@ const getTopReviews = async (req, res) => {
       isApproved: true,
     })
       .populate("userId", "username firstName lastName")
-      .populate({
-        path: "variantId",
-        populate: { path: "productId", select: "name images" },
-      })
+      // variantId is a plain string, not a ref — the product comes from productId
+      .populate("productId", "name title images url_key")
       .sort({ rating: -1, createdAt: -1 })
       .limit(limit);
 
     // Format reviews for CMS widget
     const formattedReviews = reviews.map((review) => ({
       id: review._id,
+      // Account name, else the name a guest reviewer gave, else Anonymous
       name: review.userId?.firstName
         ? `${review.userId.firstName} ${review.userId.lastName || ""}`.trim()
-        : review.userId?.username || "Anonymous",
+        : review.userId?.username || review.guestName || "Anonymous",
       rating: review.rating,
       date: review.createdAt.toISOString().split("T")[0],
+      // Title is required; the body is optional (many reviews are title-only)
+      title: review.title || "",
       review: review.review || "",
-      productName: review.variantId?.productId?.name || null,
-      productImage: review.variantId?.productId?.images?.[0] || null,
+      productName: review.productId?.name || review.productId?.title || null,
+      productImage: review.productId?.images?.[0] || null,
+      productUrlKey: review.productId?.url_key || null,
     }));
 
     res.status(200).json({

@@ -10,6 +10,7 @@ const AdminAuditLog = require("../../models/AdminAuditLog");
 const { ADMIN_ROLES } = require("../../../resources/constants");
 const { sendAdminCredentialsEmail } = require("../../services/emailService");
 const logger = require("../../utils/logger");
+const { parseIndianPhone } = require("../../utils/phone");
 const toCamelCase = require("../../utils/toCamelCase");
 const escapeRegex = require("../../utils/escapeRegex");
 const { cacheDel } = require("../../utils/redisCache");
@@ -193,6 +194,11 @@ const createAdminUser = async (req, res) => {
       });
     }
 
+    const parsedPhone = parseIndianPhone(phone);
+    if (!parsedPhone.ok) {
+      return res.status(400).json({ success: false, message: parsedPhone.message });
+    }
+
     const normalizedEmail = String(email).toLowerCase().trim();
     const normalizedUsername = toCamelCase(username);
 
@@ -208,7 +214,7 @@ const createAdminUser = async (req, res) => {
     const user = await User.create({
       username: normalizedUsername,
       email: normalizedEmail,
-      phone: phone || undefined,
+      phone: parsedPhone.phone || undefined,
       role,
       password, // hashed by the pre-save hook
       isEmailVerified: true,

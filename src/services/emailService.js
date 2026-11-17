@@ -31,9 +31,11 @@ const loadTemplate = (templateName, data = {}) => {
 
   let html = fs.readFileSync(templatePath, "utf8");
 
-  // Same logo URL for all templates (no attachment, consistent branding)
+  // Same logo URL for all templates (no attachment, consistent branding).
+  // Full logo with tagline on a transparent background, so it sits cleanly
+  // on the grey email header (shown 140px wide in the templates).
   const EMAIL_LOGO_URL =
-    "https://dashboard.infantscare.in/logo-invoice.png";
+    "https://dashboard.infantscare.in/logo-email.png";
   data.emailLogoDataUrl = EMAIL_LOGO_URL;
 
   /**

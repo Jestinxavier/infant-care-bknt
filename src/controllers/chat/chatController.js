@@ -5,6 +5,7 @@ const Product = require("../../models/Product");
 const Coupon = require("../../models/Coupon");
 const Category = require("../../models/Category");
 const logger = require("../../utils/logger");
+const { parseIndianPhone } = require("../../utils/phone");
 const {
   emitEvent,
   getChatStaffCount,
@@ -999,8 +1000,12 @@ const saveContact = async (req, res) => {
       typeof name === "string" && name.trim().length > 0 ? name.trim().slice(0, 80) : null;
     const cleanEmail =
       typeof email === "string" && email.trim().length <= 200 ? email.trim() : null;
-    const cleanPhone =
-      typeof phone === "string" && phone.trim().length <= 20 ? phone.trim() : null;
+    // Optional, but when given it must be an Indian mobile (stored as 10 digits)
+    const parsedPhone = parseIndianPhone(typeof phone === "string" ? phone : "");
+    if (!parsedPhone.ok) {
+      return res.status(400).json({ success: false, message: parsedPhone.message });
+    }
+    const cleanPhone = parsedPhone.phone || null;
 
     if (!cleanEmail && !cleanPhone) {
       return res

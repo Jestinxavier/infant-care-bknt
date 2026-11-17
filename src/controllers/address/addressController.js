@@ -1,12 +1,13 @@
 const Address = require("../../models/Address");
 const logger = require("../../utils/logger");
+const { parseIndianPhone } = require("../../utils/phone");
 
 const createAddress = async (req, res) => {
   try {
     const userId = req.user.id;
     const {
       fullName,
-      phone,
+      phone: rawPhone,
       houseName,
       street,
       additionalInstruction,
@@ -22,6 +23,13 @@ const createAddress = async (req, res) => {
       isDefault,
       addressType = "Home", // Default addressType
     } = req.body;
+
+    // Delivery phone: Indian mobile only (couriers call it), stored as 10 digits
+    const parsedPhone = parseIndianPhone(rawPhone, { required: true });
+    if (!parsedPhone.ok) {
+      return res.status(400).json({ success: false, message: parsedPhone.message });
+    }
+    const phone = parsedPhone.phone;
 
     // Use street if provided, otherwise fallback to addressLine1
     const finalStreet = street || addressLine1;

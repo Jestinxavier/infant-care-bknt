@@ -1,6 +1,7 @@
 const User = require("../../models/user");
 const logger = require("../../utils/logger");
 const toCamelCase = require("../../utils/toCamelCase");
+const { parseIndianPhone } = require("../../utils/phone");
 
 const updateProfile = async (req, res) => {
   try {
@@ -58,9 +59,14 @@ const updateProfile = async (req, res) => {
       user.isEmailVerified = false;
     }
 
-    // Update phone if provided
+    // Update phone if provided: Indian mobile only, stored as 10 digits.
+    // An empty value clears it.
     if (phone !== undefined) {
-      user.phone = phone;
+      const parsedPhone = parseIndianPhone(phone);
+      if (!parsedPhone.ok) {
+        return res.status(400).json({ success: false, message: parsedPhone.message });
+      }
+      user.phone = parsedPhone.phone || null;
     }
 
     // Save updated user
