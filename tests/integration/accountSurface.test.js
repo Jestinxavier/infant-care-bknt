@@ -139,6 +139,46 @@ describe("Account surface", () => {
     expect(missingDelete.status).toBe(404);
   });
 
+  it("promotes another of the user's addresses when the default is deleted", async () => {
+    const create = (token, overrides) =>
+      request(app)
+        .post("/api/v1/addresses/create")
+        .set(auth(token))
+        .send(addressPayload(overrides));
+
+    const def = await create(userToken, { isDefault: true, street: "1 Default Rd" });
+    const spare = await create(userToken, { isDefault: false, street: "2 Spare Rd" });
+    // Another user's address must never be promoted for this user
+    const otherUsers = await create(otherToken, { isDefault: false, street: "3 Other Rd" });
+
+    const removed = await request(app)
+      .delete(`/api/v1/addresses/${def.body.address._id}`)
+      .set(auth(userToken));
+    expect(removed.status).toBe(200);
+    expect(String(removed.body.newDefaultId)).toBe(spare.body.address._id);
+
+    const listed = await request(app)
+      .post("/api/v1/addresses")
+      .set(auth(userToken))
+      .send({});
+    expect(listed.body.addresses).toHaveLength(1);
+    expect(listed.body.addresses[0].isDefault).toBe(true);
+
+    const othersList = await request(app)
+      .post("/api/v1/addresses")
+      .set(auth(otherToken))
+      .send({});
+    expect(othersList.body.addresses[0]._id).toBe(otherUsers.body.address._id);
+    expect(othersList.body.addresses[0].isDefault).toBe(false);
+
+    // Deleting the last (now default) address: nothing left to promote
+    const lastRemoved = await request(app)
+      .delete(`/api/v1/addresses/${spare.body.address._id}`)
+      .set(auth(userToken));
+    expect(lastRemoved.status).toBe(200);
+    expect(lastRemoved.body.newDefaultId).toBeNull();
+  });
+
   it("toggles wishlist items and returns enriched products", async () => {
     const product = await createPublishedProduct();
     const productId = product._id.toString();

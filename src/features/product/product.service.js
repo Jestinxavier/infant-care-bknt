@@ -31,14 +31,13 @@ const {
   buildSkuPrefixClauses,
   findExactSkuProductIds,
 } = require("../../utils/skuSearch");
-
-const MIN_FUZZY_QUERY_LENGTH = 3;
-// Cap the token length used for the fuzzy pattern: each character expands to a
-// `.{0,2}` group, so an unbounded token creates a catastrophic-backtracking
-// regex. Long queries simply skip the fuzzy branch (exact/prefix still match).
-const MAX_FUZZY_QUERY_LENGTH = 32;
-const MIN_VARIANT_QUERY_LENGTH = 3;
-const MAX_SEARCH_VARIANTS = 600;
+const {
+  tokenizeSearchTerm,
+  buildTokenRegex,
+  buildExtraTokenClauses,
+  applySearchIntentFilters,
+} = require("../../utils/searchTerms");
+const { findSearchProductIds } = require("../../services/productSearchService");
 
 const attachReviewStats = async (items = []) => {
   const productIds = items
@@ -77,18 +76,6 @@ const attachReviewStats = async (items = []) => {
     };
   });
 };
-const SEARCH_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
-const VOWELS = new Set(["a", "e", "i", "o", "u"]);
-const COMMON_REPLACEMENTS = {
-  b: ["p"],
-  p: ["b"],
-  d: ["t"],
-  t: ["d"],
-  m: ["n"],
-  n: ["m"],
-  c: ["k"],
-  k: ["c"],
-};
 const SEARCH_TEXT_FIELDS = [
   "title",
   "name",
@@ -101,258 +88,7 @@ const SEARCH_TEXT_FIELDS = [
   "collections",
   "variants.name",
 ];
-const SEARCH_TERM_SYNONYMS = {
-  dress: ["frock", "gown", "one-piece", "onepiece"],
-  frock: ["dress", "gown"],
-  gown: ["dress", "frock"],
-  romper: ["onesie", "jumpsuit"],
-  onesie: ["romper", "jumpsuit"],
-  jumpsuit: ["romper", "onesie"],
-  tshirt: ["t-shirt", "tee", "top"],
-  "t-shirt": ["tshirt", "tee", "top"],
-  pant: ["pants", "trouser", "trousers", "bottom"],
-  pants: ["pant", "trouser", "trousers", "bottom"],
-};
-const SEARCH_INTENT_PHRASE_MAP = {
-  "all season": { season: "all-season" },
-  "short sleeve": { sleeve: "short-sleeve" },
-  "long sleeve": { sleeve: "long-sleeve" },
-  sleeveless: { sleeve: "sleeveless" },
-  "pack of 2": { pack: "pack-of-2" },
-  "pack of 3": { pack: "pack-of-3" },
-  "pack of 4": { pack: "pack-of-4" },
-};
-const SEARCH_INTENT_TOKEN_MAP = {
-  boy: { gender: "boys" },
-  boys: { gender: "boys" },
-  male: { gender: "boys" },
-  girl: { gender: "girls" },
-  girls: { gender: "girls" },
-  female: { gender: "girls" },
-  unisex: { gender: "unisex" },
-  newborn: { size: "newborn" },
-  "new-born": { size: "newborn" },
-  onesize: { size: "free-size" },
-  "one-size": { size: "free-size" },
-  freesize: { size: "free-size" },
-  "free-size": { size: "free-size" },
-};
 
-const escapeRegexLiteral = (value = "") =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const addPluralPair = (variants, term) => {
-  if (!term || term.length < 4) return;
-
-  if (term.endsWith("s") && !term.endsWith("ss")) {
-    variants.add(term.slice(0, -1));
-  } else if (!term.endsWith("s")) {
-    variants.add(`${term}s`);
-  }
-};
-
-const getReplacementCandidates = (char) => {
-  const candidates = new Set();
-  if (VOWELS.has(char)) {
-    VOWELS.forEach((v) => {
-      if (v !== char) candidates.add(v);
-    });
-  }
-
-  (COMMON_REPLACEMENTS[char] || []).forEach((candidate) =>
-    candidates.add(candidate)
-  );
-
-  return Array.from(candidates);
-};
-
-const buildSingleTermVariants = (term = "") => {
-  const variants = new Set();
-  const normalizedTerm = String(term).trim().toLowerCase();
-  if (!normalizedTerm) return variants;
-
-  variants.add(normalizedTerm);
-  addPluralPair(variants, normalizedTerm);
-
-  if (normalizedTerm.length < MIN_VARIANT_QUERY_LENGTH) {
-    return variants;
-  }
-
-  const chars = normalizedTerm.split("");
-  const push = (candidate) => {
-    if (!candidate) return;
-    if (variants.size >= MAX_SEARCH_VARIANTS) return;
-    variants.add(candidate);
-    addPluralPair(variants, candidate);
-  };
-
-  // Delete one char (handles accidental extra char)
-  for (let i = 0; i < chars.length; i += 1) {
-    push(`${normalizedTerm.slice(0, i)}${normalizedTerm.slice(i + 1)}`);
-  }
-
-  // Insert one char (handles missing-char typos)
-  for (let i = 0; i <= chars.length; i += 1) {
-    for (const letter of SEARCH_ALPHABET) {
-      push(`${normalizedTerm.slice(0, i)}${letter}${normalizedTerm.slice(i)}`);
-    }
-  }
-
-  // Swap adjacent chars (handles transposition typos)
-  for (let i = 0; i < chars.length - 1; i += 1) {
-    const swapped = [...chars];
-    [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
-    push(swapped.join(""));
-  }
-
-  // Replace one char using targeted common substitutions.
-  for (let i = 0; i < chars.length; i += 1) {
-    const candidates = getReplacementCandidates(chars[i]);
-    for (const letter of candidates) {
-      if (letter === chars[i]) continue;
-      push(`${normalizedTerm.slice(0, i)}${letter}${normalizedTerm.slice(i + 1)}`);
-    }
-  }
-
-  return variants;
-};
-
-const buildSearchVariants = (searchTerm = "") => {
-  const normalized = String(searchTerm)
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-  if (!normalized) return [];
-
-  if (normalized.includes(" ")) {
-    const variants = new Set([normalized]);
-    addPluralPair(variants, normalized);
-    const phraseSynonyms = SEARCH_TERM_SYNONYMS[normalized] || [];
-    phraseSynonyms.forEach((synonym) => {
-      const normalizedSynonym = String(synonym).trim().toLowerCase();
-      if (!normalizedSynonym) return;
-      variants.add(normalizedSynonym);
-      addPluralPair(variants, normalizedSynonym);
-    });
-    return Array.from(variants).filter(Boolean);
-  }
-
-  const variants = buildSingleTermVariants(normalized);
-  const synonyms = SEARCH_TERM_SYNONYMS[normalized] || [];
-  synonyms.forEach((synonym) => {
-    const normalizedSynonym = String(synonym).trim().toLowerCase();
-    if (!normalizedSynonym) return;
-    variants.add(normalizedSynonym);
-    addPluralPair(variants, normalizedSynonym);
-  });
-
-  return Array.from(variants).filter(Boolean);
-};
-
-const buildFuzzySearchPattern = (searchTerm = "") => {
-  const normalized = String(searchTerm).trim().toLowerCase();
-  if (normalized.length < MIN_FUZZY_QUERY_LENGTH) return null;
-  if (normalized.length > MAX_FUZZY_QUERY_LENGTH) return null;
-
-  return normalized
-    .split("")
-    .map((char) => escapeRegexLiteral(char))
-    .join(".{0,2}");
-};
-
-const tokenizeSearchTerm = (searchTerm = "") =>
-  String(searchTerm)
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
-
-const mergeSearchIntentValue = (target, key, rawValue) => {
-  const normalizedValues = normalizeFilterArray(rawValue, key);
-  if (normalizedValues.length === 0) return;
-
-  if (!target[key]) target[key] = [];
-  target[key].push(...normalizedValues);
-};
-
-const applySearchIntentFilters = (filters = {}) => {
-  const nextFilters = { ...filters };
-  const searchTerm = String(filters.search || "").trim();
-  if (!searchTerm) return nextFilters;
-
-  let remaining = searchTerm.toLowerCase().replace(/\s+/g, " ");
-  const inferredFilters = {};
-
-  const sortedPhraseEntries = Object.entries(SEARCH_INTENT_PHRASE_MAP).sort(
-    (a, b) => b[0].length - a[0].length
-  );
-
-  sortedPhraseEntries.forEach(([phrase, mapping]) => {
-    const phrasePattern = new RegExp(`\\b${escapeRegexLiteral(phrase)}\\b`, "i");
-    while (phrasePattern.test(remaining)) {
-      remaining = remaining.replace(phrasePattern, " ").replace(/\s+/g, " ").trim();
-      Object.entries(mapping).forEach(([key, value]) =>
-        mergeSearchIntentValue(inferredFilters, key, value)
-      );
-    }
-  });
-
-  const residualTokens = [];
-  tokenizeSearchTerm(remaining).forEach((token) => {
-    const intentMapping = SEARCH_INTENT_TOKEN_MAP[token];
-    if (!intentMapping) {
-      residualTokens.push(token);
-      return;
-    }
-
-    Object.entries(intentMapping).forEach(([key, value]) =>
-      mergeSearchIntentValue(inferredFilters, key, value)
-    );
-  });
-
-  Object.entries(inferredFilters).forEach(([key, values]) => {
-    const mergedValues = normalizeFilterArray(
-      [...normalizeFilterArray(nextFilters[key], key), ...values],
-      key
-    );
-    if (mergedValues.length > 0) {
-      nextFilters[key] = mergedValues;
-    }
-  });
-
-  nextFilters.search = residualTokens.join(" ").trim();
-  return nextFilters;
-};
-
-
-// MongoDB rejects $regex patterns over 32KB (error 51091 → a 500 on /search).
-const MAX_TOKEN_PATTERN_LENGTH = 16000;
-
-const buildTokenRegex = (token, { includeFuzzy = false } = {}) => {
-  // Codes/SKUs (anything with a digit) are matched literally: a one-char edit
-  // of a code is a different product, and long codes would otherwise expand
-  // into hundreds of variants.
-  const variants = /[0-9]/.test(token) ? [token] : buildSearchVariants(token);
-  if (variants.length === 0) return null;
-
-  let variantPattern = variants.map((term) => escapeRegexLiteral(term)).join("|");
-  if (variantPattern.length > MAX_TOKEN_PATTERN_LENGTH) {
-    variantPattern = escapeRegexLiteral(token);
-  }
-  const patternParts = [`\\b(?:${variantPattern})`];
-
-  if (includeFuzzy) {
-    const fuzzyPattern = buildFuzzySearchPattern(token);
-    if (fuzzyPattern) {
-      patternParts.push(`\\b${fuzzyPattern}`);
-    }
-  }
-
-  return {
-    $regex: patternParts.join("|"),
-    $options: "i",
-  };
-};
 
 const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
   const tokens = tokenizeSearchTerm(searchTerm);
@@ -363,7 +99,10 @@ const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
       const tokenRegex = buildTokenRegex(token, { includeFuzzy });
       if (!tokenRegex) return null;
 
-      const clauses = SEARCH_TEXT_FIELDS.map((field) => ({ [field]: tokenRegex }));
+      const clauses = [
+        ...SEARCH_TEXT_FIELDS.map((field) => ({ [field]: tokenRegex })),
+        ...buildExtraTokenClauses(token),
+      ];
       // SKU leg: plain prefix on root + variant SKUs. Never typo-expanded —
       // a one-char edit of a SKU is a different product's SKU.
       if (/[0-9-]/.test(token)) clauses.push(...buildSkuPrefixClauses(token));
@@ -375,6 +114,66 @@ const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
   if (tokenClauses.length === 1) return tokenClauses[0];
 
   return { $and: tokenClauses };
+};
+
+/**
+ * Relevance rank for a search listing with no sort chosen. The search also
+ * matches descriptions, so a product that merely mentions the word (e.g. sleep
+ * suits whose promo text says "free knot Jabalas") used to outrank the actual
+ * products, because the default sort is newest first. Rank:
+ *   0 - the title matches every search word and the category matches too
+ *   1 - the title matches every search word
+ *   2 - the title or category matches at least one word
+ *   3 - matched elsewhere only (description, attributes, collections, ...)
+ * Rank 0 puts products from the matching category first: "diaper" lists the
+ * "Diapering & Nappies" products before "Jhabla & Nappy" sets (Sets & Combos),
+ * and "frock" lists "Dresses & Frocks" first.
+ * The requested/default sort still orders products within each rank.
+ */
+const buildSearchRankStage = (searchTerm, { includeFuzzy = false } = {}) => {
+  const regexes = tokenizeSearchTerm(searchTerm)
+    .map((token) => buildTokenRegex(token, { includeFuzzy }))
+    .filter(Boolean);
+  if (regexes.length === 0) return null;
+
+  const matches = (field, { $regex, $options }) => ({
+    $regexMatch: {
+      input: { $ifNull: [{ $toString: `$${field}` }, ""] },
+      regex: $regex,
+      options: $options,
+    },
+  });
+
+  return {
+    $addFields: {
+      _searchRank: {
+        $switch: {
+          branches: [
+            {
+              case: {
+                $and: [
+                  ...regexes.map((r) => matches("title", r)),
+                  { $or: regexes.map((r) => matches("categoryName", r)) },
+                ],
+              },
+              then: 0,
+            },
+            { case: { $and: regexes.map((r) => matches("title", r)) }, then: 1 },
+            {
+              case: {
+                $or: regexes.flatMap((r) => [
+                  matches("title", r),
+                  matches("categoryName", r),
+                ]),
+              },
+              then: 2,
+            },
+          ],
+          default: 3,
+        },
+      },
+    },
+  };
 };
 
 /**
@@ -512,18 +311,41 @@ class ProductService {
       : await findExactSkuProductIds(filters.search);
     const isExactSkuSearch = exactSkuIds.length > 0;
 
-    // Search Filter (Regex on title/name/SKU). Added under $and so it never
-    // overwrites the category/subcategory $or set above.
+    // Search. Storefront: Meilisearch picks and orders the matching products,
+    // and every filter below still applies in MongoDB. Admin, or when
+    // Meilisearch is unavailable or finds nothing: the regex search, added
+    // under $and so it never overwrites the category/subcategory $or above.
+    let searchRankStage = null;
+    const rawSearchTerm = String(effectiveFilters.search || "").trim();
+    const searchIds =
+      !isExactSkuSearch && rawSearchTerm && !options.isAdmin
+        ? await findSearchProductIds(rawSearchTerm)
+        : null;
+
     if (isExactSkuSearch) {
       matchStage._id = { $in: exactSkuIds };
+    } else if (searchIds) {
+      const searchObjectIds = searchIds
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+      matchStage._id = { $in: searchObjectIds };
+      if (!effectiveFilters.sortExplicit) {
+        searchRankStage = {
+          $addFields: { _searchRank: { $indexOfArray: [searchObjectIds, "$_id"] } },
+        };
+      }
     } else if (effectiveFilters.search) {
-      const rawSearchTerm = String(effectiveFilters.search).trim();
       if (rawSearchTerm) {
         const searchQuery = buildSearchQuery(rawSearchTerm, {
           includeFuzzy: !!effectiveFilters.searchFuzzy,
         });
         if (searchQuery) {
           matchStage.$and = [...(matchStage.$and || []), searchQuery];
+        }
+        if (!effectiveFilters.sortExplicit) {
+          searchRankStage = buildSearchRankStage(rawSearchTerm, {
+            includeFuzzy: !!effectiveFilters.searchFuzzy,
+          });
         }
       }
     }
@@ -914,8 +736,15 @@ class ProductService {
         },
       },
 
-      // Sorting
-      { $sort: { [mappedSortKey]: sortOrder === "asc" ? 1 : -1 } },
+      // Sorting: a search with no sort chosen ranks by relevance first (see
+      // buildSearchRankStage); otherwise the requested sort as before.
+      ...(searchRankStage
+        ? [
+            searchRankStage,
+            { $sort: { _searchRank: 1, [mappedSortKey]: sortOrder === "asc" ? 1 : -1 } },
+            { $unset: "_searchRank" },
+          ]
+        : [{ $sort: { [mappedSortKey]: sortOrder === "asc" ? 1 : -1 } }]),
 
       // Pagination with Facet
       {

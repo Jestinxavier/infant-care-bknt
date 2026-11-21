@@ -28,9 +28,23 @@ const deleteAddress = async (req, res) => {
     // Delete the address
     await Address.findByIdAndDelete(addressId);
 
+    // Deleting the default used to leave the user with no default at all, so
+    // checkout had nothing to preselect. Promote their most recently updated
+    // remaining address instead (none left: nothing to do).
+    let newDefaultId = null;
+    if (existingAddress.isDefault) {
+      const next = await Address.findOneAndUpdate(
+        { userId: existingAddress.userId },
+        { $set: { isDefault: true } },
+        { sort: { updatedAt: -1 }, new: true },
+      );
+      newDefaultId = next?._id ?? null;
+    }
+
     res.status(200).json({
       success: true,
-      message: "✅ Address deleted successfully"
+      message: "✅ Address deleted successfully",
+      newDefaultId,
     });
   } catch (err) {
     logger.error("❌ Error deleting address:", err);

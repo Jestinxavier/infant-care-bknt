@@ -5,6 +5,28 @@ const mongoose = require("mongoose");
 // on a cold cache, which can take several minutes on a slow connection.
 jest.setTimeout(120000);
 
+// Redis: always an empty cache in tests. A Redis running on the dev machine
+// otherwise kept cached responses between tests (and test files), so a test
+// could read another test's data. Plain functions, not jest.fn(): the config
+// has resetMocks, which would wipe jest.fn() implementations between tests.
+jest.mock("../src/config/redis", () => {
+  const noop = () => {};
+  const fake = {
+    status: "end",
+    get: async () => null,
+    set: async () => "OK",
+    setex: async () => "OK",
+    del: async () => 0,
+    scan: async () => ["0", []],
+    connect: async () => {},
+    quit: async () => "OK",
+    disconnect: noop,
+    on: () => fake,
+    once: () => fake,
+  };
+  return fake;
+});
+
 // Mock nanoid as it is ESM-only and causes issues with Jest in CJS projects.
 // Use a counter to generate unique IDs — this prevents E11000 duplicate key errors
 // when multiple carts are generated via generateCartId() in the same test run.
@@ -68,16 +90,6 @@ jest.mock("cloudinary", () => ({
     },
   },
 }));
-
-// Mock multer-storage-cloudinary to return a simple memory storage for tests
-jest.mock("multer-storage-cloudinary", () => {
-  const multer = require("multer");
-  return {
-    CloudinaryStorage: jest
-      .fn()
-      .mockImplementation(() => multer.memoryStorage()),
-  };
-});
 
 // meilisearch ships ESM-only builds (export/import) that Jest cannot parse.
 // The app only constructs a client when MEILISEARCH_HOST is set, which never

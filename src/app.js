@@ -2,8 +2,6 @@ const express = require("express");
 const path = require("path");
 const cors = require("cors");
 const helmet = require("helmet");
-const swaggerUi = require("swagger-ui-express");
-const swaggerSpec = require("./config/swagger");
 const cookieParser = require("cookie-parser");
 const mongoSanitize = require("express-mongo-sanitize");
 const dotenv = require("dotenv");
@@ -252,8 +250,13 @@ app.use(`/api/v1${ADMIN_PREFIX}/collections`, collectionRoutes);
 // Behavioral analytics tracking (public, anonymous, fire-and-forget)
 app.use("/api/v1/analytics", analyticsRoutes);
 
-// Swagger API Documentation — dev only
+// Swagger API Documentation — dev only.
+// Required here, not at the top: building the spec runs swagger-jsdoc, whose
+// ref parser calls the deprecated url.parse() (DEP0169 warning on Node 24),
+// and production never serves the docs anyway.
 if (process.env.NODE_ENV !== "production") {
+  const swaggerUi = require("swagger-ui-express");
+  const swaggerSpec = require("./config/swagger");
   app.use(
     "/api-docs",
     swaggerUi.serve,

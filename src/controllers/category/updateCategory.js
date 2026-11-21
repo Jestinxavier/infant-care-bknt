@@ -169,7 +169,17 @@ const updateCategory = async (req, res) => {
       }
     }
 
+    // The search index stores category names, so a rename or move re-indexes
+    // the category's products.
+    const searchTextChanged =
+      category.isModified("name") || category.isModified("parentCategory");
+
     await category.save();
+
+    if (searchTextChanged) {
+      const { syncProductsInCategory } = require("../../services/searchIndexService");
+      syncProductsInCategory(category._id); // fire-and-forget, never throws
+    }
 
     const updatedCategory = await Category.findById(categoryId).populate(
       "parentCategory",
