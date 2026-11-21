@@ -73,6 +73,9 @@ const getAllProducts = async (req, res) => {
       pack,
       subCategories: filters.subCategories,
       search: requestData.search || requestData.q,
+      // sortBy above defaults to createdAt; this says whether the shopper
+      // actually picked a sort, so a search can rank by relevance otherwise.
+      sortExplicit: Boolean(requestData.sort || requestData.sortBy),
       collection,
       // inStock above defaults to true; an exact-SKU search ignores that
       // default (shows the product even when sold out) but not a real filter.

@@ -387,19 +387,23 @@ describe("Order surface", () => {
       .set(auth(adminToken));
     expect(missing.status).toBe(404);
 
-    // The admin role's date window also applies when opening an order directly.
+    // Admins can see orders of any age, in the list and when opening one.
     const old = await createOrder({ user, orderStatus: "delivered", paymentStatus: "paid" });
     // Raw driver: Mongoose treats createdAt as immutable and drops it from updates.
     await Order.collection.updateOne(
       { _id: old._id },
       { $set: { createdAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) } },
     );
-    const restricted = await request(app)
+    const oldDetail = await request(app)
       .get(`/api/v1/admin/orders/${old.orderId}`)
       .set(auth(adminToken));
-    expect(restricted.status).toBe(403);
-    expect(restricted.body.errorCode).toBe("DATE_RESTRICTED");
-    expect(restricted.body.maxDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(oldDetail.status).toBe(200);
+    const oldInList = await request(app)
+      .get("/api/v1/admin/orders")
+      .query({ search: old.orderId })
+      .set(auth(adminToken));
+    expect(oldInList.status).toBe(200);
+    expect(JSON.stringify(oldInList.body)).toContain(old.orderId);
     await Order.deleteOne({ _id: old._id });
 
     const exported = await request(app)

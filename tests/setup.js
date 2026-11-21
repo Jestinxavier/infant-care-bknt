@@ -91,16 +91,6 @@ jest.mock("cloudinary", () => ({
   },
 }));
 
-// Mock multer-storage-cloudinary to return a simple memory storage for tests
-jest.mock("multer-storage-cloudinary", () => {
-  const multer = require("multer");
-  return {
-    CloudinaryStorage: jest
-      .fn()
-      .mockImplementation(() => multer.memoryStorage()),
-  };
-});
-
 // meilisearch ships ESM-only builds (export/import) that Jest cannot parse.
 // The app only constructs a client when MEILISEARCH_HOST is set, which never
 // happens in tests, so a stub is enough for modules that require it.

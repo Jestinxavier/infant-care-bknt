@@ -10,6 +10,7 @@ const Product = require("../models/Product");
 const path = require("path");
 const fs = require("fs");
 const logger = require("../utils/logger");
+const { syncProductsByIds } = require("../services/searchIndexService");
 
 /**
  * Export product variants to CSV
@@ -74,6 +75,9 @@ const importVariants = async (req, res) => {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
+
+      // Variant names and SKUs are searchable; fire-and-forget, never throws.
+      if (!validateOnly) syncProductsByIds([productId]);
 
       res.status(200).json({
         success: true,

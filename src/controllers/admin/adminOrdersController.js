@@ -2,7 +2,6 @@ const Order = require("../../models/Order");
 const User = require("../../models/user");
 const mongoose = require("mongoose");
 const emailService = require("../../services/emailService");
-const { ORDER_DATE_RESTRICTION_DAYS } = require("../../config/constants");
 const { PAYMENT_METHODS } = require("../../../resources/constants");
 const { restoreOrderStock, releaseUnpaidOrderHolds } = require("../../utils/orderStockRestore");
 const { neutralizeCsvFormula } = require("../../utils/reportCsv");
@@ -48,20 +47,6 @@ function buildOrderLookupQuery(orderId) {
 const invalidOrderIdResponse = (res) =>
   res.status(400).json({ success: false, message: "Order ID is required" });
 
-/**
- * Oldest order date the user may view, or null when unrestricted. The `admin`
- * role only sees the last ORDER_DATE_RESTRICTION_DAYS days (superadmins see all).
- */
-function getOrderRestrictionDate(reqUser) {
-  if (reqUser?.role !== "admin") return null;
-  const restrictionDate = new Date();
-  restrictionDate.setUTCDate(
-    restrictionDate.getUTCDate() - ORDER_DATE_RESTRICTION_DAYS,
-  );
-  restrictionDate.setUTCHours(0, 0, 0, 0);
-  return restrictionDate;
-}
-
 // Filter values arrive from JSON bodies, so only accept plain strings — an
 // object like { $ne: null } would otherwise act as a query operator.
 const asFilterString = (value) =>
@@ -69,10 +54,8 @@ const asFilterString = (value) =>
 
 /**
  * Build the admin order filter from request data (query or body).
- * Enforces the role-based date restriction for admin users.
- * Throws an error with code "DATE_RESTRICTED" when a too-old `from` is given.
  */
-async function buildOrderFilter(requestData, reqUser) {
+async function buildOrderFilter(requestData) {
   const {
     status,
     excludeStatuses,
@@ -89,25 +72,6 @@ async function buildOrderFilter(requestData, reqUser) {
   } = requestData;
 
   let filter = {};
-
-  // ===== ROLE-BASED DATE RESTRICTIONS =====
-  const restrictionDate = getOrderRestrictionDate(reqUser);
-  if (restrictionDate) {
-    if (from) {
-      const fromDate = new Date(from);
-      fromDate.setUTCHours(0, 0, 0, 0);
-      if (fromDate < restrictionDate) {
-        const error = new Error(
-          `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-        );
-        error.code = "DATE_RESTRICTED";
-        error.maxDate = restrictionDate.toISOString().split("T")[0];
-        throw error;
-      }
-    } else {
-      filter.createdAt = { $gte: restrictionDate };
-    }
-  }
 
   // ===== DATE RANGE FILTERING =====
   // Backend normalization: from (00:00:00 IST) to (23:59:59.999 IST)
@@ -265,20 +229,7 @@ const getAllOrders = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Build filter
-    let filter;
-    try {
-      filter = await buildOrderFilter(requestData, req.user);
-    } catch (err) {
-      if (err.code === "DATE_RESTRICTED") {
-        return res.status(403).json({
-          success: false,
-          errorCode: "DATE_RESTRICTED",
-          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-          maxDate: err.maxDate,
-        });
-      }
-      throw err;
-    }
+    const filter = await buildOrderFilter(requestData);
 
     // Build sort — whitelist the sort field so a client cannot force an
     // in-memory SORT over the whole orders collection on an arbitrary field.
@@ -431,20 +382,7 @@ const getOrderStatusCounts = async (req, res) => {
   try {
     const requestData = req.method === "POST" ? req.body || {} : req.query;
 
-    let filter;
-    try {
-      filter = await buildOrderFilter(requestData, req.user);
-    } catch (err) {
-      if (err.code === "DATE_RESTRICTED") {
-        return res.status(403).json({
-          success: false,
-          errorCode: "DATE_RESTRICTED",
-          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-          maxDate: err.maxDate,
-        });
-      }
-      throw err;
-    }
+    const filter = await buildOrderFilter(requestData);
 
     const cacheKey = buildStatusCountsCacheKey(requestData, req.user?.role);
 
@@ -530,18 +468,6 @@ const getOrderById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Order not found",
-      });
-    }
-
-    // Same role-based window as the order list, so an admin can't read older
-    // orders (and their customer details) by opening them directly.
-    const restrictionDate = getOrderRestrictionDate(req.user);
-    if (restrictionDate && new Date(order.createdAt) < restrictionDate) {
-      return res.status(403).json({
-        success: false,
-        errorCode: "DATE_RESTRICTED",
-        message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-        maxDate: restrictionDate.toISOString().split("T")[0],
       });
     }
 
@@ -1490,21 +1416,8 @@ const exportOrders = async (req, res) => {
       });
     }
 
-    // Build filter — enforces the same role-based date restriction as listing
-    let filter;
-    try {
-      filter = await buildOrderFilter(requestData, req.user);
-    } catch (err) {
-      if (err.code === "DATE_RESTRICTED") {
-        return res.status(403).json({
-          success: false,
-          errorCode: "DATE_RESTRICTED",
-          message: `Admins can only view orders from the last ${ORDER_DATE_RESTRICTION_DAYS} days`,
-          maxDate: err.maxDate,
-        });
-      }
-      throw err;
-    }
+    // Build filter — same filters as the listing
+    const filter = await buildOrderFilter(requestData);
 
     if (Array.isArray(orderIds) && orderIds.length > 0) {
       // The dashboard selects rows by the human-facing `orderId`, but older

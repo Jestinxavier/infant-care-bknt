@@ -1021,11 +1021,16 @@ const createOrder = async (req, res) => {
           logger.info(`⚠️ Cleaning up failed order ${order.orderId}...`);
 
           // 1. Cancel the order
+          // A real "cancelled" history entry, so the order timeline can show
+          // when and why it was cancelled (same shape as paymentReconciler)
           await Order.findByIdAndUpdate(order._id, {
-            orderStatus: "cancelled",
-            paymentStatus: "failed",
-            "statusHistory.0.note":
-              "Payment initiation failed - Auto-cancelled",
+            $set: { orderStatus: "cancelled", paymentStatus: "failed" },
+            $push: {
+              statusHistory: {
+                status: "cancelled",
+                note: "Payment initiation failed - Auto-cancelled",
+              },
+            },
           });
 
           // 2. Release Stock (single bulkWrite instead of one update per item)
@@ -1091,11 +1096,16 @@ const createOrder = async (req, res) => {
           logger.info(`⚠️ Cleaning up failed order ${order.orderId}...`);
 
           // 1. Cancel the order
+          // A real "cancelled" history entry, so the order timeline can show
+          // when and why it was cancelled (same shape as paymentReconciler)
           await Order.findByIdAndUpdate(order._id, {
-            orderStatus: "cancelled",
-            paymentStatus: "failed",
-            "statusHistory.0.note":
-              "Payment initiation failed - Auto-cancelled",
+            $set: { orderStatus: "cancelled", paymentStatus: "failed" },
+            $push: {
+              statusHistory: {
+                status: "cancelled",
+                note: "Payment initiation failed - Auto-cancelled",
+              },
+            },
           });
 
           // 2. Release Stock (single bulkWrite instead of one update per item)

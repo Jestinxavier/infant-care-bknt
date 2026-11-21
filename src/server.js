@@ -192,6 +192,14 @@ const startServer = async () => {
     }
 
     try {
+      // Nightly full search reindex: a safety net for missed index syncs
+      const { startSearchReindexCron } = require("./services/searchIndexService");
+      startSearchReindexCron();
+    } catch (cronError) {
+      logger.warn("Failed to start search reindex cron", { error: cronError.message });
+    }
+
+    try {
       const { startChatWaitingReminderCron } = require("./jobs/chatWaitingReminder");
       startChatWaitingReminderCron();
     } catch (cronError) {
@@ -213,7 +221,9 @@ const startServer = async () => {
 
     server.listen(PORT, () => {
       logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-      logger.info(`API docs: http://localhost:${PORT}/api-docs/`);
+      if (process.env.NODE_ENV !== "production") {
+        logger.info(`API docs: http://localhost:${PORT}/api-docs/`);
+      }
     });
   } catch (error) {
     logger.error("Failed to start server", { error: error.message });
