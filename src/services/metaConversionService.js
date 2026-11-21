@@ -323,7 +323,9 @@ const sendEvent = async ({
 
 /**
  * Track Purchase event for an order via Meta Conversions API.
- * Uses atomic flag `metaPurchaseSent` on the order to guarantee single delivery.
+ * The `metaPurchaseSent` flag is only set after Meta accepts the event, so a
+ * missing token or a transient Graph API error does not permanently suppress
+ * the order. Meta deduplicates retries using the order ID as event_id.
  *
  * @param {Object} params
  * @param {Object} params.order - Mongoose Order document or plain object
@@ -338,12 +340,10 @@ const trackPurchase = async ({ order, req, metaContext }) => {
   }
 
   try {
-    // Atomic check-and-set to guarantee this order is only tracked once
-    const updatedOrder = await Order.findOneAndUpdate(
-      { orderId: order.orderId, metaPurchaseSent: { $ne: true } },
-      { $set: { metaPurchaseSent: true } },
-      { new: true }
-    );
+    const updatedOrder = await Order.findOne({
+      orderId: order.orderId,
+      metaPurchaseSent: { $ne: true },
+    });
 
     if (!updatedOrder) {
       logger.info(
@@ -403,14 +403,23 @@ const trackPurchase = async ({ order, req, metaContext }) => {
       fbc,
     });
 
-    // Extract items breakdown
+    // Extract items breakdown. variantSku is the selected item SKU; use it
+    // before the parent SKU so browser and CAPI Purchase events match.
     const contents = Array.isArray(updatedOrder.items)
-      ? updatedOrder.items.map((item) => ({
-          id: String(item.variantSku || item.sku || item.productId || item.variantId),
-          quantity: Number(item.quantity) || 1,
-          item_price: Number(item.price) || 0,
-        }))
+      ? updatedOrder.items
+          .map((item) => ({
+            id: String(
+              item.variantSku || item.sku || item.productId || item.variantId || ""
+            ).trim(),
+            quantity: Number(item.quantity) || 1,
+            item_price: Number(item.price) || 0,
+          }))
+          .filter(
+            (c) => c.id && c.id !== "undefined" && c.id !== "null"
+          )
       : [];
+
+    const contentIds = contents.map((c) => c.id);
 
     const totalAmount =
       Number(
@@ -425,6 +434,7 @@ const trackPurchase = async ({ order, req, metaContext }) => {
       currency: "INR",
       value: totalAmount,
       content_type: "product",
+      ...(contentIds.length > 0 ? { content_ids: contentIds } : {}),
       contents,
       num_items: updatedOrder.totalQuantity || contents.reduce((s, i) => s + i.quantity, 0),
       order_id: updatedOrder.orderId,
@@ -438,6 +448,19 @@ const trackPurchase = async ({ order, req, metaContext }) => {
       customData,
       actionSource: "website",
     });
+
+    if (result.success) {
+      // Only close the flag after Meta accepts the event. Retries are safe:
+      // CAPI deduplicates on event_id (the order ID).
+      await Order.updateOne(
+        { orderId: order.orderId, metaPurchaseSent: { $ne: true } },
+        { $set: { metaPurchaseSent: true } }
+      );
+    } else {
+      logger.warn(
+        `[META CAPI] Purchase event for order ${order.orderId} was not delivered; leaving it eligible for retry.`
+      );
+    }
 
     return result.success;
   } catch (err) {

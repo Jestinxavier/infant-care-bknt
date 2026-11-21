@@ -240,7 +240,10 @@ const formatCartResponse = (
         product?.title ||
         (isUnavailable ? item.skuSnapshot || "Item no longer available" : ""),
       imageSnapshot: item.imageSnapshot || extractImageUrl(product?.images?.[0]),
+      // skuSnapshot is the selected item/variant SKU and is used as the Meta
+      // tracking ID across all events. productSku is the parent SKU fallback.
       skuSnapshot: item.skuSnapshot || product?.sku || null,
+      productSku: product?.sku || null,
       attributesSnapshot: resolveAttributeLabels(
         normalizeAttributesSnapshot(
           item.attributesSnapshot

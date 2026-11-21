@@ -73,6 +73,7 @@ describe("formatCartResponse: orphaned / deleted-product items", () => {
             _id: "p1",
             title: "Active Product",
             url_key: "active-product",
+            sku: "BASE-001",
             images: ["https://example.com/a.jpg"],
             product_type: "SIMPLE",
             status: "published",
@@ -81,7 +82,7 @@ describe("formatCartResponse: orphaned / deleted-product items", () => {
           quantity: 1,
           titleSnapshot: "Active Product",
           imageSnapshot: "https://example.com/a.jpg",
-          skuSnapshot: "ACTIVE-001",
+          skuSnapshot: "VARIANT-001",
           selectedGiftSku: null,
         },
       ],
@@ -99,5 +100,8 @@ describe("formatCartResponse: orphaned / deleted-product items", () => {
     expect(item.unavailable).toBe(false);
     expect(item.url_key).toBeUndefined();
     expect(item.product.url_key).toBe("active-product");
+    expect(item.skuSnapshot).toBe("VARIANT-001");
+    // Base SKU is the Meta catalogue ID and must survive alongside variant SKU.
+    expect(item.productSku).toBe("BASE-001");
   });
 });

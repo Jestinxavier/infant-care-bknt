@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const axios = require("axios");
 const {
   hashField,
   normalizeEmail,
@@ -15,6 +16,10 @@ const {
 const Order = require("../../src/models/Order");
 
 describe("Meta Conversions API (CAPI) Service", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe("Normalization and Hashing", () => {
     it("should correctly hash normalized email with SHA-256", () => {
       const email = "  Test.User@Example.COM  ";
@@ -112,28 +117,106 @@ describe("Meta Conversions API (CAPI) Service", () => {
       process.env.META_ACCESS_TOKEN = originalToken;
     });
 
-    it("should skip duplicate trackPurchase calls using atomic check", async () => {
-      // Mock Order.findOneAndUpdate to simulate atomic deduplication
-      const findOneAndUpdateSpy = jest
-        .spyOn(Order, "findOneAndUpdate")
+    it("should use the selected variant SKU in CAPI Purchase content_ids", async () => {
+      const originalToken = process.env.META_ACCESS_TOKEN;
+      process.env.META_ACCESS_TOKEN = "test-token";
+
+      jest.spyOn(Order, "findOne").mockResolvedValue({
+        orderId: "ORD-VARIANT",
+        totalAmount: 999,
+        items: [
+          {
+            productId: "p1",
+            sku: "PARENT-SKU",
+            variantSku: "VARIANT-SKU",
+            quantity: 1,
+            price: 999,
+          },
+        ],
+      });
+      jest
+        .spyOn(Order, "updateOne")
+        .mockResolvedValue({ modifiedCount: 1 });
+      const postSpy = jest
+        .spyOn(axios, "post")
+        .mockResolvedValue({ data: { events_received: 1 } });
+
+      const result = await trackPurchase({
+        order: { orderId: "ORD-VARIANT" },
+      });
+
+      expect(result).toBe(true);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      const body = postSpy.mock.calls[0][1];
+      expect(body.data[0].custom_data.content_ids).toEqual(["VARIANT-SKU"]);
+      expect(body.data[0].custom_data.contents[0].id).toBe("VARIANT-SKU");
+
+      if (originalToken === undefined) {
+        delete process.env.META_ACCESS_TOKEN;
+      } else {
+        process.env.META_ACCESS_TOKEN = originalToken;
+      }
+    });
+
+    it("should skip duplicate trackPurchase calls when the order is already sent", async () => {
+      const originalToken = process.env.META_ACCESS_TOKEN;
+      delete process.env.META_ACCESS_TOKEN;
+
+      const findOneSpy = jest
+        .spyOn(Order, "findOne")
         .mockResolvedValueOnce({
           orderId: "ORD-12345",
           totalAmount: 1299,
           items: [{ productId: "p1", sku: "SKU-1", quantity: 1, price: 1299 }],
           shippingAddress: { fullName: "Test User", email: "test@test.com" },
         })
-        .mockResolvedValueOnce(null); // Second call returns null (already marked metaPurchaseSent)
+        .mockResolvedValueOnce(null); // Already marked metaPurchaseSent
 
-      const firstCall = await trackPurchase({
-        order: { orderId: "ORD-12345" },
-      });
-
+      await trackPurchase({ order: { orderId: "ORD-12345" } });
       const secondCall = await trackPurchase({
         order: { orderId: "ORD-12345" },
       });
 
       expect(secondCall).toBe(false);
-      findOneAndUpdateSpy.mockRestore();
+      expect(findOneSpy).toHaveBeenCalledWith({
+        orderId: "ORD-12345",
+        metaPurchaseSent: { $ne: true },
+      });
+
+      if (originalToken !== undefined) {
+        process.env.META_ACCESS_TOKEN = originalToken;
+      }
+    });
+
+    it("should not mark an order as sent when CAPI delivery fails", async () => {
+      const originalToken = process.env.META_ACCESS_TOKEN;
+      delete process.env.META_ACCESS_TOKEN;
+
+      jest.spyOn(Order, "findOne").mockResolvedValue({
+        orderId: "ORD-999",
+        totalAmount: 500,
+        items: [
+          {
+            productId: "p2",
+            sku: "SKU-2",
+            variantSku: "variant-2",
+            quantity: 1,
+            price: 500,
+          },
+        ],
+      });
+      const updateOneSpy = jest
+        .spyOn(Order, "updateOne")
+        .mockResolvedValue({ modifiedCount: 1 });
+
+      const result = await trackPurchase({ order: { orderId: "ORD-999" } });
+
+      expect(result).toBe(false);
+      expect(updateOneSpy).not.toHaveBeenCalled();
+
+      if (originalToken !== undefined) {
+        process.env.META_ACCESS_TOKEN = originalToken;
+      }
     });
   });
 });
