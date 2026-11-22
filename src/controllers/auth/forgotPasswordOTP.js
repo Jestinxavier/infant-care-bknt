@@ -3,6 +3,7 @@ const PendingUser = require("../../models/PendingUser");
 const logger = require("../../utils/logger");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
 const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../../resources/constants");
+const { maskEmail } = require("../../utils/maskPii");
 
 /**
  * Request OTP for password reset
@@ -58,7 +59,7 @@ const requestPasswordResetOTP = async (req, res) => {
     // Send OTP email
     try {
       await sendOTPEmail({ email: user.email, username: user.username }, otp);
-      logger.info("✅ Password reset OTP sent to:", user.email);
+      logger.info("✅ Password reset OTP sent to:", maskEmail(user.email));
     } catch (emailError) {
       await PendingUser.deleteOne({ _id: pendingOTP._id });
       logger.error("❌ Failed to send password reset OTP:", emailError);

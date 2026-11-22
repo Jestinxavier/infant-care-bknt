@@ -1,5 +1,6 @@
 const authService = require("../../services/service");
 const logger = require("../../utils/logger");
+const { maskEmail } = require("../../utils/maskPii");
 const {
   getAuthCookieName,
   getAuthCookieOptions,
@@ -11,7 +12,7 @@ const {
  */
 const requestOTP = async (req, res) => {
   try {
-    logger.info("📧 Request OTP called for:", req.body?.email);
+    logger.info("📧 Request OTP called for:", maskEmail(req.body?.email));
 
     // Validate email exists
     if (!req.body.email) {
@@ -22,7 +23,7 @@ const requestOTP = async (req, res) => {
     }
 
     const result = await authService.requestOTP(req.body);
-    logger.info("✅ OTP request successful for:", req.body.email);
+    logger.info("✅ OTP request successful for:", maskEmail(req.body.email));
     res.status(200).json(result);
   } catch (err) {
     logger.error("❌ OTP request failed:", err.message);

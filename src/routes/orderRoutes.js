@@ -212,6 +212,10 @@ router.get("/", verifyToken, getOrders);
 
 // GET /api/v1/orders/guest-lookup?orderId=&email=&phone= (rate-limited, no auth)
 // Verifies a single guest order by order number + (email OR phone).
+// POST keeps email/phone/token out of URLs (and so out of access logs).
+router.post("/guest-lookup", guestLookupLimiter, guestOrderLookup);
+// Legacy GET: kept only so storefront builds cached before the POST switch
+// keep working during a deploy. Safe to remove once the new storefront is live.
 router.get("/guest-lookup", guestLookupLimiter, guestOrderLookup);
 
 // GET /api/v1/orders/payment-status/:orderId — public, returns only payment+order status

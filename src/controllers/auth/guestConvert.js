@@ -9,6 +9,7 @@ const {
 } = require("../../utils/authCookieOptions");
 const logger = require("../../utils/logger");
 const toCamelCase = require("../../utils/toCamelCase");
+const { maskEmail } = require("../../utils/maskPii");
 
 /**
  * POST /api/v1/orders/guest-convert
@@ -86,7 +87,7 @@ const guestConvert = async (req, res) => {
     res.cookie(getAuthCookieName(clientType, "access"), accessToken, getAuthCookieOptions());
     res.cookie(getAuthCookieName(clientType, "refresh"), refreshToken, getRefreshCookieOptions());
 
-    logger.info(`✅ Guest converted to account: ${normalizedEmail} (user: ${newUser._id})`);
+    logger.info(`✅ Guest converted to account: ${maskEmail(normalizedEmail)} (user: ${newUser._id})`);
 
     res.status(201).json({
       success: true,

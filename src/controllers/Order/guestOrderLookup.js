@@ -85,16 +85,20 @@ const formatGuestOrder = (order) => {
 };
 
 /**
- * GET /api/v1/orders/guest-lookup?orderId=&email=&phone=
- * GET /api/v1/orders/guest-lookup?token=
+ * POST /api/v1/orders/guest-lookup  body: { orderId, email | phone } or { token }
+ * GET  /api/v1/orders/guest-lookup?... (legacy — same params in the query)
  *
  * Look up a single guest order by order number + (email OR phone), or reopen
  * it with the signed access token issued by an earlier successful lookup.
  * Rate-limited and requires no auth.
+ *
+ * POST is preferred: query strings are written to nginx/proxy access logs,
+ * which would store customers' emails, phones and access tokens.
  */
 const guestOrderLookup = async (req, res) => {
   try {
-    const token = String(req.query.token || "").trim();
+    const input = (req.method === "POST" ? req.body : req.query) || {};
+    const token = String(input.token || "").trim();
     let order;
 
     if (token) {
@@ -124,9 +128,9 @@ const guestOrderLookup = async (req, res) => {
         });
       }
     } else {
-      const orderId = String(req.query.orderId || "").trim();
-      const email = String(req.query.email || "").trim().toLowerCase();
-      const phoneRaw = String(req.query.phone || "").trim();
+      const orderId = String(input.orderId || "").trim();
+      const email = String(input.email || "").trim().toLowerCase();
+      const phoneRaw = String(input.phone || "").trim();
 
       if (!orderId) {
         return res.status(400).json({

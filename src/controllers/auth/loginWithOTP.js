@@ -7,6 +7,7 @@ const {
   generateRefreshToken,
 } = require("../../utils/token");
 const { generateOTP, sendOTPEmail } = require("../../services/emailService");
+const { maskEmail } = require("../../utils/maskPii");
 const {
   ADMIN_ROLES,
   TOKEN_EXPIRY,
@@ -72,7 +73,7 @@ const requestLoginOTP = async (req, res) => {
     // Send OTP email
     try {
       await sendOTPEmail({ email: user.email, username: user.username }, otp);
-      logger.info("✅ Login OTP sent to:", user.email);
+      logger.info("✅ Login OTP sent to:", maskEmail(user.email));
     } catch (emailError) {
       await PendingUser.deleteOne({ _id: pendingOTP._id });
       logger.error("❌ Failed to send login OTP:", emailError);

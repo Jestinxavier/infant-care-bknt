@@ -12,6 +12,7 @@ const {
 } = require("./emailService");
 const { TOKEN_EXPIRY, OTP_EXPIRY_MS } = require("../../resources/constants");
 const toCamelCase = require("../utils/toCamelCase");
+const { maskEmail } = require("../utils/maskPii");
 
 /**
  * Step 1: Request OTP - Only email needed
@@ -61,7 +62,7 @@ exports.requestOTP = async ({ email, username, password }) => {
   // Send OTP email
   try {
     await sendOTPEmail({ email }, otp);
-    logger.info("✅ OTP sent to:", email);
+    logger.info("✅ OTP sent to:", maskEmail(email));
   } catch (emailError) {
     // Delete OTP record if email fails
     await PendingUser.deleteOne({ _id: pendingOTP._id });
@@ -205,7 +206,7 @@ exports.loginUser = async ({ email, password }) => {
   }
 
   // Debug: Log password comparison attempt (don't log actual password)
-  logger.info("🔐 Attempting password comparison for user:", user.email);
+  logger.info("🔐 Attempting password comparison for user:", maskEmail(user.email));
   logger.info("🔐 Password hash exists:", !!user.password);
   logger.info(
     "🔐 Password hash starts with $2:",
@@ -221,7 +222,7 @@ exports.loginUser = async ({ email, password }) => {
     throw new Error("Invalid credentials");
   }
 
-  logger.info("✅ Password verified successfully for user:", normalizedEmail);
+  logger.info("✅ Password verified successfully for user:", maskEmail(normalizedEmail));
 
   // Check if email is verified
   if (!user.isEmailVerified) {

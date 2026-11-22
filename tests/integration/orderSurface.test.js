@@ -218,6 +218,25 @@ describe("Order surface", () => {
     });
     expect(lookedUp.body.order.guestInfo).toBeUndefined();
 
+    // POST body (preferred: keeps email/phone out of URLs and access logs)
+    expect(
+      (
+        await request(app)
+          .post("/api/v1/orders/guest-lookup")
+          .send({ orderId: guestOrder.orderId, email: "wrong@example.com" })
+      ).status,
+    ).toBe(404);
+    const postedLookup = await request(app)
+      .post("/api/v1/orders/guest-lookup")
+      .send({ orderId: guestOrder.orderId, phone: "98765 43210" });
+    expect(postedLookup.status).toBe(200);
+    expect(postedLookup.body.order.orderId).toBe(guestOrder.orderId);
+    const reopened = await request(app)
+      .post("/api/v1/orders/guest-lookup")
+      .send({ token: postedLookup.body.accessToken });
+    expect(reopened.status).toBe(200);
+    expect(reopened.body.order.orderId).toBe(guestOrder.orderId);
+
     expect(
       (await request(app).get("/api/v1/orders/payment-status/missing")).status,
     ).toBe(404);

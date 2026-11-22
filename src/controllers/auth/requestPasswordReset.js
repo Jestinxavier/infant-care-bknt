@@ -2,6 +2,7 @@ const User = require("../../models/user");
 const { sendPasswordResetEmail } = require("../../services/emailService");
 const crypto = require("crypto");
 const logger = require("../../utils/logger");
+const { maskEmail } = require("../../utils/maskPii");
 
 /**
  * Request password reset
@@ -39,7 +40,7 @@ const requestPasswordReset = async (req, res) => {
     // Send reset email
     try {
       await sendPasswordResetEmail(user, resetToken);
-      logger.info("✅ Password reset email sent to:", user.email);
+      logger.info("✅ Password reset email sent to:", maskEmail(user.email));
     } catch (emailError) {
       logger.error("❌ Error sending password reset email:", emailError);
       // Clear the token if email fails
