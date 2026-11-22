@@ -12,6 +12,17 @@ const {
   isCustomerInChat,
 } = require("../../services/socketService");
 const { sendChatReplyEmail } = require("../../services/emailService");
+
+// Groq retires models over time; when it does, every AI reply fails with
+// "model_not_found" and the chat falls back to catalog replies (this is how
+// llama-3.3-70b-versatile broke in Nov 2026). Set GROQ_MODEL in .env to
+// switch models without a code change.
+// Tested 2026-11-22 with the live key and the chat's JSON format:
+//   openai/gpt-oss-120b — 3/3 valid, ~0.6 s (default: largest, best at
+//     following the long system prompt)
+//   qwen/qwen3.8-27b    — 3/3 valid, ~0.2 s (fastest fallback)
+// Avoid reasoning_effort "low" on gpt-oss-120b: it sometimes returns invalid JSON.
+const GROQ_CHAT_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 const {
   ORDER_ID_RE,
   normalizeOrderId,
@@ -502,7 +513,7 @@ Critical rules for "search_for":
     }
 
     const options = {
-      model: "llama-3.3-70b-versatile",
+      model: GROQ_CHAT_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
@@ -1428,7 +1439,7 @@ const suggestReplies = async (req, res) => {
     if (groq) {
       try {
         const response = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
+          model: GROQ_CHAT_MODEL,
           messages: [
             {
               role: "system",
