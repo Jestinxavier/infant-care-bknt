@@ -3,6 +3,8 @@ const { encryptSecret, isEncryptionConfigured } = require("../../utils/secretCry
 const {
   SECRET_NAME,
   checkGroqKey,
+  checkChatModel,
+  checkGroqSetup,
   invalidateAiKey,
   recordAiKeyCheck,
   getEnvKeyCheck,
@@ -82,10 +84,13 @@ const saveAiKey = async (req, res) => {
       return res.status(400).json({ success: false, message: "That doesn't look like an API key." });
     }
 
-    const check = await checkGroqKey(apiKey);
-    if (!check.ok) {
-      return res.status(400).json({ success: false, message: check.message });
+    const keyCheck = await checkGroqKey(apiKey);
+    if (!keyCheck.ok) {
+      return res.status(400).json({ success: false, message: keyCheck.message });
     }
+    // A valid key is saved even if the chat model is unavailable (that's a
+    // server setting, not the key) — but the status shows the real state.
+    const check = await checkChatModel(apiKey);
 
     await IntegrationSecret.findOneAndUpdate(
       { name: SECRET_NAME },
@@ -95,14 +100,14 @@ const saveAiKey = async (req, res) => {
           last4: apiKey.slice(-4),
           updatedById: req.user?.id ?? null,
           updatedByName: req.user?.username || req.user?.email || "",
-          lastCheck: { ok: true, message: check.message, at: new Date() },
+          lastCheck: { ok: check.ok, message: check.message, at: new Date() },
         },
       },
       { upsert: true }
     );
     invalidateAiKey();
-    // Clears the "Chat AI isn't working" bell alert straight away.
-    await recordAiKeyCheck({ ok: true, message: check.message });
+    // Clears (or raises) the "Chat AI isn't working" bell alert straight away.
+    await recordAiKeyCheck({ ok: check.ok, message: check.message });
     logger.info("Chat AI key updated from dashboard", { by: req.user?.email });
     return res.status(200).json({ success: true, ai: await describe() });
   } catch (err) {
@@ -123,7 +128,8 @@ const testAiKey = async (req, res) => {
         ai: await describe(),
       });
     }
-    const result = await checkGroqKey(client.apiKey);
+    // Key and chat model: a valid key with a retired model still breaks the chat.
+    const result = await checkGroqSetup(client.apiKey);
     await recordAiKeyCheck(result);
     return res.status(200).json({ success: true, result, ai: await describe() });
   } catch (err) {

@@ -13,16 +13,6 @@ const {
 } = require("../../services/socketService");
 const { sendChatReplyEmail } = require("../../services/emailService");
 
-// Groq retires models over time; when it does, every AI reply fails with
-// "model_not_found" and the chat falls back to catalog replies (this is how
-// llama-3.3-70b-versatile broke in Nov 2026). Set GROQ_MODEL in .env to
-// switch models without a code change.
-// Tested 2026-11-22 with the live key and the chat's JSON format:
-//   openai/gpt-oss-120b — 3/3 valid, ~0.6 s (default: largest, best at
-//     following the long system prompt)
-//   qwen/qwen3.8-27b    — 3/3 valid, ~0.2 s (fastest fallback)
-// Avoid reasoning_effort "low" on gpt-oss-120b: it sometimes returns invalid JSON.
-const GROQ_CHAT_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 const {
   ORDER_ID_RE,
   normalizeOrderId,
@@ -36,7 +26,9 @@ const Notification = require("../../models/Notification");
 // The AI key can be replaced from the dashboard (Settings > Integrations), so
 // the client is looked up per request rather than created once at startup.
 const {
+  GROQ_CHAT_MODEL,
   getGroqClient,
+  isModelUnavailable,
   recordAiKeyFailure,
   noteAiKeySuccess,
 } = require("../../services/aiKeyService");
@@ -544,6 +536,9 @@ Critical rules for "search_for":
     if (apiErr?.status === 401) {
       const code = apiErr?.error?.error?.code;
       recordAiKeyFailure(code === "expired_api_key" ? "Key rejected: expired" : "Key rejected: invalid");
+    } else if (isModelUnavailable(apiErr)) {
+      // The key is fine but Groq retired the model — a new key won't help.
+      recordAiKeyFailure(`Chat model "${GROQ_CHAT_MODEL}" isn't available (set GROQ_MODEL)`);
     }
     return await getDemoResponse(userMessage);
   }

@@ -32,6 +32,13 @@ jest.mock("groq-sdk", () => {
       this.chat = {
         completions: {
           create: async () => {
+            // Simulates Groq retiring the chat model (key still valid).
+            if (Groq.__modelRetired) {
+              throw Object.assign(new Error("model_not_found"), {
+                status: 404,
+                error: { error: { code: "model_not_found" } },
+              });
+            }
             usedKeys.push(apiKey);
             return {
               choices: [{ message: { content: JSON.stringify({ reply: "Hello from the AI" }) } }],
@@ -42,6 +49,7 @@ jest.mock("groq-sdk", () => {
     }
   }
   Groq.__usedKeys = usedKeys;
+  Groq.__modelRetired = false;
   return Groq;
 });
 const Groq = require("groq-sdk");
@@ -182,5 +190,36 @@ describe("Chat AI key from the dashboard", () => {
     await request(app).put(url).set(auth(superAdmin)).send({ apiKey: GOOD_KEY });
     await new Promise((r) => setTimeout(r, 50));
     expect(await Notification.countDocuments({ type: "system", key: "ai-key" })).toBe(0);
+  });
+  it("Test now and live chats report a retired chat model even though the key works", async () => {
+    const admin = await createVerifiedUser({ role: "admin" });
+    await request(app).put(url).set(auth(superAdmin)).send({ apiKey: GOOD_KEY });
+    Groq.__modelRetired = true;
+    try {
+      // Test now: the key is accepted but the model check fails.
+      const tested = await request(app).post(`${url}/test`).set(auth(superAdmin));
+      expect(tested.status).toBe(200);
+      expect(tested.body.result.ok).toBe(false);
+      expect(tested.body.result.message).toMatch(/chat model .* isn't available/);
+
+      // Saving a valid key still works, but the status shows the model problem.
+      const saved = await request(app).put(url).set(auth(superAdmin)).send({ apiKey: GOOD_KEY });
+      expect(saved.status).toBe(200);
+      expect(saved.body.ai.lastCheck).toMatchObject({ ok: false });
+
+      // Back to working, then a live chat hits the retired model.
+      Groq.__modelRetired = false;
+      await request(app).post(`${url}/test`).set(auth(superAdmin));
+      Groq.__modelRetired = true;
+      await request(app)
+        .post("/api/v1/chat/message")
+        .send({ sessionId: `chat-${Date.now()}`, message: "hello there friend" });
+      await new Promise((r) => setTimeout(r, 50));
+      const status = await request(app).get(`${url}/status`).set(auth(admin));
+      expect(status.body.status).toMatchObject({ ok: false });
+      expect(status.body.status.message).toMatch(/isn't available/);
+    } finally {
+      Groq.__modelRetired = false;
+    }
   });
 });

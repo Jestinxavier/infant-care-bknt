@@ -11,6 +11,20 @@ const logger = require("../utils/logger");
  */
 
 const SECRET_NAME = "groq";
+
+// Groq retires models over time; when it does, every AI reply fails with
+// "model_not_found" and the chat falls back to catalog replies (this is how
+// llama-3.3-70b-versatile broke in Nov 2026). Set GROQ_MODEL in .env to
+// switch models without a code change.
+// Tested 2026-11-22 with the live key and the chat's JSON format:
+//   openai/gpt-oss-120b — 3/3 valid, ~0.6 s (default: largest, best at
+//     following the long system prompt)
+//   qwen/qwen3.8-27b    — 3/3 valid, ~0.2 s (fastest fallback)
+// Avoid reasoning_effort "low" on gpt-oss-120b: it sometimes returns invalid JSON.
+const GROQ_CHAT_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+
+const isModelUnavailable = (err) =>
+  err?.status === 404 || err?.error?.error?.code === "model_not_found";
 const CACHE_MS = 60 * 1000; // re-read the DB at most once a minute
 
 let cached = null; // { key, source, client, at }
@@ -68,6 +82,45 @@ const checkGroqKey = async (key) => {
 };
 
 /**
+ * A valid key isn't enough: the chat also needs its model to exist. Sends a
+ * tiny test message to the chat model (a few tokens).
+ */
+const checkChatModel = async (key) => {
+  try {
+    await new Groq({ apiKey: key }).chat.completions.create({
+      model: GROQ_CHAT_MODEL,
+      messages: [{ role: "user", content: "Reply with the word ok." }],
+      max_tokens: 64,
+    });
+    return { ok: true, message: "Key and chat model working" };
+  } catch (err) {
+    if (isModelUnavailable(err)) {
+      return {
+        ok: false,
+        status: err?.status ?? null,
+        message: `Key works, but the chat model "${GROQ_CHAT_MODEL}" isn't available (set GROQ_MODEL)`,
+      };
+    }
+    // Rate limited: the key and model answered, just busy right now.
+    if (err?.status === 429) {
+      return { ok: true, message: "Key accepted (AI service busy right now)" };
+    }
+    return {
+      ok: false,
+      status: err?.status ?? null,
+      message: `Key works, but a test chat failed (${err?.status || err?.message || "error"})`,
+    };
+  }
+};
+
+/** Full check for "Test now": the key first, then the chat model. */
+const checkGroqSetup = async (key) => {
+  const keyCheck = await checkGroqKey(key);
+  if (!keyCheck.ok) return keyCheck;
+  return checkChatModel(key);
+};
+
+/**
  * Record that the live chat was rejected by the provider, so the dashboard
  * shows it. Only for dashboard-saved keys (env keys have nowhere to show it).
  */
@@ -88,7 +141,8 @@ const syncAiKeyAlert = async (ok, message) => {
     await createSystemAlert({
       key: AI_KEY_ALERT,
       title: "Chat AI isn't working",
-      message: `${message}. Infanta AI is only giving basic catalog replies until the key is replaced.`,
+      // Not always the key: a retired chat model also lands here.
+      message: `${message}. Infanta AI is only giving basic catalog replies until this is fixed.`,
       href: "/site-config",
     });
   }
@@ -127,8 +181,12 @@ const getEnvKeyCheck = () => envKeyCheck;
 
 module.exports = {
   SECRET_NAME,
+  GROQ_CHAT_MODEL,
+  isModelUnavailable,
   getGroqClient,
   checkGroqKey,
+  checkChatModel,
+  checkGroqSetup,
   invalidateAiKey,
   recordAiKeyCheck,
   recordAiKeyFailure,
