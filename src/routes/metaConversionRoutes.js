@@ -9,6 +9,19 @@ const {
 } = require("../services/metaConversionService");
 const logger = require("../utils/logger");
 
+const ALLOWED_EVENT_NAMES = new Set([
+  "PageView",
+  "ViewContent",
+  "Search",
+  "AddToCart",
+  "AddToWishlist",
+  "InitiateCheckout",
+  "AddPaymentInfo",
+  "CompleteRegistration",
+  "Contact",
+  "Lead",
+]);
+
 const metaLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 60, // 60 requests per minute
@@ -35,6 +48,27 @@ router.post("/event", metaLimiter, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "eventName is required",
+      });
+    }
+
+    // This endpoint is public, so only forward standard browser events.
+    // Arbitrary names get stored by Meta as custom events (scanners used this
+    // to inject payloads like "InputData> BCC:…@oastify.com", which Meta then
+    // flagged and blocked). Purchase is sent server-side only, never from here.
+    if (typeof eventName !== "string" || !ALLOWED_EVENT_NAMES.has(eventName)) {
+      return res.status(400).json({
+        success: false,
+        message: "Unsupported eventName",
+      });
+    }
+
+    if (
+      eventId != null &&
+      (typeof eventId !== "string" || eventId.length > 100)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid eventId",
       });
     }
 

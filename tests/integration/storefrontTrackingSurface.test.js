@@ -104,6 +104,20 @@ describe("Storefront tracking surface", () => {
       expect(sendEvent).not.toHaveBeenCalled();
     });
 
+    it.each([
+      "InputData> BCC:abc@oastify.com lcx: k",
+      "Purchase",
+      ["AddToCart"],
+    ])("rejects non-allowlisted event name %p", async (eventName) => {
+      const response = await request(app)
+        .post("/api/v1/meta/event")
+        .send({ eventName });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe("Unsupported eventName");
+      expect(sendEvent).not.toHaveBeenCalled();
+    });
+
     it("queues a normalized Meta event with enriched client data", async () => {
       const response = await request(app)
         .post("/api/v1/meta/event")

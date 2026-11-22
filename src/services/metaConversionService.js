@@ -158,8 +158,16 @@ const buildUserData = ({
   clientUserAgent,
   fbp,
   fbc,
+  externalId,
 }) => {
   const userData = {};
+
+  // Customer ID — must hash the same string the browser pixel hashes
+  // (frontend hashMetaUserData) so both events match the same person.
+  if (externalId) {
+    const hashed = hashField(String(externalId));
+    if (hashed) userData.external_id = [hashed];
+  }
 
   // Email
   const normEmail = normalizeEmail(email);
@@ -265,6 +273,16 @@ const sendEvent = async ({
       `[META CAPI] Skipping event "${eventName}": META_ACCESS_TOKEN is not configured in environment.`
     );
     return { success: false, error: "META_ACCESS_TOKEN_NOT_CONFIGURED" };
+  }
+
+  // Local development never sends live events, even if a token is in .env.
+  // To test locally, set META_TEST_EVENT_CODE (from Events Manager → Test
+  // Events): events then appear only in the Test Events tab, not in reports.
+  if (process.env.NODE_ENV === "development" && !testEventCode) {
+    logger.info(
+      `[META CAPI] Skipping event "${eventName}" in development (set META_TEST_EVENT_CODE to test).`
+    );
+    return { success: false, error: "META_CAPI_DISABLED_IN_DEVELOPMENT" };
   }
 
   const currentTimestamp = Math.floor(Date.now() / 1000);
@@ -401,6 +419,7 @@ const trackPurchase = async ({ order, req, metaContext }) => {
       clientUserAgent,
       fbp,
       fbc,
+      externalId: updatedOrder.userId ? String(updatedOrder.userId) : null,
     });
 
     // Extract items breakdown. variantSku is the selected item SKU; use it
