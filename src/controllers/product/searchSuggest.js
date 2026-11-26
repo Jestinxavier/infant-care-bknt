@@ -11,6 +11,11 @@ const {
   buildSkuPrefixClauses,
   findExactSkuProductIds,
 } = require("../../utils/skuSearch");
+const { buildInStockQuery } = require("../../utils/stockQuery");
+
+// Suggestions hide fully sold-out products, like the /search listing they
+// lead to ("View all"). An exact SKU still shows its product either way.
+const IN_STOCK = buildInStockQuery(true);
 
 const CACHE_TTL_SECONDS = 120;
 const DEFAULT_LIMIT = 6;
@@ -18,7 +23,8 @@ const MAX_LIMIT = 10;
 const MIN_QUERY_LENGTH = 2;
 const SKU_ONLY_MIN_LENGTH = 8;
 
-const CACHE_PREFIX = "search:suggest:v4";
+// v5: sold-out products are now excluded (drops cached v4 results).
+const CACHE_PREFIX = "search:suggest:v5";
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -45,22 +51,23 @@ const toSuggestion = (product, category = null) => {
  */
 const suggestViaMeilisearch = async (normalized, limit) => {
   const index = getProductsIndex();
+  // Over-fetch: sold-out hits are dropped below (the index has no live stock).
   const result = await index.search(normalized, {
-    limit,
+    limit: limit * 3,
     filter: 'status = "published"',
   });
 
-  const hits = result.hits || [];
+  const allHits = result.hits || [];
 
   // Meilisearch owns ranking/typo-tolerance; hydrate authoritative MRP/offer
-  // pricing from Mongo (the index only stores a single, often stale price and
-  // nothing for variant-priced products). Limit ≤ 10 → one tiny $in query.
+  // pricing — and current stock — from Mongo (the index only stores a single,
+  // often stale price and nothing for variant-priced products). One $in query.
   const pricingById = new Map();
-  const ids = hits
+  const ids = allHits
     .map((hit) => hit.id)
     .filter((id) => isValidObjectId(id));
   if (ids.length > 0) {
-    const docs = await Product.find({ _id: { $in: ids } })
+    const docs = await Product.find({ _id: { $in: ids }, ...IN_STOCK })
       .select(
         "price offerPrice offerStartAt offerEndAt pricing variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt"
       )
@@ -69,6 +76,11 @@ const suggestViaMeilisearch = async (normalized, limit) => {
       pricingById.set(String(doc._id), getPricing(doc));
     }
   }
+
+  // Only in-stock products came back from Mongo; keep Meilisearch's order.
+  const hits = allHits
+    .filter((hit) => pricingById.has(String(hit.id)))
+    .slice(0, limit);
 
   const products = hits.map((hit) => {
     const pricing = pricingById.get(String(hit.id)) || {
@@ -255,7 +267,7 @@ const searchSuggest = async (req, res) => {
     if (isSkuLikeTerm(rawQuery) && rawQuery.length >= SKU_ONLY_MIN_LENGTH) {
       const docs = await Product.find({
         status: "published",
-        $or: buildSkuPrefixClauses(rawQuery),
+        $and: [{ $or: buildSkuPrefixClauses(rawQuery) }, IN_STOCK],
       })
         .select(BASE_SELECT)
         .populate("category", "name")
@@ -305,9 +317,12 @@ const searchSuggest = async (req, res) => {
     // ── Phase A: every token must match somewhere ───────────────────
     let docs = await Product.find({
       status: "published",
-      $and: tokenRegexes.map((regex) => ({
-        $or: SEARCHABLE_PATHS.map((path) => ({ [path]: regex })),
-      })),
+      $and: [
+        ...tokenRegexes.map((regex) => ({
+          $or: SEARCHABLE_PATHS.map((path) => ({ [path]: regex })),
+        })),
+        IN_STOCK,
+      ],
     })
       .select(BASE_SELECT)
       .populate("category", "name")
@@ -318,9 +333,14 @@ const searchSuggest = async (req, res) => {
     if (docs.length === 0 && tokens.length > 1) {
       docs = await Product.find({
         status: "published",
-        $or: SEARCHABLE_PATHS.flatMap((path) =>
-          tokenRegexes.map((regex) => ({ [path]: regex }))
-        ),
+        $and: [
+          {
+            $or: SEARCHABLE_PATHS.flatMap((path) =>
+              tokenRegexes.map((regex) => ({ [path]: regex }))
+            ),
+          },
+          IN_STOCK,
+        ],
       })
         .select(BASE_SELECT)
         .populate("category", "name")

@@ -22,6 +22,7 @@ const {
   sanitizeIncomingFilterAttributes,
   getFilterAttributeCardinalityViolations,
 } = require("../../utils/filterAttributes");
+const { buildVariantFilterMatchStage } = require("../../utils/variantFilterMatch");
 const mongoose = require("mongoose");
 const Product = require("./product.model");
 const Review = require("../../models/Review");
@@ -350,17 +351,20 @@ class ProductService {
       }
     }
 
-    // When filtering for out-of-stock only: exclude products that have product-level stock.
-    // Use $expr so the condition is evaluated explicitly. Include only when NOT in stock:
-    // (stockObj.isInStock !== true) AND (stockObj.available <= 0 or missing).
-    if (inStock === false) {
-      matchStage.$expr = {
-        $and: [
-          { $ne: [{ $ifNull: ["$stockObj.isInStock", false] }, true] },
-          { $lte: [{ $ifNull: ["$stockObj.available", 0] }, 0] },
-        ],
-      };
-    }
+    // Out-of-stock only is applied after grouping (see `anyInStock` below): a
+    // product qualifies when none of its matching rows is in stock. It used to
+    // test the product-level stockObj, which defaults to isInStock: true and is
+    // never updated for CONFIGURABLE products — so it hid every one of them,
+    // fully sold-out ones included.
+    const stockFilterApplies = !(isExactSkuSearch && !effectiveFilters.inStockExplicit);
+
+    // Storefront: a size/color filter must match the variant itself, so the
+    // stock check below runs on the chosen size — not on any size of the
+    // product (filterAttributes alone lists a product whose chosen size is
+    // sold out). Admin keeps product-level matching.
+    const variantFilterStage = options.isAdmin
+      ? null
+      : await buildVariantFilterMatchStage(effectiveFilters);
 
     // 2. Aggregation Pipeline
     const pipeline = [
@@ -372,6 +376,7 @@ class ProductService {
           preserveNullAndEmptyArrays: true,
         },
       },
+      ...(variantFilterStage ? [variantFilterStage] : []),
 
       // Lookup category by categoryCode (more efficient than ObjectId lookup)
       {
@@ -529,13 +534,11 @@ class ProductService {
           ]
         : []),
 
-      // Stock Filter - only apply if explicitly requested (inStock is normalized above)
-      ...(isExactSkuSearch && !effectiveFilters.inStockExplicit
-        ? []
-        : inStock === true
+      // Stock Filter (inStock is normalized above). In stock: keep only
+      // in-stock rows, so the product needs a matching variant with stock.
+      // Out of stock is decided per product after the $group.
+      ...(stockFilterApplies && inStock === true
         ? [{ $match: { isInStock: true } }]
-        : inStock === false
-        ? [{ $match: { isInStock: false } }]
         : []),
 
       // Grouping Stage — product-centric: ONE row per product, regardless of type.
@@ -660,8 +663,23 @@ class ProductService {
           // Metadata
           colors: { $addToSet: "$variants.attributes.color" },
           variantSizes: { $addToSet: "$variants.attributes.size" },
+
+          // True when any matching row (variant, or the product itself) is in stock.
+          anyInStock: { $max: "$isInStock" },
+
+          // With a size/color filter, the rows left are the variants that
+          // match it (in stock, unless Out of Stock was chosen): link the card
+          // to the first one so the PDP opens the chosen size, not its default.
+          ...(variantFilterStage
+            ? { matchedVariantUrlKey: { $first: "$variants.url_key" } }
+            : {}),
         },
       },
+
+      // Out of stock only: no matching variant has stock.
+      ...(stockFilterApplies && inStock === false
+        ? [{ $match: { anyInStock: false } }]
+        : []),
 
       // Ensure unique ID for frontend (parent product ID) and derive discount/stock aliases
       {

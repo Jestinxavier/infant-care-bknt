@@ -7,6 +7,7 @@ const { generateFilterConfig } = require("../../utils/generateFilterConfig");
 const {
   FILTER_ATTRIBUTE_KEYS,
   buildFilterAttributesQuery,
+  normalizeFilterArray,
 } = require("../../utils/filterAttributes");
 const { normalizeFilterTokenByKey, deduplicateFilterValues } = require("../../utils/filterAttributeRules");
 const {
@@ -25,6 +26,13 @@ const {
   applySearchIntentFilters,
 } = require("../../utils/searchTerms");
 const { findSearchProductIds } = require("../../services/productSearchService");
+const { buildInStockQuery } = require("../../utils/stockQuery");
+const {
+  getSelectedVariantFilters,
+  getVariantValue,
+  variantMatchesFilters,
+  isVariantInStock,
+} = require("../../utils/variantFilterMatch");
 
 const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const SEARCH_TEXT_FIELDS = [
@@ -35,48 +43,6 @@ const SEARCH_TEXT_FIELDS = [
 
 const normalizeValue = (value) => (value ?? "").toString().trim().toLowerCase();
 
-/**
- * Stock query mirroring the product listing's `isInStock` semantics so facet
- * counts match what the customer actually sees.
- *   inStock=true  → products with sellable stock.
- *   inStock=false → products with none of that (fully out of stock).
- * A CONFIGURABLE product is in stock when any variant has stock; a SIMPLE
- * product when its own stock is positive. `stockObj` (when present) wins over
- * the raw `stock` number, matching product.service.js.
- */
-const buildInStockQuery = (inStock) => {
-  const inStockConditions = [
-    { "variants.stockObj.available": { $gt: 0 } },
-    // As in the listing, the isInStock flag only counts when `available` is
-    // missing: { available: 0, isInStock: true } is out of stock.
-    {
-      variants: {
-        $elemMatch: {
-          "stockObj.isInStock": true,
-          "stockObj.available": { $exists: false },
-        },
-      },
-    },
-    { $and: [{ "variants.stockObj": { $exists: false } }, { "variants.stock": { $gt: 0 } }] },
-    { $and: [{ variants: { $size: 0 } }, { "stockObj.available": { $gt: 0 } }] },
-    {
-      $and: [
-        { variants: { $size: 0 } },
-        { "stockObj.isInStock": true },
-        { "stockObj.available": { $exists: false } },
-      ],
-    },
-    {
-      $and: [
-        { variants: { $size: 0 } },
-        { stockObj: { $exists: false } },
-        { stock: { $gt: 0 } },
-      ],
-    },
-  ];
-
-  return inStock ? { $or: inStockConditions } : { $nor: inStockConditions };
-};
 
 const buildSearchQuery = (searchTerm, { includeFuzzy = false } = {}) => {
   const tokens = tokenizeSearchTerm(searchTerm);
@@ -328,7 +294,25 @@ const getFilters = async (req, res) => {
     const attributeFilters = isExactSkuSearch
       ? parsedFilters
       : applySearchIntentFilters({ ...parsedFilters, search: rawSearchTerm });
-    Object.assign(productFilter, buildFilterAttributesQuery(attributeFilters));
+
+    // Facet counts follow the shopper's other selections: each group is
+    // counted with every selection applied EXCEPT its own (so picking "Blue"
+    // updates the size/material counts, while the Color group still lists the
+    // other colours for multi-select). The shopper's own picks are therefore
+    // applied per group in the loop below, not in the database query. Values
+    // that come only from the search words ("girls" → gender: girl) always
+    // apply, as in the listing, so they stay in the query.
+    const userSelectedKeys = new Set(
+      FILTER_ATTRIBUTE_KEYS.filter(
+        (key) =>
+          Object.prototype.hasOwnProperty.call(parsedFilters, key) &&
+          normalizeFilterArray(parsedFilters[key], key).length > 0
+      )
+    );
+    const searchOnlyAttributeFilters = Object.fromEntries(
+      Object.entries(attributeFilters).filter(([key]) => !userSelectedKeys.has(key))
+    );
+    Object.assign(productFilter, buildFilterAttributesQuery(searchOnlyAttributeFilters));
 
     const effectiveProductFilter = isExactSkuSearch
       ? { ...productFilter, _id: { $in: exactSkuIds } }
@@ -353,12 +337,34 @@ const getFilters = async (req, res) => {
     // Exception, as in the listing: an exact-SKU search shows the product
     // even when sold out unless the shopper explicitly picked a stock filter.
     const inStock = parsedFilters.inStock === "false" ? false : true;
-    if (!(isExactSkuSearch && parsedFilters.inStock === undefined)) {
+    const applyStockScope = !(isExactSkuSearch && parsedFilters.inStock === undefined);
+    if (applyStockScope) {
       effectiveProductFilter.$and = [
         ...(effectiveProductFilter.$and || []),
-        buildInStockQuery(inStock),
+        // Out of stock: configurable products are judged per matching variant
+        // below (as the listing does), not as "every variant sold out".
+        inStock
+          ? buildInStockQuery(true)
+          : { $or: [{ product_type: "CONFIGURABLE" }, buildInStockQuery(false)] },
       ];
     }
+    // Every selection (shopper's picks + search words), for variant matching.
+    const selectedVariantFilters = getSelectedVariantFilters(attributeFilters);
+    // The shopper's own picks — the ones a group leaves out when counting itself.
+    const userKeys = Object.keys(selectedVariantFilters).filter((key) =>
+      userSelectedKeys.has(key)
+    );
+    // Product-level match (filterAttributes), as the listing's query does.
+    const productHasSelected = (attrs, key) => {
+      const values = Array.isArray(attrs[key]) ? attrs[key] : [attrs[key]];
+      return values.some(
+        (value) =>
+          value != null &&
+          selectedVariantFilters[key].has(normalizeFilterTokenByKey(key, value))
+      );
+    };
+    const productMatchesExcept = (attrs, exceptKey) =>
+      userKeys.every((key) => key === exceptKey || productHasSelected(attrs, key));
 
     // Get all products for this category/search (for filter generation).
     // Only the fields the facet builder reads are projected — the previous
@@ -367,7 +373,7 @@ const getFilters = async (req, res) => {
     // request, which is very expensive for broad categories.
     const products = await Product.find(effectiveProductFilter)
       .select(
-        "filterAttributes variantOptions variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt variants.stock variants.stockObj stock stockObj price offerPrice offerStartAt offerEndAt category subCategories"
+        "product_type filterAttributes variantOptions variants.price variants.offerPrice variants.offerStartAt variants.offerEndAt variants.stock variants.stockObj variants.attributes variants.options stock stockObj price offerPrice offerStartAt offerEndAt category subCategories"
       )
       .lean();
 
@@ -396,16 +402,115 @@ const getFilters = async (req, res) => {
     // tolerance (catalogue unavailable → don't hide anything).
     const catalogMap = await loadAttributeCatalogMap();
 
+    // Effective price exactly as the listing computes it: a live offer price,
+    // else the regular price (variant-level for configurable products).
+    const now = new Date();
+    const effectivePriceOf = (item) => {
+      const offer = item.offerPrice;
+      const offerValid =
+        offer > 0 &&
+        (!item.offerStartAt || new Date(item.offerStartAt) <= now) &&
+        (!item.offerEndAt || new Date(item.offerEndAt) >= now);
+      return offerValid ? offer : item.price || 0;
+    };
+    // The listing ignores a 0/empty bound (truthy check), so do the same.
+    const minPrice = parsedFilters.minPrice ? Number(parsedFilters.minPrice) : null;
+    const maxPrice = parsedFilters.maxPrice ? Number(parsedFilters.maxPrice) : null;
+    const priceInRange = (item) => {
+      const price = effectivePriceOf(item);
+      return (minPrice === null || price >= minPrice) && (maxPrice === null || price <= maxPrice);
+    };
+
+    // In stock: a matching variant has stock. Out of stock: matching variants
+    // exist and none has stock. No stock scope: any match. (Same as the
+    // listing's row filter / `anyInStock` check.)
+    const eligibleOf = (variants) =>
+      !applyStockScope
+        ? variants
+        : inStock
+          ? variants.filter(isVariantInStock)
+          : variants.some(isVariantInStock)
+            ? []
+            : variants;
+
     for (const product of products) {
       const productFilterAttributes =
         product.filterAttributes && typeof product.filterAttributes === "object"
           ? product.filterAttributes
           : {};
 
-      FILTER_ATTRIBUTE_KEYS.forEach((key) => {
-        const values = Array.isArray(productFilterAttributes[key])
+      // Configurable products are judged per variant, as in the listing: the
+      // product only counts if a variant matching the selected size/color
+      // (and the price range) is in the stock scope.
+      const isConfigurable =
+        String(product.product_type || "").toUpperCase() === "CONFIGURABLE" &&
+        Array.isArray(product.variants) &&
+        product.variants.length > 0;
+      const variantsMatching = (exceptKey) =>
+        product.variants.filter((variant) =>
+          variantMatchesFilters(variant, selectedVariantFilters, exceptKey)
+        );
+
+      // Price slider bounds: everything ALL the other filters allow, but NOT
+      // the chosen price range itself — otherwise the slider shrinks to the
+      // selection and the shopper can't widen it again.
+      if (productMatchesExcept(productFilterAttributes, null)) {
+        const pricedItems = isConfigurable
+          ? eligibleOf(variantsMatching(null))
+          : product.variants?.length
+            ? product.variants
+            : [product];
+        pricedItems.forEach((item) => {
+          const price = effectivePriceOf(item);
+          if (price > 0) prices.push(price);
+        });
+      }
+
+      // The values this product adds to one group: what the listing would show
+      // with every selection applied except the group's own (the price range
+      // always applies, as it narrows the listing).
+      const valuesForKey = (key) => {
+        if (!productMatchesExcept(productFilterAttributes, key)) return [];
+        // Only the shopper's own pick is left out; search words still apply.
+        const exceptKey = userSelectedKeys.has(key) ? key : null;
+
+        if (!isConfigurable) {
+          if (!priceInRange(product)) return [];
+          return Array.isArray(productFilterAttributes[key])
+            ? productFilterAttributes[key]
+            : [];
+        }
+
+        const candidates = variantsMatching(exceptKey).filter(priceInRange);
+
+        // A key the variants carry (size, color, ...): a value counts when
+        // picking it would list the product — i.e. its matching variants are
+        // in the stock scope (in stock: one has stock; out of stock: none
+        // does). So a sold-out size isn't counted under "In Stock".
+        if (product.variants.some((variant) => getVariantValue(variant, key) !== undefined)) {
+          const byValue = new Map();
+          candidates.forEach((variant) => {
+            const raw = getVariantValue(variant, key);
+            const normalized = raw === undefined ? "" : normalizeFilterTokenByKey(key, raw);
+            if (!normalized) return;
+            if (!byValue.has(normalized)) byValue.set(normalized, []);
+            byValue.get(normalized).push(variant);
+          });
+          return [...byValue]
+            .filter(([, group]) => eligibleOf(group).length > 0)
+            .map(([value]) => value);
+        }
+
+        // Product-level key (material, season, ...): the product's own values,
+        // if it's listed under the other selections.
+        if (eligibleOf(candidates).length === 0) return [];
+        return Array.isArray(productFilterAttributes[key])
           ? productFilterAttributes[key]
           : [];
+      };
+
+      FILTER_ATTRIBUTE_KEYS.forEach((key) => {
+        const values = valuesForKey(key);
         const attributeDef = catalogMap.get(key);
         values.forEach((value) => {
           if (!value) return;
@@ -438,34 +543,6 @@ const getFilters = async (req, res) => {
         });
       });
 
-      if (!product.variants || product.variants.length === 0) {
-        const parentPrice = product.price || 0;
-        const parentOfferPrice = product.offerPrice;
-        const now = new Date();
-        const offerValid =
-          parentOfferPrice > 0 &&
-          (!product.offerStartAt || new Date(product.offerStartAt) <= now) &&
-          (!product.offerEndAt || new Date(product.offerEndAt) >= now);
-        const effectivePrice = offerValid ? parentOfferPrice : parentPrice;
-        if (effectivePrice > 0) {
-          prices.push(effectivePrice);
-        }
-        continue;
-      }
-
-      for (const variant of product.variants) {
-        const variantPrice = variant.price || 0;
-        const variantOfferPrice = variant.offerPrice;
-        const now = new Date();
-        const offerValid =
-          variantOfferPrice > 0 &&
-          (!variant.offerStartAt || new Date(variant.offerStartAt) <= now) &&
-          (!variant.offerEndAt || new Date(variant.offerEndAt) >= now);
-        const effectivePrice = offerValid ? variantOfferPrice : variantPrice;
-        if (effectivePrice > 0) {
-          prices.push(effectivePrice);
-        }
-      }
     }
 
     // Generate raw filter data — deduplicate by normalized slug with counts
@@ -588,7 +665,12 @@ const getFilters = async (req, res) => {
     // sense on the "all products" listing. On a specific category page (slug
     // or ?category= present) it is redundant (navigation lives in the nav /
     // breadcrumb) and previously listed every category with none selected.
-    if (relevantParents.length > 0 && selectedCategoryCodes.length === 0) {
+    // A category page asks with the category in the path (/filter/:slug);
+    // the all-products/search listing asks /filter/all, where a ?category=
+    // is the shopper's own facet pick — the group must stay so they can add
+    // or remove categories.
+    const isCategoryPage = Boolean(slug && slug !== "all");
+    if (relevantParents.length > 0 && !isCategoryPage) {
       rawFilters.categories = relevantParents.map(cat => ({
         value: cat.code,
         label: cat.name

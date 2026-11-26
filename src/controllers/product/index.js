@@ -13,8 +13,10 @@ const checkStock = require("./checkStock");
 const { getPriceAndStock } = require("./getPriceAndStock");
 const getRecommendations = require("./getRecommendations");
 const searchSuggest = require("./searchSuggest");
+const getRecentlyViewed = require("./getRecentlyViewed");
 
 module.exports = {
+  getRecentlyViewed,
   createProduct,
   updateProduct,
   deleteProduct,

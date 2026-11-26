@@ -1,8 +1,17 @@
 const Homepage = require("../../models/Homepage");
 const logger = require("../../utils/logger");
 const { cacheGet, cacheSet } = require("../../utils/redisCache");
+const { buildInStockQuery } = require("../../utils/stockQuery");
 
 const CACHE_KEY = "homepage";
+// Hand-picked products are stock-checked when the response is built, and the
+// cache is only cleared on CMS edits — so keep it short, or a product that
+// sells out stays on the homepage for the whole cache lifetime (was 1 hour).
+const CACHE_TTL_SECONDS = 5 * 60;
+
+// Widgets whose `content` is a hand-picked product list. (Category-backed
+// ones fetch from the listing, which already hides sold-out products.)
+const PRODUCT_LIST_BLOCKS = new Set(["productSlider", "editorPicks"]);
 
 /**
  * Get homepage data from MongoDB
@@ -25,9 +34,10 @@ const getHomepage = async (req, res) => {
 
     const mongoose = require("mongoose");
 
-    // Filter out-of-stock products from productSlider widgets
+    // Filter out-of-stock (and unpublished) products from hand-picked product
+    // widgets: product sliders and editor's picks.
     const productSliderWidgets = homepageData.filter(
-      (w) => w.block_type === "productSlider" && Array.isArray(w.content)
+      (w) => PRODUCT_LIST_BLOCKS.has(w.block_type) && Array.isArray(w.content)
     );
 
     if (productSliderWidgets.length > 0) {
@@ -45,23 +55,19 @@ const getHomepage = async (req, res) => {
 
       if (productIds.length > 0) {
         const Product = require("../../models/Product");
+        // Same stock rule as the listing (shared with the filter counts and
+        // search suggestions). The old inline query read the product-level
+        // stockObj first, which configurable products never keep up to date.
         const inStockProducts = await Product.find({
           _id: { $in: productIds },
           status: "published",
-          $or: [
-            { "stockObj.available": { $gt: 0 } },
-            { "stockObj.available": { $exists: false }, "stockObj.isInStock": true },
-            { "stockObj": { $exists: false }, "stock": { $gt: 0 } },
-            { "variants.stockObj.available": { $gt: 0 } },
-            { "variants.stockObj.available": { $exists: false }, "variants.stockObj.isInStock": true },
-            { "variants.stockObj": { $exists: false }, "variants.stock": { $gt: 0 } }
-          ],
+          ...buildInStockQuery(true),
         }).select("_id");
 
         const inStockSet = new Set(inStockProducts.map((p) => p._id.toString()));
 
         homepageData.forEach((widget) => {
-          if (widget.block_type === "productSlider" && Array.isArray(widget.content)) {
+          if (PRODUCT_LIST_BLOCKS.has(widget.block_type) && Array.isArray(widget.content)) {
             widget.content = widget.content.filter((item) => {
               if (!item) return false;
               const id = item._id || item.id || item.productId;
@@ -87,7 +93,7 @@ const getHomepage = async (req, res) => {
       count: homepageData.length,
     };
 
-    await cacheSet(CACHE_KEY, response);
+    await cacheSet(CACHE_KEY, response, CACHE_TTL_SECONDS);
 
     res.status(200).json(response);
   } catch (err) {

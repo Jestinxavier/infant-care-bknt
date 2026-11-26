@@ -20,6 +20,7 @@ const {
   getPriceAndStock,
   getRecommendations,
   searchSuggest,
+  getRecentlyViewed,
 } = require("../controllers/product");
 const productService = require("../features/product/product.service");
 const verifyToken = require("../middlewares/authMiddleware");
@@ -150,6 +151,36 @@ router.get("/search/suggest", searchSuggest);
  *         description: Stock check completed
  */
 router.post("/check-stock", checkStock);
+
+/**
+ * @swagger
+ * /api/v1/product/recently-viewed:
+ *   post:
+ *     summary: Current details for the shopper's saved "Recently Viewed" products
+ *     description: Returns live price, stock, link and image for each published product (max 20), in the order sent. Deleted or unpublished products are left out so the storefront can drop them.
+ *     tags: [Products]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     productId:
+ *                       type: string
+ *                     url_key:
+ *                       type: string
+ *                       description: The variant that was viewed (optional)
+ *     responses:
+ *       200:
+ *         description: Current details for products that still exist
+ */
+router.post("/recently-viewed", getRecentlyViewed);
 
 /**
  * @swagger
